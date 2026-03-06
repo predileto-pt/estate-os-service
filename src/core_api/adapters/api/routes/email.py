@@ -1,0 +1,23 @@
+from fastapi import APIRouter, Depends, Request
+
+from core_api.adapters.api.dependencies import get_supabase_user_id
+from core_api.adapters.api.schemas import SendEmailRequest
+
+router = APIRouter(prefix="/email", tags=["email"])
+
+
+@router.post("/send")
+async def send_email(
+    body: SendEmailRequest,
+    request: Request,
+    _: str = Depends(get_supabase_user_id),
+):
+    email_service = request.app.state.container.email_service
+
+    await email_service.send(
+        to=body.to,
+        subject=body.subject,
+        html=body.html,
+        from_email=body.from_email,
+    )
+    return {"status": "sent"}
