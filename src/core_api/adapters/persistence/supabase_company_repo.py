@@ -4,7 +4,6 @@ from supabase import AsyncClient
 
 from core_api.application.ports.repositories.company_repository import CompanyRepository
 from core_api.domain.models.company import Company
-from core_api.domain.models.value_objects import Address
 
 
 class SupabaseCompanyRepository(CompanyRepository):
@@ -14,17 +13,10 @@ class SupabaseCompanyRepository(CompanyRepository):
     def _to_domain(self, row: dict) -> Company:
         return Company(
             id=UUID(row["id"]),
+            user_id=UUID(row["user_id"]),
             name=row["name"],
-            tax_id_number=row["tax_id_number"],
-            address=Address(
-                street=row.get("address_street", ""),
-                parish=row.get("address_parish"),
-                municipality=row.get("address_municipality"),
-                district=row.get("address_district"),
-                postal_code=row.get("address_postal_code"),
-                country=row.get("address_country", "PT"),
-            ),
-            stripe_customer_id=row.get("stripe_customer_id"),
+            nif=row["nif"],
+            address=row["address"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -32,15 +24,10 @@ class SupabaseCompanyRepository(CompanyRepository):
     def _to_row(self, company: Company) -> dict:
         return {
             "id": str(company.id),
+            "user_id": str(company.user_id),
             "name": company.name,
-            "tax_id_number": company.tax_id_number,
-            "address_street": company.address.street,
-            "address_parish": company.address.parish,
-            "address_municipality": company.address.municipality,
-            "address_district": company.address.district,
-            "address_postal_code": company.address.postal_code,
-            "address_country": company.address.country,
-            "stripe_customer_id": company.stripe_customer_id,
+            "nif": company.nif,
+            "address": company.address,
         }
 
     async def get_by_id(self, company_id: UUID) -> Company | None:

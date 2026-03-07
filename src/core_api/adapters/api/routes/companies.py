@@ -6,7 +6,6 @@ from core_api.adapters.api.dependencies import get_supabase_user_id
 from core_api.adapters.api.routes.auth import _company_response
 from core_api.adapters.api.schemas import CompanyResponse, UpdateCompanyRequest
 from core_api.domain.exceptions import AuthorizationError, CompanyNotFoundError, UserNotFoundError
-from core_api.domain.models.value_objects import Address
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
@@ -50,24 +49,13 @@ async def update_company(
     except UserNotFoundError:
         raise HTTPException(status_code=404, detail="User not found")
 
-    address = None
-    if body.address_country is not None:
-        address = Address(
-            street=body.address_street or "",
-            parish=body.address_parish,
-            municipality=body.address_municipality,
-            district=body.address_district,
-            postal_code=body.address_postal_code,
-            country=body.address_country,
-        )
-
     try:
         company = await update_company_uc.execute(
             company_id=company_id,
             requesting_user_company_id=user.company_id,
             name=body.name,
-            tax_id_number=body.tax_id_number,
-            address=address,
+            nif=body.nif,
+            address=body.address,
         )
     except AuthorizationError:
         raise HTTPException(status_code=403, detail="Not authorized")

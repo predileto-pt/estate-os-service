@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import structlog
 
@@ -17,7 +17,7 @@ from core_api.domain.models.subscription import (
     SubscriptionType,
 )
 from core_api.domain.models.user import User
-from core_api.domain.models.value_objects import Address, PhoneNumber
+from core_api.domain.models.value_objects import PhoneNumber
 
 log = structlog.get_logger()
 
@@ -42,8 +42,8 @@ class RegisterUser:
         email: str,
         name: str,
         company_name: str,
-        tax_id_number: str,
-        address: Address,
+        nif: str,
+        address: str,
         phone: PhoneNumber | None = None,
         google_metadata: dict | None = None,
     ) -> User:
@@ -55,10 +55,10 @@ class RegisterUser:
 
         company = Company(
             id=uuid4(),
+            user_id=UUID(supabase_user_id),
             name=company_name,
-            tax_id_number=tax_id_number,
+            nif=nif,
             address=address,
-            stripe_customer_id=None,
             created_at=now,
             updated_at=now,
         )

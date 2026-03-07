@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     aws_secret_access_key: str = ""
     sqs_queue_url: str = ""
 
+    # Database (direct PostgreSQL for Alembic migrations)
+    database_url: str = ""
+
     # CORS
     cors_origins: str = "http://localhost:3000,http://localhost:3001"
 

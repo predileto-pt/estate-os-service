@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from core_api.adapters.api.dependencies import get_supabase_user_id
 from core_api.adapters.api.schemas import RegisterRequest, UserResponse, UserWithCompanyResponse
 from core_api.domain.exceptions import UserAlreadyExistsError, UserNotFoundError
-from core_api.domain.models.value_objects import Address, PhoneNumber
+from core_api.domain.models.value_objects import PhoneNumber
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -30,17 +30,10 @@ def _company_response(company) -> dict | None:
         return None
     return {
         "id": company.id,
+        "user_id": company.user_id,
         "name": company.name,
-        "tax_id_number": company.tax_id_number,
-        "address": {
-            "street": company.address.street,
-            "parish": company.address.parish,
-            "municipality": company.address.municipality,
-            "district": company.address.district,
-            "postal_code": company.address.postal_code,
-            "country": company.address.country,
-        },
-        "stripe_customer_id": company.stripe_customer_id,
+        "nif": company.nif,
+        "address": company.address,
         "created_at": company.created_at,
         "updated_at": company.updated_at,
     }
@@ -54,15 +47,6 @@ async def register(body: RegisterRequest, request: Request):
     if body.phone_country_code and body.phone_number:
         phone = PhoneNumber(country_code=body.phone_country_code, number=body.phone_number)
 
-    address = Address(
-        street=body.address_street,
-        parish=body.address_parish,
-        municipality=body.address_municipality,
-        district=body.address_district,
-        postal_code=body.address_postal_code,
-        country=body.address_country,
-    )
-
     supabase_user_id = getattr(request.state, "supabase_user_id", None)
     if not supabase_user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -73,8 +57,8 @@ async def register(body: RegisterRequest, request: Request):
             email=body.email,
             name=body.name,
             company_name=body.company_name,
-            tax_id_number=body.tax_id_number,
-            address=address,
+            nif=body.nif,
+            address=body.address,
             phone=phone,
         )
     except UserAlreadyExistsError:

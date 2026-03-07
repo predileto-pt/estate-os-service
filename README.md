@@ -15,8 +15,8 @@ Centralized backend service for the Predileto platform, handling user/company ma
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
-- [Supabase CLI](https://supabase.com/docs/guides/cli) (requires Node 22.17.0 — see `.nvmrc`)
 - [Docker](https://www.docker.com/) (for LocalStack)
+- PostgreSQL (Supabase-hosted or local)
 
 ## Setup
 
@@ -37,48 +37,54 @@ Edit `.env` with your values:
 | Variable | Description |
 |----------|-------------|
 | `SUPABASE_URL` | Supabase API URL (default: `http://127.0.0.1:54321`) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (from `supabase status`) |
-| `SUPABASE_JWT_SECRET` | JWT secret for token verification (from `supabase status`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
+| `SUPABASE_JWT_SECRET` | JWT secret for token verification |
+| `DATABASE_URL` | PostgreSQL connection for Alembic (`postgresql+asyncpg://...`) |
 | `RESEND_API_KEY` | [Resend](https://resend.com) API key |
 | `AWS_ENDPOINT_URL` | LocalStack endpoint (default: `http://localhost:4566`) |
 | `SQS_QUEUE_URL` | SQS queue URL for domain events |
 | `CORS_ORIGINS` | Comma-separated allowed origins |
 
-### 3. Start Supabase (local)
+### 3. Run database migrations
 
 ```bash
-supabase start
+uv run alembic upgrade head
 ```
 
-This runs the local Supabase stack (Postgres, Auth, Studio). Get your keys with:
+Other useful Alembic commands:
 
 ```bash
-supabase status
+# Check current migration status
+uv run alembic current
+
+# View migration history
+uv run alembic history
+
+# Create a new migration after editing SQLAlchemy models
+uv run alembic revision --autogenerate -m "description"
+
+# Rollback one migration
+uv run alembic downgrade -1
+
+# Stamp an existing database as up-to-date (no DDL)
+uv run alembic stamp head
 ```
 
-Copy the `JWT secret` and `service_role key` into your `.env`.
+Schema is defined in SQLAlchemy models at `src/core_api/adapters/database/models.py`.
 
-### 4. Run database migrations
+**Adopting on an existing database:** If the database already has the schema (e.g. production), stamp it as current without executing any DDL:
 
 ```bash
-supabase db reset
+DATABASE_URL=postgresql+asyncpg://... uv run alembic stamp head
 ```
 
-This applies all migrations under `supabase/migrations/`:
-
-- `20260306000000` — bookings (agendamentos) table
-- `20260306100000` — companies table
-- `20260306100001` — users table
-- `20260306100002` — subscriptions table (with plan/type/status enums)
-- `20260306100003` — notifications table (with index on user_id + status)
-
-### 5. Start LocalStack (for SQS/S3)
+### 4. Start LocalStack (for SQS/S3)
 
 ```bash
 docker compose up -d
 ```
 
-### 6. Run the server
+### 5. Run the server
 
 ```bash
 uv run uvicorn core_api.main:app --reload --port 8000
@@ -161,6 +167,7 @@ src/core_api/
 │   └── use_cases/    # Business logic orchestration
 ├── adapters/
 │   ├── api/          # Inbound: FastAPI routes, schemas, middleware
+│   ├── database/     # SQLAlchemy models and async engine (schema source of truth)
 │   ├── persistence/  # Outbound: Supabase repository implementations
 │   ├── email/        # Outbound: Resend email service
 │   ├── queue/        # Outbound: SQS event bus

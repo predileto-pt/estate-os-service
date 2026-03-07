@@ -10,7 +10,7 @@ from core_api.domain.models.subscription import (
     SubscriptionType,
 )
 from core_api.domain.models.user import User
-from core_api.domain.models.value_objects import Address, PhoneNumber
+from core_api.domain.models.value_objects import PhoneNumber
 
 
 class TestUser:
@@ -51,22 +51,15 @@ class TestCompany:
         now = datetime.now(timezone.utc)
         company = Company(
             id=uuid4(),
+            user_id=uuid4(),
             name="Test Agency",
-            tax_id_number="123456789",
-            address=Address(
-                street="Rua Augusta 1",
-                parish="Santa Maria Maior",
-                municipality="Lisboa",
-                district="Lisboa",
-                postal_code="1100-048",
-                country="PT",
-            ),
-            stripe_customer_id=None,
+            nif="123456789",
+            address="Rua Augusta 1, Lisboa, PT",
             created_at=now,
             updated_at=now,
         )
         assert company.name == "Test Agency"
-        assert company.address.country == "PT"
+        assert company.nif == "123456789"
 
 
 class TestSubscription:

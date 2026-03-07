@@ -12,7 +12,7 @@ from core_api.container import Container
 from core_api.main import create_app
 
 TEST_JWT_SECRET = "test-jwt-secret-for-testing-only"
-TEST_SUPABASE_USER_ID = "test-supabase-user-123"
+TEST_SUPABASE_USER_ID = "00000000-0000-0000-0000-000000000001"
 
 
 def make_test_token(sub: str = TEST_SUPABASE_USER_ID) -> str:

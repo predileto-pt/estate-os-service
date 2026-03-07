@@ -9,13 +9,8 @@ class RegisterRequest(BaseModel):
     name: str
     email: str
     company_name: str
-    tax_id_number: str
-    address_street: str
-    address_parish: str | None = None
-    address_municipality: str | None = None
-    address_district: str | None = None
-    address_postal_code: str | None = None
-    address_country: str = "PT"
+    nif: str
+    address: str
     phone_country_code: str | None = None
     phone_number: str | None = None
 
@@ -46,30 +41,16 @@ class UserResponse(BaseModel):
 # --- Company ---
 class UpdateCompanyRequest(BaseModel):
     name: str | None = None
-    tax_id_number: str | None = None
-    address_street: str | None = None
-    address_parish: str | None = None
-    address_municipality: str | None = None
-    address_district: str | None = None
-    address_postal_code: str | None = None
-    address_country: str | None = None
-
-
-class AddressResponse(BaseModel):
-    street: str
-    parish: str | None
-    municipality: str | None
-    district: str | None
-    postal_code: str | None
-    country: str
+    nif: str | None = None
+    address: str | None = None
 
 
 class CompanyResponse(BaseModel):
     id: UUID
+    user_id: UUID
     name: str
-    tax_id_number: str
-    address: AddressResponse
-    stripe_customer_id: str | None
+    nif: str
+    address: str
     created_at: datetime
     updated_at: datetime
 

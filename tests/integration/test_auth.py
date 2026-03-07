@@ -1,6 +1,6 @@
 import pytest
 
-from tests.conftest import TEST_SUPABASE_USER_ID, make_test_token
+from tests.conftest import TEST_SUPABASE_USER_ID
 
 
 @pytest.mark.asyncio
@@ -11,9 +11,8 @@ async def test_register(client, auth_headers):
             "name": "João Silva",
             "email": "joao@agency.pt",
             "company_name": "Imobiliária Silva",
-            "tax_id_number": "123456789",
-            "address_street": "Rua Augusta 1",
-            "address_country": "PT",
+            "nif": "123456789",
+            "address": "Rua Augusta 1, PT",
             "phone_country_code": "+351",
             "phone_number": "912345678",
         },
@@ -33,9 +32,8 @@ async def test_register_duplicate(client, auth_headers):
         "name": "João Silva",
         "email": "joao@agency.pt",
         "company_name": "Imobiliária Silva",
-        "tax_id_number": "123456789",
-        "address_street": "Rua Augusta 1",
-        "address_country": "PT",
+        "nif": "123456789",
+        "address": "Rua Augusta 1, PT",
     }
     await client.post("/api/v1/auth/register", json=payload, headers=auth_headers)
     response = await client.post("/api/v1/auth/register", json=payload, headers=auth_headers)
@@ -51,9 +49,8 @@ async def test_get_me(client, auth_headers):
             "name": "João Silva",
             "email": "joao@agency.pt",
             "company_name": "Imobiliária Silva",
-            "tax_id_number": "123456789",
-            "address_street": "Rua Augusta 1",
-            "address_country": "PT",
+            "nif": "123456789",
+            "address": "Rua Augusta 1, PT",
         },
         headers=auth_headers,
     )

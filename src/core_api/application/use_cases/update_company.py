@@ -4,7 +4,6 @@ from uuid import UUID
 from core_api.application.ports.repositories.company_repository import CompanyRepository
 from core_api.domain.exceptions import AuthorizationError, CompanyNotFoundError
 from core_api.domain.models.company import Company
-from core_api.domain.models.value_objects import Address
 
 
 class UpdateCompany:
@@ -17,8 +16,8 @@ class UpdateCompany:
         company_id: UUID,
         requesting_user_company_id: UUID,
         name: str | None = None,
-        tax_id_number: str | None = None,
-        address: Address | None = None,
+        nif: str | None = None,
+        address: str | None = None,
     ) -> Company:
         if company_id != requesting_user_company_id:
             raise AuthorizationError("Cannot update another company")
@@ -29,8 +28,8 @@ class UpdateCompany:
 
         if name is not None:
             company.name = name
-        if tax_id_number is not None:
-            company.tax_id_number = tax_id_number
+        if nif is not None:
+            company.nif = nif
         if address is not None:
             company.address = address
         company.updated_at = datetime.now(timezone.utc)
