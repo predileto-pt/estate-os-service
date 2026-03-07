@@ -6,7 +6,13 @@ from core_api.adapters.api.schemas import SendEmailRequest
 router = APIRouter(prefix="/email", tags=["email"])
 
 
-@router.post("/send")
+@router.post(
+    "/send",
+    summary="Send email",
+    responses={
+        401: {"description": "Not authenticated"},
+    },
+)
 async def send_email(
     body: SendEmailRequest,
     request: Request,

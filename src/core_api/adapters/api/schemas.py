@@ -1,7 +1,10 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from core_api.domain.models.notification import NotificationStatus
+from core_api.domain.models.subscription import SubscriptionPlan, SubscriptionStatus, SubscriptionType
 
 
 # --- Auth ---
@@ -9,16 +12,16 @@ class RegisterRequest(BaseModel):
     name: str
     email: str
     company_name: str
-    nif: str
-    address: str
-    phone_country_code: str | None = None
+    nif: str = Field(description="Tax identification number (NIF)")
+    address: str = Field(description="Company address")
+    phone_country_code: str | None = Field(default=None, description="E.g. +351")
     phone_number: str | None = None
 
 
 # --- User ---
 class UpdateUserRequest(BaseModel):
     name: str | None = None
-    phone_country_code: str | None = None
+    phone_country_code: str | None = Field(default=None, description="E.g. +351")
     phone_number: str | None = None
 
 
@@ -41,7 +44,7 @@ class UserResponse(BaseModel):
 # --- Company ---
 class UpdateCompanyRequest(BaseModel):
     name: str | None = None
-    nif: str | None = None
+    nif: str | None = Field(default=None, description="Tax identification number (NIF)")
     address: str | None = None
 
 
@@ -57,9 +60,9 @@ class CompanyResponse(BaseModel):
 
 # --- Subscription ---
 class CreateSubscriptionRequest(BaseModel):
-    plan: str
-    type: str
-    status: str = "active"
+    plan: SubscriptionPlan
+    type: SubscriptionType
+    status: SubscriptionStatus = SubscriptionStatus.ACTIVE
     stripe_subscription_id: str | None = None
     stripe_price_id: str | None = None
     current_period_start: datetime | None = None
@@ -67,7 +70,7 @@ class CreateSubscriptionRequest(BaseModel):
 
 
 class UpdateSubscriptionRequest(BaseModel):
-    status: str | None = None
+    status: SubscriptionStatus | None = None
     stripe_subscription_id: str | None = None
     stripe_price_id: str | None = None
     current_period_start: datetime | None = None
@@ -77,9 +80,9 @@ class UpdateSubscriptionRequest(BaseModel):
 class SubscriptionResponse(BaseModel):
     id: UUID
     company_id: UUID
-    plan: str
-    type: str
-    status: str
+    plan: SubscriptionPlan
+    type: SubscriptionType
+    status: SubscriptionStatus
     stripe_subscription_id: str | None
     stripe_price_id: str | None
     current_period_start: datetime | None
@@ -110,7 +113,7 @@ class NotificationResponse(BaseModel):
     user_id: UUID
     title: str
     message: str
-    status: str
+    status: NotificationStatus
     channel: str
     created_at: datetime
     read_at: datetime | None
@@ -118,9 +121,9 @@ class NotificationResponse(BaseModel):
 
 # --- Email ---
 class SendEmailRequest(BaseModel):
-    to: str
+    to: str = Field(description="Recipient email address")
     subject: str
-    html: str
+    html: str = Field(description="HTML body content")
     from_email: str = "noreply@predileto.pt"
 
 

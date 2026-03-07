@@ -10,7 +10,16 @@ from core_api.domain.exceptions import AuthorizationError, CompanyNotFoundError,
 router = APIRouter(prefix="/companies", tags=["companies"])
 
 
-@router.get("/{company_id}", response_model=CompanyResponse)
+@router.get(
+    "/{company_id}",
+    response_model=CompanyResponse,
+    summary="Get company",
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not authorized"},
+        404: {"description": "Company not found"},
+    },
+)
 async def get_company(
     company_id: UUID,
     request: Request,
@@ -34,7 +43,16 @@ async def get_company(
     return _company_response(company)
 
 
-@router.patch("/{company_id}", response_model=CompanyResponse)
+@router.patch(
+    "/{company_id}",
+    response_model=CompanyResponse,
+    summary="Update company",
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not authorized"},
+        404: {"description": "Company not found"},
+    },
+)
 async def update_company(
     company_id: UUID,
     body: UpdateCompanyRequest,

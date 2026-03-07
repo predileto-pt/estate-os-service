@@ -39,7 +39,15 @@ def _company_response(company) -> dict | None:
     }
 
 
-@router.post("/register", response_model=UserResponse)
+@router.post(
+    "/register",
+    response_model=UserResponse,
+    summary="Register user",
+    responses={
+        401: {"description": "Not authenticated"},
+        409: {"description": "User already exists"},
+    },
+)
 async def register(body: RegisterRequest, request: Request):
     register_uc = request.app.state.container.register_user
 
@@ -67,7 +75,15 @@ async def register(body: RegisterRequest, request: Request):
     return _user_response(user)
 
 
-@router.get("/me", response_model=UserWithCompanyResponse)
+@router.get(
+    "/me",
+    response_model=UserWithCompanyResponse,
+    summary="Get authenticated user",
+    responses={
+        401: {"description": "Not authenticated"},
+        404: {"description": "User not found"},
+    },
+)
 async def get_me(
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),

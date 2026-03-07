@@ -9,7 +9,15 @@ from core_api.domain.models.value_objects import PhoneNumber
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get("/me", response_model=UserWithCompanyResponse)
+@router.get(
+    "/me",
+    response_model=UserWithCompanyResponse,
+    summary="Get user profile",
+    responses={
+        401: {"description": "Not authenticated"},
+        404: {"description": "User not found"},
+    },
+)
 async def get_user_profile(
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
@@ -24,7 +32,15 @@ async def get_user_profile(
     return {"user": _user_response(user), "company": _company_response(company)}
 
 
-@router.patch("/me", response_model=UserResponse)
+@router.patch(
+    "/me",
+    response_model=UserResponse,
+    summary="Update user profile",
+    responses={
+        401: {"description": "Not authenticated"},
+        404: {"description": "User not found"},
+    },
+)
 async def update_user_profile(
     body: UpdateUserRequest,
     request: Request,

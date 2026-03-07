@@ -9,7 +9,24 @@ from core_api.config import settings, setup_logging
 def create_app(container=None) -> FastAPI:
     setup_logging(settings.log_level)
 
-    app = FastAPI(title="Predileto Core API", version="0.1.0")
+    app = FastAPI(
+        title="Predileto Core API",
+        version="0.1.0",
+        description=(
+            "Core backend service for the Predileto platform. "
+            "Handles user registration, company management, subscriptions, "
+            "notifications, and email."
+        ),
+        openapi_tags=[
+            {"name": "health", "description": "Health check"},
+            {"name": "auth", "description": "Authentication and user registration"},
+            {"name": "users", "description": "User profile management"},
+            {"name": "companies", "description": "Company management"},
+            {"name": "subscriptions", "description": "Subscription and plan management"},
+            {"name": "notifications", "description": "In-app notification management"},
+            {"name": "email", "description": "Transactional email sending"},
+        ],
+    )
 
     # Middleware (order matters — outermost first)
     app.add_middleware(RequestLoggingMiddleware)

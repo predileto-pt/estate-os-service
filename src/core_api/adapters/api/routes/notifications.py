@@ -24,7 +24,15 @@ def _notification_response(n) -> dict:
     }
 
 
-@router.get("", response_model=list[NotificationResponse])
+@router.get(
+    "",
+    response_model=list[NotificationResponse],
+    summary="List notifications",
+    responses={
+        401: {"description": "Not authenticated"},
+        404: {"description": "User not found"},
+    },
+)
 async def list_notifications(
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
@@ -43,7 +51,14 @@ async def list_notifications(
     return [_notification_response(n) for n in notifications]
 
 
-@router.patch("/read")
+@router.patch(
+    "/read",
+    summary="Mark notifications as read",
+    responses={
+        401: {"description": "Not authenticated"},
+        404: {"description": "User not found"},
+    },
+)
 async def mark_notifications_read(
     body: MarkNotificationsReadRequest,
     request: Request,
@@ -61,7 +76,15 @@ async def mark_notifications_read(
     return {"marked_read": count}
 
 
-@router.post("", response_model=NotificationResponse, status_code=201)
+@router.post(
+    "",
+    response_model=NotificationResponse,
+    status_code=201,
+    summary="Create notification",
+    responses={
+        401: {"description": "Not authenticated"},
+    },
+)
 async def create_notification(
     body: CreateNotificationRequest,
     request: Request,
