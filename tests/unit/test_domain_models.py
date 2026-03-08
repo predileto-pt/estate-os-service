@@ -1,16 +1,16 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from core_api.domain.models.company import Company
-from core_api.domain.models.notification import Notification, NotificationStatus
-from core_api.domain.models.subscription import (
+from customer_management.domain.models.company import Company
+from customer_management.domain.models.notification import Notification, NotificationStatus
+from customer_management.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
     SubscriptionStatus,
     SubscriptionType,
 )
-from core_api.domain.models.user import User
-from core_api.domain.models.value_objects import PhoneNumber
+from customer_management.domain.models.user import User
+from customer_management.domain.models.value_objects import PhoneNumber
 
 
 class TestUser:

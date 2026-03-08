@@ -1,7 +1,7 @@
-from core_api.adapters.database.models import Base
+from customer_management.adapters.database.models import Base
 
 
-EXPECTED_TABLES = {"applicants", "companies", "users", "subscriptions", "notifications", "intake_form_requests"}
+EXPECTED_TABLES = {"companies", "users", "subscriptions", "notifications"}
 
 
 def test_all_tables_registered():
@@ -42,18 +42,6 @@ def test_notifications_columns():
         "status", "channel", "created_at", "read_at",
     }
 
-
-def test_applicants_columns():
-    cols = {c.name for c in Base.metadata.tables["applicants"].columns}
-    assert cols == {
-        "id", "property_id", "property_title",
-        "visitor_name", "visitor_email", "visitor_phone",
-        "visitor_nif", "visitor_date_of_birth",
-        "has_id_document", "has_proof_of_income", "message",
-        "property_price", "property_address", "justification", "income_records",
-        "form_request_id", "screening_applicant_id",
-        "status", "agency_id", "created_at", "updated_at", "resolved_at",
-    }
 
 
 def test_notifications_user_status_index():

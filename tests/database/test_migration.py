@@ -15,7 +15,7 @@ async def test_all_tables_exist(session):
         ORDER BY table_name
     """))
     tables = {row[0] for row in result.fetchall()}
-    expected = {"applicants", "companies", "users", "subscriptions", "notifications"}
+    expected = {"companies", "users", "subscriptions", "notifications"}
     assert expected.issubset(tables)
 
 

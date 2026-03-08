@@ -1,6 +1,6 @@
 import pytest
 
-from core_api.domain.models.value_objects import Address, PhoneNumber
+from customer_management.domain.models.value_objects import Address, PhoneNumber
 
 
 class TestPhoneNumber:

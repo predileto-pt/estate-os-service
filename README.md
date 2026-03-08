@@ -70,7 +70,7 @@ uv run alembic downgrade -1
 uv run alembic stamp head
 ```
 
-Schema is defined in SQLAlchemy models at `src/core_api/adapters/database/models.py`.
+Schema is defined in SQLAlchemy models at `src/customer_management/adapters/database/models.py`.
 
 **Adopting on an existing database:** If the database already has the schema (e.g. production), stamp it as current without executing any DDL:
 
@@ -87,7 +87,7 @@ docker compose up -d
 ### 5. Run the server
 
 ```bash
-uv run uvicorn core_api.main:app --reload --port 8000
+uv run uvicorn customer_management.main:app --reload --port 8000
 ```
 
 The API is available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
@@ -160,7 +160,7 @@ All endpoints are prefixed with `/api/v1`. Authenticated endpoints require a Sup
 ## Architecture
 
 ```
-src/core_api/
+src/customer_management/
 ├── domain/           # Entities, value objects, events, exceptions (no dependencies)
 ├── application/
 │   ├── ports/        # Abstract interfaces (repository ABCs, services)
@@ -176,7 +176,7 @@ src/core_api/
 ├── entrypoints/
 │   ├── bootstrap.py  # DI wiring for workers/lambdas (Supabase client + repos)
 │   ├── lambda_events.py  # AWS Lambda handler for SQS events
-│   └── worker.py     # CLI entrypoint: python -m core_api.entrypoints.worker
+│   └── worker.py     # CLI entrypoint: python -m customer_management.entrypoints.worker
 ├── config.py         # Pydantic Settings + structlog setup
 ├── container.py      # Dependency injection wiring
 └── main.py           # FastAPI app factory
@@ -310,11 +310,11 @@ uv run python -m applicant_screening.entrypoints.worker --queue screening
 
 # Terminal 4 — Core API server
 cd core-api
-uv run uvicorn core_api.main:app --reload --port 8000
+uv run uvicorn customer_management.main:app --reload --port 8000
 
 # Terminal 5 — Core API events worker (consumes APPLICANT_SCREENED)
 cd core-api
-uv run python -m core_api.entrypoints.worker --queue events
+uv run python -m customer_management.entrypoints.worker --queue events
 
 # Terminal 6 — Agencies dashboard
 cd agencies-dashboard

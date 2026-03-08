@@ -2,14 +2,14 @@ import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from core_api.adapters.inmemory.inmemory_company_repo import InMemoryCompanyRepository
-from core_api.adapters.inmemory.inmemory_email_service import InMemoryEmailService
-from core_api.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
-from core_api.adapters.inmemory.inmemory_notification_repo import InMemoryNotificationRepository
-from core_api.adapters.inmemory.inmemory_subscription_repo import InMemorySubscriptionRepository
-from core_api.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
-from core_api.container import Container
-from core_api.main import create_app
+from customer_management.adapters.inmemory.inmemory_company_repo import InMemoryCompanyRepository
+from customer_management.adapters.inmemory.inmemory_email_service import InMemoryEmailService
+from customer_management.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
+from customer_management.adapters.inmemory.inmemory_notification_repo import InMemoryNotificationRepository
+from customer_management.adapters.inmemory.inmemory_subscription_repo import InMemorySubscriptionRepository
+from customer_management.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
+from customer_management.container import Container
+from customer_management.main import create_app
 
 TEST_JWT_SECRET = "test-jwt-secret-for-testing-only"
 TEST_SUPABASE_USER_ID = "00000000-0000-0000-0000-000000000001"
@@ -63,7 +63,7 @@ def container(user_repo, company_repo, subscription_repo, notification_repo, ema
 
 @pytest.fixture
 def app(container, monkeypatch):
-    monkeypatch.setattr("core_api.config.settings.supabase_jwt_secret", TEST_JWT_SECRET)
+    monkeypatch.setattr("customer_management.config.settings.supabase_jwt_secret", TEST_JWT_SECRET)
     return create_app(container=container)
 
 

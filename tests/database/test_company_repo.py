@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from core_api.domain.models.company import Company
+from customer_management.domain.models.company import Company
 
 
 def _make_company(**overrides) -> Company:

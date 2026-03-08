@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uv sync --extra dev
 
 # Run the server
-uv run uvicorn core_api.main:app --reload --port 8000
+uv run uvicorn customer_management.main:app --reload --port 8000
 
 # Run all tests
 uv run pytest -v
@@ -39,9 +39,9 @@ docker compose up -d
 
 Hexagonal (ports & adapters) architecture with three layers:
 
-- **Domain** (`src/core_api/domain/`) — Pure business logic with no external dependencies. Contains entities (User, Company, Subscription, Notification), value objects (PhoneNumber, Address as frozen dataclasses), domain events, and domain exceptions.
-- **Application** (`src/core_api/application/`) — Orchestration layer. **Ports** define abstract interfaces (repository ABCs, EmailService, EventBus). **Use cases** are individual classes with an async `execute()` method that combine ports to implement business operations.
-- **Adapters** (`src/core_api/adapters/`) — Concrete implementations. Inbound: FastAPI routes and middleware. Outbound: Supabase repositories, Resend email service, SQS event bus. Test doubles: in-memory implementations in `adapters/inmemory/`. Schema source of truth: SQLAlchemy models in `adapters/database/models.py`.
+- **Domain** (`src/customer_management/domain/`) — Pure business logic with no external dependencies. Contains entities (User, Company, Subscription, Notification), value objects (PhoneNumber, Address as frozen dataclasses), domain events, and domain exceptions.
+- **Application** (`src/customer_management/application/`) — Orchestration layer. **Ports** define abstract interfaces (repository ABCs, EmailService, EventBus). **Use cases** are individual classes with an async `execute()` method that combine ports to implement business operations.
+- **Adapters** (`src/customer_management/adapters/`) — Concrete implementations. Inbound: FastAPI routes and middleware. Outbound: Supabase repositories, Resend email service, SQS event bus. Test doubles: in-memory implementations in `adapters/inmemory/`. Schema source of truth: SQLAlchemy models in `adapters/database/models.py`.
 
 ## Dependency Injection
 
@@ -63,4 +63,4 @@ JWT-based via Supabase. `JWTAuthMiddleware` extracts the `sub` claim (Supabase u
 
 ## Database
 
-Supabase (PostgreSQL) with schema managed by SQLAlchemy + Alembic. Models in `src/core_api/adapters/database/models.py` are the schema source of truth. Migrations in `alembic/versions/`. Tables: applicants, companies, users, subscriptions, notifications. Row-level security and triggers are managed via raw SQL in migrations.
+Supabase (PostgreSQL) with schema managed by SQLAlchemy + Alembic. Models in `src/customer_management/adapters/database/models.py` are the schema source of truth. Migrations in `alembic/versions/`. Tables: applicants, companies, users, subscriptions, notifications. Row-level security and triggers are managed via raw SQL in migrations.

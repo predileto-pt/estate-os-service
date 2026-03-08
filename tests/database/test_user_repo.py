@@ -4,9 +4,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from core_api.domain.models.company import Company
-from core_api.domain.models.user import User
-from core_api.domain.models.value_objects import PhoneNumber
+from customer_management.domain.models.company import Company
+from customer_management.domain.models.user import User
+from customer_management.domain.models.value_objects import PhoneNumber
 
 
 def _make_company(**overrides) -> Company:

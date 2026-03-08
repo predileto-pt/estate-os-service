@@ -21,9 +21,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # -- Enums ----------------------------------------------------------------
-    applicant_status = postgresql.ENUM(
-        "pending", "approved", "rejected", name="applicant_status", create_type=False
-    )
     subscription_plan = postgresql.ENUM(
         "freemium", "pro", "enterprise", name="subscription_plan", create_type=False
     )
@@ -38,31 +35,10 @@ def upgrade() -> None:
         "unread", "read", name="notification_status", create_type=False
     )
 
-    applicant_status.create(op.get_bind(), checkfirst=True)
     subscription_plan.create(op.get_bind(), checkfirst=True)
     subscription_type.create(op.get_bind(), checkfirst=True)
     subscription_status.create(op.get_bind(), checkfirst=True)
     notification_status.create(op.get_bind(), checkfirst=True)
-
-    # -- applicants -----------------------------------------------------------
-    op.create_table(
-        "applicants",
-        sa.Column("id", sa.UUID(), server_default=sa.text("gen_random_uuid()"), nullable=False),
-        sa.Column("property_id", sa.Text(), nullable=False),
-        sa.Column("property_title", sa.Text(), nullable=False),
-        sa.Column("visitor_name", sa.Text(), nullable=False),
-        sa.Column("visitor_email", sa.Text(), nullable=False),
-        sa.Column("visitor_phone", sa.Text(), nullable=True),
-        sa.Column("has_id_document", sa.Boolean(), server_default="false", nullable=False),
-        sa.Column("has_proof_of_income", sa.Boolean(), server_default="false", nullable=False),
-        sa.Column("message", sa.Text(), nullable=True),
-        sa.Column("status", applicant_status, server_default="pending", nullable=False),
-        sa.Column("agency_id", sa.UUID(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
-    )
 
     # -- companies ------------------------------------------------------------
     op.create_table(
@@ -157,31 +133,11 @@ def upgrade() -> None:
             FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
     """)
 
-    op.execute("""
-        CREATE TRIGGER trg_applicants_updated_at
-            BEFORE UPDATE ON applicants
-            FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-    """)
-
     # -- RLS (Supabase) -------------------------------------------------------
-    op.execute("ALTER TABLE applicants ENABLE ROW LEVEL SECURITY;")
     op.execute("ALTER TABLE companies ENABLE ROW LEVEL SECURITY;")
     op.execute("ALTER TABLE users ENABLE ROW LEVEL SECURITY;")
     op.execute("ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;")
     op.execute("ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;")
-
-    op.execute("""
-        CREATE POLICY "Users can view own applicants"
-            ON applicants FOR SELECT USING (auth.uid() = agency_id);
-    """)
-    op.execute("""
-        CREATE POLICY "Users can update own applicants"
-            ON applicants FOR UPDATE USING (auth.uid() = agency_id);
-    """)
-    op.execute("""
-        CREATE POLICY "Anyone can insert applicants"
-            ON applicants FOR INSERT WITH CHECK (true);
-    """)
 
     op.execute("""
         CREATE POLICY "Service role can manage companies"
@@ -232,11 +188,7 @@ def downgrade() -> None:
     op.execute("DROP POLICY IF EXISTS \"Users can view own record\" ON users;")
     op.execute("DROP POLICY IF EXISTS \"Users can manage their own company\" ON companies;")
     op.execute("DROP POLICY IF EXISTS \"Service role can manage companies\" ON companies;")
-    op.execute("DROP POLICY IF EXISTS \"Anyone can insert applicants\" ON applicants;")
-    op.execute("DROP POLICY IF EXISTS \"Users can update own applicants\" ON applicants;")
-    op.execute("DROP POLICY IF EXISTS \"Users can view own applicants\" ON applicants;")
 
-    op.execute("DROP TRIGGER IF EXISTS trg_applicants_updated_at ON applicants;")
     op.execute("DROP TRIGGER IF EXISTS trg_subscriptions_updated_at ON subscriptions;")
     op.execute("DROP TRIGGER IF EXISTS trg_users_updated_at ON users;")
     op.execute("DROP TRIGGER IF EXISTS trg_companies_updated_at ON companies;")
@@ -247,10 +199,8 @@ def downgrade() -> None:
     op.drop_table("subscriptions")
     op.drop_table("users")
     op.drop_table("companies")
-    op.drop_table("applicants")
 
     op.execute("DROP TYPE IF EXISTS notification_status;")
     op.execute("DROP TYPE IF EXISTS subscription_status;")
     op.execute("DROP TYPE IF EXISTS subscription_type;")
     op.execute("DROP TYPE IF EXISTS subscription_plan;")
-    op.execute("DROP TYPE IF EXISTS applicant_status;")

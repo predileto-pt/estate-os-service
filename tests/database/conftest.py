@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from testcontainers.postgres import PostgresContainer
 
-from core_api.adapters.database.repositories import (
+from customer_management.adapters.database.repositories import (
     SqlAlchemyCompanyRepository,
     SqlAlchemyNotificationRepository,
     SqlAlchemySubscriptionRepository,
@@ -45,12 +45,18 @@ def postgres_url():
 
         # Run Alembic migrations via subprocess (env.py uses asyncpg internally)
         env = {**os.environ, "DATABASE_URL": async_url}
-        subprocess.run(
+        result = subprocess.run(
             ["uv", "run", "alembic", "upgrade", "head"],
             env=env,
-            check=True,
             capture_output=True,
+            text=True,
         )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Alembic migration failed (exit {result.returncode}):\n"
+                f"STDOUT: {result.stdout}\n"
+                f"STDERR: {result.stderr}"
+            )
 
         yield async_url
 
