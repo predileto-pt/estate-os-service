@@ -63,4 +63,4 @@ JWT-based via Supabase. `JWTAuthMiddleware` extracts the `sub` claim (Supabase u
 
 ## Database
 
-Supabase (PostgreSQL) with schema managed by SQLAlchemy + Alembic. Models in `src/core_api/adapters/database/models.py` are the schema source of truth. Migrations in `alembic/versions/`. Tables: agendamentos, companies, users, subscriptions, notifications. Row-level security and triggers are managed via raw SQL in migrations.
+Supabase (PostgreSQL) with schema managed by SQLAlchemy + Alembic. Models in `src/core_api/adapters/database/models.py` are the schema source of truth. Migrations in `alembic/versions/`. Tables: applicants, companies, users, subscriptions, notifications. Row-level security and triggers are managed via raw SQL in migrations.

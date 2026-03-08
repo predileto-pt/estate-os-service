@@ -1,7 +1,7 @@
 from core_api.adapters.database.models import Base
 
 
-EXPECTED_TABLES = {"agendamentos", "companies", "users", "subscriptions", "notifications"}
+EXPECTED_TABLES = {"applicants", "companies", "users", "subscriptions", "notifications"}
 
 
 def test_all_tables_registered():
@@ -43,8 +43,8 @@ def test_notifications_columns():
     }
 
 
-def test_agendamentos_columns():
-    cols = {c.name for c in Base.metadata.tables["agendamentos"].columns}
+def test_applicants_columns():
+    cols = {c.name for c in Base.metadata.tables["applicants"].columns}
     assert cols == {
         "id", "property_id", "property_title",
         "visitor_name", "visitor_email", "visitor_phone",

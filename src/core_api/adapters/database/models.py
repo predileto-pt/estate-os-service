@@ -24,7 +24,7 @@ class Base(DeclarativeBase):
 # ── Enums ────────────────────────────────────────────────────────────────────
 
 
-class AgendamentoStatus(str, enum.Enum):
+class ApplicantStatus(str, enum.Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -58,8 +58,8 @@ class NotificationStatus(str, enum.Enum):
 # ── Models ───────────────────────────────────────────────────────────────────
 
 
-class AgendamentoModel(Base):
-    __tablename__ = "agendamentos"
+class ApplicantModel(Base):
+    __tablename__ = "applicants"
 
     id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
@@ -74,8 +74,8 @@ class AgendamentoModel(Base):
         Boolean, nullable=False, server_default="false"
     )
     message: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[AgendamentoStatus] = mapped_column(
-        Enum(AgendamentoStatus, name="agendamento_status", values_callable=lambda e: [x.value for x in e]),
+    status: Mapped[ApplicantStatus] = mapped_column(
+        Enum(ApplicantStatus, name="applicant_status", values_callable=lambda e: [x.value for x in e]),
         nullable=False,
         server_default="pending",
     )
