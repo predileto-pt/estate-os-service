@@ -1,7 +1,7 @@
 from core_api.adapters.database.models import Base
 
 
-EXPECTED_TABLES = {"applicants", "companies", "users", "subscriptions", "notifications"}
+EXPECTED_TABLES = {"applicants", "companies", "users", "subscriptions", "notifications", "intake_form_requests"}
 
 
 def test_all_tables_registered():
@@ -48,7 +48,10 @@ def test_applicants_columns():
     assert cols == {
         "id", "property_id", "property_title",
         "visitor_name", "visitor_email", "visitor_phone",
+        "visitor_nif", "visitor_date_of_birth",
         "has_id_document", "has_proof_of_income", "message",
+        "property_price", "property_address", "justification", "income_records",
+        "form_request_id", "screening_applicant_id",
         "status", "agency_id", "created_at", "updated_at", "resolved_at",
     }
 

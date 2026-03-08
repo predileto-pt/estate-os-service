@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     sqs_queue_url: str = ""
+    sqs_events_queue_url: str = ""
 
     # Database (direct PostgreSQL for Alembic migrations)
     database_url: str = ""

@@ -2,8 +2,10 @@ import enum
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Index,
     Text,
@@ -50,6 +52,12 @@ class SubscriptionStatus(str, enum.Enum):
     INACTIVE = "inactive"
 
 
+class IntakeFormRequestStatus(str, enum.Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    EXPIRED = "expired"
+
+
 class NotificationStatus(str, enum.Enum):
     UNREAD = "unread"
     READ = "read"
@@ -79,10 +87,22 @@ class ApplicantModel(Base):
         nullable=False,
         server_default="pending",
     )
+    visitor_nif: Mapped[str | None] = mapped_column(Text)
+    visitor_date_of_birth: Mapped[datetime | None] = mapped_column(Date)
+    property_price: Mapped[float | None] = mapped_column(Float)
+    property_address: Mapped[str | None] = mapped_column(Text)
+    justification: Mapped[str | None] = mapped_column(Text)
+    income_records: Mapped[dict | None] = mapped_column(JSONB)
+    form_request_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False))
+    screening_applicant_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False))
     agency_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column()
+
+    __table_args__ = (
+        Index("idx_applicants_form_request_id", "form_request_id"),
+    )
 
 
 class CompanyModel(Base):
@@ -177,3 +197,30 @@ class NotificationModel(Base):
     __table_args__ = (
         Index("idx_notifications_user_status", "user_id", "status"),
     )
+
+
+class IntakeFormRequestModel(Base):
+    __tablename__ = "intake_form_requests"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    agency_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    applicant_name: Mapped[str] = mapped_column(Text, nullable=False)
+    applicant_email: Mapped[str] = mapped_column(Text, nullable=False)
+    applicant_phone: Mapped[str | None] = mapped_column(Text)
+    property_id: Mapped[str] = mapped_column(Text, nullable=False)
+    property_title: Mapped[str | None] = mapped_column(Text)
+    property_price: Mapped[float | None] = mapped_column(Float)
+    property_address: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[IntakeFormRequestStatus] = mapped_column(
+        Enum(
+            IntakeFormRequestStatus,
+            name="intake_form_request_status",
+            values_callable=lambda e: [x.value for x in e],
+        ),
+        nullable=False,
+        server_default="pending",
+    )
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())

@@ -35,3 +35,10 @@ class NotificationSent(DomainEvent):
     notification_id: UUID = field(default_factory=uuid4)
     user_id: UUID = field(default_factory=uuid4)
     channel: str = ""
+
+
+@dataclass(frozen=True)
+class ApplicantScreened(DomainEvent):
+    applicant_id: UUID = field(default_factory=uuid4)
+    agency_id: UUID = field(default_factory=uuid4)
+    risk_level: str = ""
