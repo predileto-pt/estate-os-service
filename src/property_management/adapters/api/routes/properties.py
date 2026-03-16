@@ -1,0 +1,114 @@
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from shared.api.dependencies import get_supabase_user_id
+from property_management.adapters.api.schemas import (
+    CreatePropertyRequest,
+    PropertyResponse,
+)
+from property_management.domain.exceptions import PropertyNotFoundError
+
+router = APIRouter(prefix="/properties", tags=["properties"])
+
+
+def _property_response(prop) -> dict:
+    characteristics = None
+    if prop.characteristics:
+        characteristics = prop.characteristics.to_dict()
+    return {
+        "id": prop.id,
+        "user_id": prop.user_id,
+        "address": prop.address,
+        "listing_type": prop.listing_type,
+        "typology": prop.typology,
+        "status": prop.status,
+        "description": prop.description,
+        "characteristics": characteristics,
+        "created_at": prop.created_at,
+        "updated_at": prop.updated_at,
+        "owners": [_owner_response(o) for o in prop.owners],
+    }
+
+
+def _owner_response(owner) -> dict:
+    return {
+        "id": owner.id,
+        "property_id": owner.property_id,
+        "full_name": owner.full_name,
+        "civil_status": owner.civil_status,
+        "address": owner.address,
+        "nif": owner.nif,
+        "document_type": owner.document_type,
+        "document_id": owner.document_id,
+        "issued_by": owner.issued_by,
+        "issuing_district": owner.issuing_district,
+        "date_of_birth": owner.date_of_birth,
+        "created_at": owner.created_at,
+        "updated_at": owner.updated_at,
+    }
+
+
+@router.post(
+    "/",
+    response_model=PropertyResponse,
+    status_code=201,
+    summary="Create property",
+    responses={401: {"description": "Not authenticated"}},
+)
+async def create_property(
+    body: CreatePropertyRequest,
+    request: Request,
+    supabase_user_id: str = Depends(get_supabase_user_id),
+):
+    create_uc = request.app.state.property_container.create_property
+    prop = await create_uc.execute(
+        user_id=supabase_user_id,
+        address=body.address,
+        listing_type=body.listing_type,
+        typology=body.typology,
+        description=body.description,
+    )
+    return _property_response(prop)
+
+
+@router.get(
+    "/",
+    response_model=list[PropertyResponse],
+    summary="List properties",
+    responses={401: {"description": "Not authenticated"}},
+)
+async def list_properties(
+    request: Request,
+    supabase_user_id: str = Depends(get_supabase_user_id),
+):
+    list_uc = request.app.state.property_container.list_properties
+    props = await list_uc.execute(user_id=supabase_user_id)
+    return [_property_response(p) for p in props]
+
+
+@router.get(
+    "/{property_id}",
+    response_model=PropertyResponse,
+    summary="Get property",
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not authorized"},
+        404: {"description": "Property not found"},
+    },
+)
+async def get_property(
+    property_id: UUID,
+    request: Request,
+    supabase_user_id: str = Depends(get_supabase_user_id),
+):
+    get_uc = request.app.state.property_container.get_property
+    try:
+        prop = await get_uc.execute(property_id=property_id)
+    except PropertyNotFoundError:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    if str(prop.user_id) != supabase_user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    return _property_response(prop)

@@ -4,7 +4,9 @@ from uuid import UUID, uuid4
 import structlog
 
 from customer_management.application.ports.event_bus import EventBus
-from customer_management.application.ports.repositories.notification_repository import NotificationRepository
+from customer_management.application.ports.repositories.notification_repository import (
+    NotificationRepository,
+)
 from customer_management.domain.events import NotificationSent
 from customer_management.domain.models.notification import Notification, NotificationStatus
 

@@ -23,6 +23,4 @@ class InMemoryEmailService(EmailService):
         html: str,
         from_email: str = "noreply@predileto.pt",
     ) -> None:
-        self.sent_emails.append(
-            SentEmail(to=to, subject=subject, html=html, from_email=from_email)
-        )
+        self.sent_emails.append(SentEmail(to=to, subject=subject, html=html, from_email=from_email))

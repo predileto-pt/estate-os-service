@@ -11,13 +11,11 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 
 from datetime import datetime
 
-
-class Base(DeclarativeBase):
-    pass
+from shared.database.models import Base
 
 
 # ── Enums ────────────────────────────────────────────────────────────────────
@@ -99,16 +97,28 @@ class SubscriptionModel(Base):
         UUID(as_uuid=False), ForeignKey("companies.id"), nullable=False
     )
     plan: Mapped[SubscriptionPlan] = mapped_column(
-        Enum(SubscriptionPlan, name="subscription_plan", values_callable=lambda e: [x.value for x in e]),
+        Enum(
+            SubscriptionPlan,
+            name="subscription_plan",
+            values_callable=lambda e: [x.value for x in e],
+        ),
         nullable=False,
         server_default="freemium",
     )
     type: Mapped[SubscriptionType] = mapped_column(
-        Enum(SubscriptionType, name="subscription_type", values_callable=lambda e: [x.value for x in e]),
+        Enum(
+            SubscriptionType,
+            name="subscription_type",
+            values_callable=lambda e: [x.value for x in e],
+        ),
         nullable=False,
     )
     status: Mapped[SubscriptionStatus] = mapped_column(
-        Enum(SubscriptionStatus, name="subscription_status", values_callable=lambda e: [x.value for x in e]),
+        Enum(
+            SubscriptionStatus,
+            name="subscription_status",
+            values_callable=lambda e: [x.value for x in e],
+        ),
         nullable=False,
         server_default="active",
     )
@@ -132,7 +142,11 @@ class NotificationModel(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[NotificationStatus] = mapped_column(
-        Enum(NotificationStatus, name="notification_status", values_callable=lambda e: [x.value for x in e]),
+        Enum(
+            NotificationStatus,
+            name="notification_status",
+            values_callable=lambda e: [x.value for x in e],
+        ),
         nullable=False,
         server_default="unread",
     )
@@ -140,8 +154,4 @@ class NotificationModel(Base):
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    __table_args__ = (
-        Index("idx_notifications_user_status", "user_id", "status"),
-    )
-
-
+    __table_args__ = (Index("idx_notifications_user_status", "user_id", "status"),)

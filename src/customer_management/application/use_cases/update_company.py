@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from uuid import UUID
 
 from customer_management.application.ports.repositories.company_repository import CompanyRepository
@@ -26,12 +25,6 @@ class UpdateCompany:
         if not company:
             raise CompanyNotFoundError(str(company_id))
 
-        if name is not None:
-            company.name = name
-        if nif is not None:
-            company.nif = nif
-        if address is not None:
-            company.address = address
-        company.updated_at = datetime.now(timezone.utc)
+        company.update(name=name, nif=nif, address=address)
 
         return await self.company_repo.update(company)

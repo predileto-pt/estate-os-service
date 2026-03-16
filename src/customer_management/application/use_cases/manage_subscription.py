@@ -4,7 +4,9 @@ from uuid import UUID, uuid4
 import structlog
 
 from customer_management.application.ports.event_bus import EventBus
-from customer_management.application.ports.repositories.subscription_repository import SubscriptionRepository
+from customer_management.application.ports.repositories.subscription_repository import (
+    SubscriptionRepository,
+)
 from customer_management.domain.events import SubscriptionCreated, SubscriptionUpdated
 from customer_management.domain.exceptions import SubscriptionNotFoundError
 from customer_management.domain.models.subscription import (
@@ -91,17 +93,13 @@ class UpdateSubscription:
 
         old_status = subscription.status.value
 
-        if status is not None:
-            subscription.status = status
-        if stripe_subscription_id is not None:
-            subscription.stripe_subscription_id = stripe_subscription_id
-        if stripe_price_id is not None:
-            subscription.stripe_price_id = stripe_price_id
-        if current_period_start is not None:
-            subscription.current_period_start = current_period_start
-        if current_period_end is not None:
-            subscription.current_period_end = current_period_end
-        subscription.updated_at = datetime.now(timezone.utc)
+        subscription.update(
+            status=status,
+            stripe_subscription_id=stripe_subscription_id,
+            stripe_price_id=stripe_price_id,
+            current_period_start=current_period_start,
+            current_period_end=current_period_end,
+        )
 
         subscription = await self.subscription_repo.update(subscription)
 

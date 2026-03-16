@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uv sync --extra dev
 
 # Run the server
-uv run uvicorn customer_management.main:app --reload --port 8000
+uv run uvicorn shared.main:app --reload --port 8000
 
 # Run all tests
 uv run pytest -v
@@ -39,19 +39,75 @@ docker compose up -d
 
 Hexagonal (ports & adapters) architecture with three layers:
 
-- **Domain** (`src/customer_management/domain/`) — Pure business logic with no external dependencies. Contains entities (User, Company, Subscription, Notification), value objects (PhoneNumber, Address as frozen dataclasses), domain events, and domain exceptions.
-- **Application** (`src/customer_management/application/`) — Orchestration layer. **Ports** define abstract interfaces (repository ABCs, EmailService, EventBus). **Use cases** are individual classes with an async `execute()` method that combine ports to implement business operations.
-- **Adapters** (`src/customer_management/adapters/`) — Concrete implementations. Inbound: FastAPI routes and middleware. Outbound: Supabase repositories, Resend email service, SQS event bus. Test doubles: in-memory implementations in `adapters/inmemory/`. Schema source of truth: SQLAlchemy models in `adapters/database/models.py`.
+- **Domain** (`domain/`) — Pure business logic with no external dependencies. Contains entities, value objects (frozen dataclasses), domain events, and domain exceptions.
+- **Application** (`application/`) — Orchestration layer. **Ports** define abstract interfaces (repository ABCs, service protocols). **Use cases** are individual classes with an async `execute()` method.
+- **Adapters** (`adapters/`) — Concrete implementations. Inbound: FastAPI routes and middleware. Outbound: Supabase repositories, Resend email, SQS event bus, OpenAI document extraction. Test doubles: in-memory implementations in `adapters/inmemory/`.
+
+## Shared Infrastructure
+
+Shared infrastructure lives in `src/shared/` — config, middleware, database Base, app factory, bootstrap, and Lambda handler. Both bounded contexts import from `shared/` but never from each other.
+
+| Module | Purpose |
+|--------|---------|
+| `shared/config.py` | Settings, `setup_logging()` |
+| `shared/main.py` | `create_app()` FastAPI factory |
+| `shared/api/dependencies.py` | `get_supabase_user_id()`, `get_current_user()` |
+| `shared/api/middleware.py` | JWT auth + request logging middleware |
+| `shared/database/models.py` | SQLAlchemy `Base` (DeclarativeBase) |
+| `shared/database/engine.py` | `build_async_engine()` |
+| `shared/entrypoints/bootstrap.py` | Production container wiring |
+| `shared/entrypoints/lambda_handler.py` | Mangum Lambda handler |
+
+## Two Bounded Contexts
+
+The service hosts two independent bounded contexts, each following the same hexagonal structure:
+
+| Context | Package | Container | Entities |
+|---------|---------|-----------|----------|
+| **Customer Management** | `src/customer_management/` | `Container` on `app.state.container` | User, Company, Subscription, Notification |
+| **Property Management** | `src/property_management/` | `Container` on `app.state.property_container` | Property, PropertyOwner, ExtractionJob, PropertyCharacteristics |
+
+Both are wired in `shared/main.py` via `create_app(container, property_container)` and bootstrapped for production in `shared/entrypoints/bootstrap.py`. Routes access use cases through `request.app.state.container.<use_case>` or `request.app.state.property_container.<use_case>`. Neither context imports from the other.
+
+### Property Management — Key Domain Values
+
+- **ListingType**: `sale`, `purchase`
+- **Typology**: `house`, `apartment`, `land`, `ruin`
+- **PropertyStatus**: `draft`, `active`, `sold`, `rented`, `withdrawn`
+- **DocumentType** (owner ID docs): `cartao_cidadao`, `passport`, `visto_residencia`, `titulo_residencia`
+
+### Property Extraction Flow
+
+Two async extraction flows, both following: presign → upload → submit → SQS → process.
+
+1. **Single extraction** (`POST /api/v1/extraction-jobs`): One property document → extracts property + owners.
+2. **Batch extraction** (`POST /api/v1/extraction-jobs/batch`): 1–5 mixed documents → classifies each as property_document or personal_id → extracts property data from property docs → extracts owner data from ID docs with type-specific prompts → merges owners by NIF (ID extraction wins) → creates Property + PropertyOwners.
+
+`listing_type` and `typology` are **user inputs** provided at submission time, not extracted from documents. They are stored on the ExtractionJob and used when creating the Property.
+
+### Property Management Ports
+
+| Port | Purpose | Production Adapter |
+|------|---------|-------------------|
+| `PropertyRepository` | CRUD for properties + owners | `SupabasePropertyRepository` |
+| `ExtractionJobRepository` | CRUD for extraction jobs | `SupabaseExtractionJobRepository` |
+| `PropertyExtractorService` | OCR + AI property extraction | `ReductoOpenAIPropertyExtractor` |
+| `DocumentDataExtractor` | AI owner data from ID docs | `OpenAIDocumentExtractor` |
+| `DocumentClassifier` | AI document classification | `OpenAIDocumentClassifier` |
+| `DocumentStorage` | S3 file upload/download | `S3DocumentStorage` |
+| `EventBus` | SQS event publishing | `SQSEventBus` |
 
 ## Dependency Injection
 
-`container.py` wires all use cases with their dependencies. The container is attached to `app.state.container` via the app factory in `main.py`. Routes access use cases through `request.app.state.container.<use_case_name>`.
-
-For tests, `conftest.py` builds a container using in-memory adapters — no external services needed.
+Each bounded context has its own `container.py` that wires use cases with their port implementations. For tests, `conftest.py` builds both containers using in-memory adapters — no external services needed. Test HTTP client uses `httpx.AsyncClient` with `ASGITransport`.
 
 ## Auth Flow
 
-JWT-based via Supabase. `JWTAuthMiddleware` extracts the `sub` claim (Supabase user ID) from the Bearer token and stores it in `request.state.supabase_user_id`. Public endpoints (`/health`, `/subscriptions/plans`, docs) skip auth.
+JWT-based via Supabase. `JWTAuthMiddleware` extracts the `sub` claim (Supabase user ID) from the Bearer token and stores it in `request.state.supabase_user_id`. Public endpoints (`/health`, `/subscriptions/plans`, docs) skip auth. All routes are prefixed with `/api/v1`.
+
+## Deployment
+
+The app runs as an AWS Lambda behind API Gateway using Mangum (`shared/entrypoints/lambda_handler.py`), or as a standard uvicorn server for local development.
 
 ## Key Conventions
 
@@ -63,4 +119,4 @@ JWT-based via Supabase. `JWTAuthMiddleware` extracts the `sub` claim (Supabase u
 
 ## Database
 
-Supabase (PostgreSQL) with schema managed by SQLAlchemy + Alembic. Models in `src/customer_management/adapters/database/models.py` are the schema source of truth. Migrations in `alembic/versions/`. Tables: applicants, companies, users, subscriptions, notifications. Row-level security and triggers are managed via raw SQL in migrations.
+Supabase (PostgreSQL) with schema managed by SQLAlchemy + Alembic. Models in `adapters/database/models.py` (in each bounded context) are the schema source of truth. Migrations in `alembic/versions/`. Row-level security and triggers are managed via raw SQL in migrations.

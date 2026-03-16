@@ -9,9 +9,7 @@ class UserNotFoundError(DomainError):
 
 class CompanyNotFoundError(DomainError):
     def __init__(self, identifier: str = "") -> None:
-        super().__init__(
-            f"Company not found: {identifier}" if identifier else "Company not found"
-        )
+        super().__init__(f"Company not found: {identifier}" if identifier else "Company not found")
 
 
 class SubscriptionNotFoundError(DomainError):
@@ -23,9 +21,7 @@ class SubscriptionNotFoundError(DomainError):
 
 class UserAlreadyExistsError(DomainError):
     def __init__(self, email: str = "") -> None:
-        super().__init__(
-            f"User already exists: {email}" if email else "User already exists"
-        )
+        super().__init__(f"User already exists: {email}" if email else "User already exists")
 
 
 class AuthorizationError(DomainError):

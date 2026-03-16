@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from customer_management.application.ports.repositories.notification_repository import NotificationRepository
+from customer_management.application.ports.repositories.notification_repository import (
+    NotificationRepository,
+)
 from customer_management.domain.models.notification import Notification, NotificationStatus
 
 

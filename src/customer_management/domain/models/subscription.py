@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID
 
@@ -37,3 +37,24 @@ class Subscription:
     current_period_end: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    def update(
+        self,
+        *,
+        status: SubscriptionStatus | None = None,
+        stripe_subscription_id: str | None = None,
+        stripe_price_id: str | None = None,
+        current_period_start: datetime | None = None,
+        current_period_end: datetime | None = None,
+    ) -> None:
+        if status is not None:
+            self.status = status
+        if stripe_subscription_id is not None:
+            self.stripe_subscription_id = stripe_subscription_id
+        if stripe_price_id is not None:
+            self.stripe_price_id = stripe_price_id
+        if current_period_start is not None:
+            self.current_period_start = current_period_start
+        if current_period_end is not None:
+            self.current_period_end = current_period_end
+        self.updated_at = datetime.now(timezone.utc)

@@ -5,11 +5,33 @@ from httpx import ASGITransport, AsyncClient
 from customer_management.adapters.inmemory.inmemory_company_repo import InMemoryCompanyRepository
 from customer_management.adapters.inmemory.inmemory_email_service import InMemoryEmailService
 from customer_management.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
-from customer_management.adapters.inmemory.inmemory_notification_repo import InMemoryNotificationRepository
-from customer_management.adapters.inmemory.inmemory_subscription_repo import InMemorySubscriptionRepository
+from customer_management.adapters.inmemory.inmemory_notification_repo import (
+    InMemoryNotificationRepository,
+)
+from customer_management.adapters.inmemory.inmemory_subscription_repo import (
+    InMemorySubscriptionRepository,
+)
 from customer_management.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
 from customer_management.container import Container
-from customer_management.main import create_app
+from shared.main import create_app
+from property_management.adapters.inmemory.inmemory_document_extractor import (
+    InMemoryDocumentExtractor,
+)
+from property_management.adapters.inmemory.inmemory_document_storage import InMemoryDocumentStorage
+from property_management.adapters.inmemory.inmemory_event_bus import (
+    InMemoryEventBus as PropertyInMemoryEventBus,
+)
+from property_management.adapters.inmemory.inmemory_extraction_job_repo import (
+    InMemoryExtractionJobRepository,
+)
+from property_management.adapters.inmemory.inmemory_property_extractor import (
+    InMemoryPropertyExtractor,
+)
+from property_management.adapters.inmemory.inmemory_document_classifier import (
+    InMemoryDocumentClassifier,
+)
+from property_management.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
+from property_management.container import Container as PropertyContainer
 
 TEST_JWT_SECRET = "test-jwt-secret-for-testing-only"
 TEST_SUPABASE_USER_ID = "00000000-0000-0000-0000-000000000001"
@@ -50,7 +72,19 @@ def event_bus():
 
 
 @pytest.fixture
-def container(user_repo, company_repo, subscription_repo, notification_repo, email_service, event_bus):
+def property_repo():
+    return InMemoryPropertyRepository()
+
+
+@pytest.fixture
+def document_extractor():
+    return InMemoryDocumentExtractor()
+
+
+@pytest.fixture
+def container(
+    user_repo, company_repo, subscription_repo, notification_repo, email_service, event_bus
+):
     return Container(
         user_repo=user_repo,
         company_repo=company_repo,
@@ -62,9 +96,55 @@ def container(user_repo, company_repo, subscription_repo, notification_repo, ema
 
 
 @pytest.fixture
-def app(container, monkeypatch):
-    monkeypatch.setattr("customer_management.config.settings.supabase_jwt_secret", TEST_JWT_SECRET)
-    return create_app(container=container)
+def document_storage():
+    return InMemoryDocumentStorage()
+
+
+@pytest.fixture
+def extraction_job_repo():
+    return InMemoryExtractionJobRepository()
+
+
+@pytest.fixture
+def property_extractor_service():
+    return InMemoryPropertyExtractor()
+
+
+@pytest.fixture
+def property_event_bus():
+    return PropertyInMemoryEventBus()
+
+
+@pytest.fixture
+def document_classifier():
+    return InMemoryDocumentClassifier()
+
+
+@pytest.fixture
+def property_container(
+    property_repo,
+    document_extractor,
+    document_storage,
+    extraction_job_repo,
+    property_extractor_service,
+    property_event_bus,
+    document_classifier,
+):
+    return PropertyContainer(
+        property_repo=property_repo,
+        document_extractor=document_extractor,
+        document_storage=document_storage,
+        property_extractor=property_extractor_service,
+        extraction_job_repo=extraction_job_repo,
+        event_bus=property_event_bus,
+        document_classifier=document_classifier,
+    )
+
+
+@pytest.fixture
+def app(container, property_container, monkeypatch):
+    monkeypatch.setattr("shared.config.settings.supabase_jwt_secret", TEST_JWT_SECRET)
+    return create_app(container=container, property_container=property_container)
 
 
 @pytest.fixture

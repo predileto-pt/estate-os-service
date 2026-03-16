@@ -73,9 +73,7 @@ async def test_list_by_user_id(company_repo, user_repo, notification_repo):
 
     # Save 3 notifications
     for i in range(3):
-        await notification_repo.save(
-            _make_notification(user.id, title=f"Notification {i}")
-        )
+        await notification_repo.save(_make_notification(user.id, title=f"Notification {i}"))
 
     results = await notification_repo.list_by_user_id(user.id)
     assert len(results) == 3

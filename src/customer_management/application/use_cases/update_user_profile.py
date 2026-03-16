@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from uuid import UUID
 
 from customer_management.application.ports.repositories.user_repository import UserRepository
@@ -22,10 +21,6 @@ class UpdateUserProfile:
         if not user:
             raise UserNotFoundError(str(user_id))
 
-        if name is not None:
-            user.name = name
-        if phone is not None:
-            user.phone = phone
-        user.updated_at = datetime.now(timezone.utc)
+        user.update_profile(name=name, phone=phone)
 
         return await self.user_repo.update(user)

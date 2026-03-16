@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from customer_management.adapters.api.dependencies import get_supabase_user_id
+from shared.api.dependencies import get_supabase_user_id
 from customer_management.adapters.api.schemas import (
     CreateNotificationRequest,
     MarkNotificationsReadRequest,

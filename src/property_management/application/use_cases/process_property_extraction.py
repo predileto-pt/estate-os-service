@@ -1,0 +1,134 @@
+from __future__ import annotations
+
+import time
+from datetime import date, datetime, timezone
+from uuid import UUID, uuid4
+
+import structlog
+
+from property_management.application.ports.document_storage import DocumentStorage
+from property_management.application.ports.property_extractor import (
+    PropertyExtractorService,
+)
+from property_management.application.ports.repositories.extraction_job_repository import (
+    ExtractionJobRepository,
+)
+from property_management.application.ports.repositories.property_repository import (
+    PropertyRepository,
+)
+from property_management.domain.exceptions import ExtractionJobNotFoundError
+from property_management.domain.models.extraction_job import ExtractionJob
+from property_management.domain.models.property import (
+    Property,
+    PropertyStatus,
+)
+from property_management.domain.models.property_characteristics import (
+    PropertyCharacteristics,
+)
+from property_management.domain.models.property_owner import (
+    CivilStatus,
+    DocumentType,
+    PropertyOwner,
+)
+
+log = structlog.get_logger()
+
+
+class ProcessPropertyExtraction:
+    def __init__(
+        self,
+        extraction_job_repo: ExtractionJobRepository,
+        document_storage: DocumentStorage,
+        property_extractor: PropertyExtractorService,
+        property_repo: PropertyRepository,
+    ) -> None:
+        self.extraction_job_repo = extraction_job_repo
+        self.document_storage = document_storage
+        self.property_extractor = property_extractor
+        self.property_repo = property_repo
+
+    async def execute(self, *, job_id: str) -> ExtractionJob:
+        start = time.monotonic()
+
+        job = await self.extraction_job_repo.get_by_id(UUID(job_id))
+        if job is None:
+            raise ExtractionJobNotFoundError(job_id)
+
+        job.mark_processing()
+        await self.extraction_job_repo.update(job)
+        log.info("extraction.processing", job_id=job_id)
+
+        try:
+            documents = []
+            for key in job.document_keys:
+                data = await self.document_storage.download(key)
+                documents.append(data)
+
+            result = await self.property_extractor.extract(documents)
+
+            now = datetime.now(timezone.utc)
+            characteristics = None
+            if result.characteristics:
+                characteristics = PropertyCharacteristics.from_dict(result.characteristics)
+
+            if not job.listing_type or not job.typology:
+                raise ValueError("listing_type and typology are required on the job")
+
+            prop = Property(
+                id=uuid4(),
+                user_id=job.user_id,
+                address=result.address,
+                listing_type=job.listing_type,
+                typology=job.typology,
+                status=PropertyStatus.DRAFT,
+                description=result.description,
+                characteristics=characteristics,
+                created_at=now,
+                updated_at=now,
+            )
+            prop = await self.property_repo.save(prop)
+
+            for owner_data in result.owners:
+                dob = owner_data.get("date_of_birth")
+                if isinstance(dob, str):
+                    dob = date.fromisoformat(dob)
+                owner = PropertyOwner(
+                    id=uuid4(),
+                    property_id=prop.id,
+                    full_name=owner_data["full_name"],
+                    civil_status=CivilStatus(owner_data["civil_status"]),
+                    address=owner_data.get("address", result.address),
+                    nif=owner_data["nif"],
+                    document_type=DocumentType(owner_data["document_type"]),
+                    document_id=owner_data["document_id"],
+                    issued_by=owner_data["issued_by"],
+                    issuing_district=owner_data.get("issuing_district"),
+                    date_of_birth=dob,
+                    created_at=now,
+                    updated_at=now,
+                )
+                prop = await self.property_repo.save_owner(prop, owner)
+
+            job.mark_completed(prop.id)
+            await self.extraction_job_repo.update(job)
+
+            duration_ms = int((time.monotonic() - start) * 1000)
+            log.info(
+                "extraction.completed",
+                job_id=job_id,
+                property_id=str(prop.id),
+                duration_ms=duration_ms,
+            )
+        except Exception as exc:
+            job.mark_failed(str(exc))
+            await self.extraction_job_repo.update(job)
+
+            duration_ms = int((time.monotonic() - start) * 1000)
+            log.error(
+                "extraction.failed",
+                job_id=job_id,
+                error=str(exc),
+                duration_ms=duration_ms,
+            )
+
+        return job

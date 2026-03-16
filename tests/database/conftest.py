@@ -29,16 +29,20 @@ def postgres_url():
             eng = create_async_engine(async_url, poolclass=NullPool)
             async with eng.begin() as conn:
                 await conn.execute(text("CREATE SCHEMA IF NOT EXISTS auth;"))
-                await conn.execute(text(
-                    "CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid "
-                    "LANGUAGE sql STABLE AS $$ "
-                    "SELECT '00000000-0000-0000-0000-000000000000'::uuid; $$;"
-                ))
-                await conn.execute(text(
-                    "CREATE OR REPLACE FUNCTION auth.role() RETURNS text "
-                    "LANGUAGE sql STABLE AS $$ "
-                    "SELECT 'service_role'::text; $$;"
-                ))
+                await conn.execute(
+                    text(
+                        "CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid "
+                        "LANGUAGE sql STABLE AS $$ "
+                        "SELECT '00000000-0000-0000-0000-000000000000'::uuid; $$;"
+                    )
+                )
+                await conn.execute(
+                    text(
+                        "CREATE OR REPLACE FUNCTION auth.role() RETURNS text "
+                        "LANGUAGE sql STABLE AS $$ "
+                        "SELECT 'service_role'::text; $$;"
+                    )
+                )
             await eng.dispose()
 
         asyncio.run(_create_auth_stubs())

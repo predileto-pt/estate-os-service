@@ -5,7 +5,9 @@ import structlog
 
 from customer_management.application.ports.event_bus import EventBus
 from customer_management.application.ports.repositories.company_repository import CompanyRepository
-from customer_management.application.ports.repositories.subscription_repository import SubscriptionRepository
+from customer_management.application.ports.repositories.subscription_repository import (
+    SubscriptionRepository,
+)
 from customer_management.application.ports.repositories.user_repository import UserRepository
 from customer_management.domain.events import UserRegistered
 from customer_management.domain.exceptions import UserAlreadyExistsError

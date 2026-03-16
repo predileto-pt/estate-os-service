@@ -1,6 +1,8 @@
 from uuid import UUID
 
-from customer_management.application.ports.repositories.notification_repository import NotificationRepository
+from customer_management.application.ports.repositories.notification_repository import (
+    NotificationRepository,
+)
 from customer_management.domain.models.notification import Notification
 
 
@@ -11,6 +13,4 @@ class ListNotifications:
     async def execute(
         self, *, user_id: UUID, limit: int = 50, offset: int = 0
     ) -> list[Notification]:
-        return await self.notification_repo.list_by_user_id(
-            user_id, limit=limit, offset=offset
-        )
+        return await self.notification_repo.list_by_user_id(user_id, limit=limit, offset=offset)

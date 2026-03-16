@@ -3,7 +3,9 @@ from uuid import UUID
 
 from supabase import AsyncClient
 
-from customer_management.application.ports.repositories.notification_repository import NotificationRepository
+from customer_management.application.ports.repositories.notification_repository import (
+    NotificationRepository,
+)
 from customer_management.domain.models.notification import Notification, NotificationStatus
 
 
@@ -59,9 +61,7 @@ class SupabaseNotificationRepository(NotificationRepository):
 
     async def save(self, notification: Notification) -> Notification:
         result = (
-            await self._client.table("notifications")
-            .insert(self._to_row(notification))
-            .execute()
+            await self._client.table("notifications").insert(self._to_row(notification)).execute()
         )
         return self._to_domain(result.data[0])
 

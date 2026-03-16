@@ -1,6 +1,8 @@
 from uuid import UUID
 
-from customer_management.application.ports.repositories.notification_repository import NotificationRepository
+from customer_management.application.ports.repositories.notification_repository import (
+    NotificationRepository,
+)
 
 
 class MarkNotificationsRead:

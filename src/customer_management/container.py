@@ -1,9 +1,14 @@
 from customer_management.application.ports.email_service import EmailService
 from customer_management.application.ports.event_bus import EventBus
 from customer_management.application.ports.repositories.company_repository import CompanyRepository
-from customer_management.application.ports.repositories.notification_repository import NotificationRepository
-from customer_management.application.ports.repositories.subscription_repository import SubscriptionRepository
+from customer_management.application.ports.repositories.notification_repository import (
+    NotificationRepository,
+)
+from customer_management.application.ports.repositories.subscription_repository import (
+    SubscriptionRepository,
+)
 from customer_management.application.ports.repositories.user_repository import UserRepository
+from customer_management.application.use_cases.get_company import GetCompany
 from customer_management.application.use_cases.get_user_profile import GetUserProfile
 from customer_management.application.use_cases.list_notifications import ListNotifications
 from customer_management.application.use_cases.manage_subscription import (
@@ -46,6 +51,10 @@ class Container:
             company_repo=company_repo,
         )
         self.update_user_profile = UpdateUserProfile(user_repo=user_repo)
+        self.get_company = GetCompany(
+            company_repo=company_repo,
+            user_repo=user_repo,
+        )
         self.update_company = UpdateCompany(company_repo=company_repo)
         self.create_subscription = CreateSubscription(
             subscription_repo=subscription_repo,

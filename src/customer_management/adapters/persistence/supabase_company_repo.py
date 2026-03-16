@@ -45,9 +45,6 @@ class SupabaseCompanyRepository(CompanyRepository):
     async def update(self, company: Company) -> Company:
         row = self._to_row(company)
         result = (
-            await self._client.table("companies")
-            .update(row)
-            .eq("id", str(company.id))
-            .execute()
+            await self._client.table("companies").update(row).eq("id", str(company.id)).execute()
         )
         return self._to_domain(result.data[0])

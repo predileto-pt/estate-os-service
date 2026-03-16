@@ -2,10 +2,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from customer_management.adapters.api.dependencies import get_supabase_user_id
+from shared.api.dependencies import get_supabase_user_id
 from customer_management.adapters.api.routes.auth import _company_response
 from customer_management.adapters.api.schemas import CompanyResponse, UpdateCompanyRequest
-from customer_management.domain.exceptions import AuthorizationError, CompanyNotFoundError, UserNotFoundError
+from customer_management.domain.exceptions import (
+    AuthorizationError,
+    CompanyNotFoundError,
+    UserNotFoundError,
+)
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
@@ -25,19 +29,17 @@ async def get_company(
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
-    get_profile_uc = request.app.state.container.get_user_profile
+    get_company_uc = request.app.state.container.get_company
 
     try:
-        user, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
+        company = await get_company_uc.execute(
+            supabase_user_id=supabase_user_id, company_id=company_id
+        )
     except UserNotFoundError:
         raise HTTPException(status_code=404, detail="User not found")
-
-    if user.company_id != company_id:
+    except AuthorizationError:
         raise HTTPException(status_code=403, detail="Not authorized")
-
-    company_repo = request.app.state.container.company_repo
-    company = await company_repo.get_by_id(company_id)
-    if not company:
+    except CompanyNotFoundError:
         raise HTTPException(status_code=404, detail="Company not found")
 
     return _company_response(company)

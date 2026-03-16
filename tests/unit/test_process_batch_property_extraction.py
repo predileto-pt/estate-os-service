@@ -1,0 +1,290 @@
+import pytest
+from uuid import UUID, uuid4
+
+from property_management.adapters.inmemory.inmemory_document_classifier import (
+    InMemoryDocumentClassifier,
+)
+from property_management.adapters.inmemory.inmemory_document_extractor import (
+    InMemoryDocumentExtractor,
+)
+from property_management.adapters.inmemory.inmemory_document_storage import InMemoryDocumentStorage
+from property_management.adapters.inmemory.inmemory_extraction_job_repo import (
+    InMemoryExtractionJobRepository,
+)
+from property_management.adapters.inmemory.inmemory_property_extractor import (
+    InMemoryPropertyExtractor,
+)
+from property_management.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
+from property_management.application.ports.document_classifier import (
+    ClassifiedDocument,
+    DocumentClassifier,
+)
+from property_management.application.ports.document_data_extractor import DocumentDataExtractor
+from property_management.application.ports.property_extractor import (
+    PropertyExtractionResult,
+    PropertyExtractorService,
+)
+from property_management.application.use_cases.process_batch_property_extraction import (
+    ProcessBatchPropertyExtraction,
+)
+from property_management.domain.exceptions import ExtractionJobNotFoundError
+from property_management.domain.models.extraction_job import (
+    ExtractionJob,
+    ExtractionJobStatus,
+)
+
+TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+
+def _make_pending_job(job_id: UUID | None = None, num_docs: int = 3) -> ExtractionJob:
+    jid = job_id or uuid4()
+    return ExtractionJob(
+        id=jid,
+        user_id=TEST_USER_ID,
+        status=ExtractionJobStatus.PENDING,
+        document_keys=[f"extractions/{jid}/{i}.pdf" for i in range(num_docs)],
+        listing_type="sale",
+        typology="apartment",
+    )
+
+
+@pytest.fixture
+def storage():
+    return InMemoryDocumentStorage()
+
+
+@pytest.fixture
+def job_repo():
+    return InMemoryExtractionJobRepository()
+
+
+@pytest.fixture
+def classifier():
+    return InMemoryDocumentClassifier()
+
+
+@pytest.fixture
+def property_extractor():
+    return InMemoryPropertyExtractor()
+
+
+@pytest.fixture
+def document_extractor():
+    return InMemoryDocumentExtractor()
+
+
+@pytest.fixture
+def prop_repo():
+    return InMemoryPropertyRepository()
+
+
+@pytest.fixture
+def use_case(job_repo, storage, classifier, property_extractor, document_extractor, prop_repo):
+    return ProcessBatchPropertyExtraction(
+        extraction_job_repo=job_repo,
+        document_storage=storage,
+        document_classifier=classifier,
+        property_extractor=property_extractor,
+        document_data_extractor=document_extractor,
+        property_repo=prop_repo,
+    )
+
+
+class TestProcessBatchPropertyExtraction:
+    async def test_happy_path_property_doc_plus_id_docs(
+        self, use_case, job_repo, storage, prop_repo
+    ):
+        """1 property doc + 2 ID docs → property + owners created."""
+        job = _make_pending_job(num_docs=3)
+        await job_repo.save(job)
+        for key in job.document_keys:
+            await storage.upload(key, b"fake-pdf", "application/pdf")
+
+        result = await use_case.execute(job_id=str(job.id))
+
+        assert result.status == ExtractionJobStatus.COMPLETED
+        assert result.property_id is not None
+
+        props = await prop_repo.list_by_user(TEST_USER_ID)
+        assert len(props) == 1
+        assert props[0].address == "Rua das Flores 123, 4000-001 Porto"
+        assert props[0].characteristics is not None
+        # InMemory classifier: index 0 = property_doc, index 1,2 = personal_id
+        # InMemory property extractor returns 1 owner (NIF 123456789)
+        # InMemory document extractor returns owner with same NIF 123456789
+        # After dedup by NIF, only 1 unique owner (ID extraction wins)
+        assert len(props[0].owners) == 1
+
+    async def test_only_property_doc(self, job_repo, storage, prop_repo):
+        """Only property documents — owners from property extraction only."""
+
+        # Custom classifier that marks all docs as property docs
+        class AllPropertyClassifier(DocumentClassifier):
+            async def classify(self, documents):
+                return [
+                    ClassifiedDocument(
+                        index=i, category="property_document", document_subtype="escritura"
+                    )
+                    for i in range(len(documents))
+                ]
+
+        uc = ProcessBatchPropertyExtraction(
+            extraction_job_repo=job_repo,
+            document_storage=storage,
+            document_classifier=AllPropertyClassifier(),
+            property_extractor=InMemoryPropertyExtractor(),
+            document_data_extractor=InMemoryDocumentExtractor(),
+            property_repo=prop_repo,
+        )
+
+        job = _make_pending_job(num_docs=1)
+        await job_repo.save(job)
+        for key in job.document_keys:
+            await storage.upload(key, b"fake-pdf", "application/pdf")
+
+        result = await uc.execute(job_id=str(job.id))
+
+        assert result.status == ExtractionJobStatus.COMPLETED
+        props = await prop_repo.list_by_user(TEST_USER_ID)
+        assert len(props) == 1
+        assert len(props[0].owners) == 1
+
+    async def test_only_id_docs_fails(self, job_repo, storage, prop_repo):
+        """Only ID documents — should fail (no property data)."""
+
+        class AllIdClassifier(DocumentClassifier):
+            async def classify(self, documents):
+                return [
+                    ClassifiedDocument(
+                        index=i, category="personal_id", document_subtype="cartao_cidadao"
+                    )
+                    for i in range(len(documents))
+                ]
+
+        uc = ProcessBatchPropertyExtraction(
+            extraction_job_repo=job_repo,
+            document_storage=storage,
+            document_classifier=AllIdClassifier(),
+            property_extractor=InMemoryPropertyExtractor(),
+            document_data_extractor=InMemoryDocumentExtractor(),
+            property_repo=prop_repo,
+        )
+
+        job = _make_pending_job(num_docs=2)
+        await job_repo.save(job)
+        for key in job.document_keys:
+            await storage.upload(key, b"fake-pdf", "application/pdf")
+
+        result = await uc.execute(job_id=str(job.id))
+
+        assert result.status == ExtractionJobStatus.FAILED
+        assert "No property documents found" in result.error_message
+
+    async def test_job_not_found(self, use_case):
+        with pytest.raises(ExtractionJobNotFoundError):
+            await use_case.execute(job_id=str(uuid4()))
+
+    async def test_classification_error_marks_job_failed(self, job_repo, storage, prop_repo):
+        class FailingClassifier(DocumentClassifier):
+            async def classify(self, documents):
+                raise RuntimeError("Classification service unavailable")
+
+        uc = ProcessBatchPropertyExtraction(
+            extraction_job_repo=job_repo,
+            document_storage=storage,
+            document_classifier=FailingClassifier(),
+            property_extractor=InMemoryPropertyExtractor(),
+            document_data_extractor=InMemoryDocumentExtractor(),
+            property_repo=prop_repo,
+        )
+
+        job = _make_pending_job(num_docs=1)
+        await job_repo.save(job)
+        for key in job.document_keys:
+            await storage.upload(key, b"fake-pdf", "application/pdf")
+
+        result = await uc.execute(job_id=str(job.id))
+
+        assert result.status == ExtractionJobStatus.FAILED
+        assert "Classification service unavailable" in result.error_message
+
+    async def test_extraction_error_marks_job_failed(self, job_repo, storage, prop_repo):
+        class FailingExtractor(PropertyExtractorService):
+            async def extract(self, documents):
+                raise RuntimeError("AI service unavailable")
+
+        uc = ProcessBatchPropertyExtraction(
+            extraction_job_repo=job_repo,
+            document_storage=storage,
+            document_classifier=InMemoryDocumentClassifier(),
+            property_extractor=FailingExtractor(),
+            document_data_extractor=InMemoryDocumentExtractor(),
+            property_repo=prop_repo,
+        )
+
+        job = _make_pending_job(num_docs=1)
+        await job_repo.save(job)
+        for key in job.document_keys:
+            await storage.upload(key, b"fake-pdf", "application/pdf")
+
+        result = await uc.execute(job_id=str(job.id))
+
+        assert result.status == ExtractionJobStatus.FAILED
+        assert "AI service unavailable" in result.error_message
+
+    async def test_owner_dedup_by_nif_id_wins(self, job_repo, storage, prop_repo):
+        """When same NIF appears in property extraction + ID extraction, ID version wins."""
+
+        class PropertyExtractorWithOwner(PropertyExtractorService):
+            async def extract(self, documents):
+                return PropertyExtractionResult(
+                    address="Rua Test 1",
+                    owners=[
+                        {
+                            "full_name": "Name From Escritura",
+                            "civil_status": "single",
+                            "address": "Rua Test 1",
+                            "nif": "987654321",
+                            "document_type": "cartao_cidadao",
+                            "document_id": "OLD-ID",
+                            "issued_by": "Old Authority",
+                            "date_of_birth": "1990-01-01",
+                        }
+                    ],
+                )
+
+        class IdExtractorWithSameNif(DocumentDataExtractor):
+            async def extract_property_owner_data(self, file_bytes, content_type):
+                return {
+                    "full_name": "Name From ID Card",
+                    "civil_status": "single",
+                    "address": "Rua Test 1",
+                    "nif": "987654321",
+                    "document_type": "cartao_cidadao",
+                    "document_id": "NEW-ID",
+                    "issued_by": "New Authority",
+                    "date_of_birth": "1990-01-01",
+                }
+
+        uc = ProcessBatchPropertyExtraction(
+            extraction_job_repo=job_repo,
+            document_storage=storage,
+            document_classifier=InMemoryDocumentClassifier(),
+            property_extractor=PropertyExtractorWithOwner(),
+            document_data_extractor=IdExtractorWithSameNif(),
+            property_repo=prop_repo,
+        )
+
+        job = _make_pending_job(num_docs=2)
+        await job_repo.save(job)
+        for key in job.document_keys:
+            await storage.upload(key, b"fake-pdf", "application/pdf")
+
+        result = await uc.execute(job_id=str(job.id))
+
+        assert result.status == ExtractionJobStatus.COMPLETED
+        props = await prop_repo.list_by_user(TEST_USER_ID)
+        assert len(props[0].owners) == 1
+        # ID extraction version should win
+        assert props[0].owners[0].full_name == "Name From ID Card"
+        assert props[0].owners[0].document_id == "NEW-ID"

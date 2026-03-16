@@ -1,6 +1,3 @@
-from mangum import Mangum
+from shared.entrypoints.lambda_handler import app, handler
 
-from customer_management.main import create_app
-
-app = create_app()
-handler = Mangum(app, lifespan="off")
+__all__ = ["app", "handler"]

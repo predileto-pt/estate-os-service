@@ -1,8 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from customer_management.adapters.api.dependencies import get_supabase_user_id
+from shared.api.dependencies import get_supabase_user_id
 from customer_management.adapters.api.routes.auth import _company_response, _user_response
-from customer_management.adapters.api.schemas import UpdateUserRequest, UserResponse, UserWithCompanyResponse
+from customer_management.adapters.api.schemas import (
+    UpdateUserRequest,
+    UserResponse,
+    UserWithCompanyResponse,
+)
 from customer_management.domain.exceptions import UserNotFoundError
 from customer_management.domain.models.value_objects import PhoneNumber
 

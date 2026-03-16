@@ -7,8 +7,10 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
-from customer_management.config import Settings
-from customer_management.adapters.database.models import Base
+from shared.config import Settings
+from shared.database.models import Base
+import customer_management.adapters.database.models  # noqa: F401 — register models for autogenerate
+import property_management.adapters.database.models  # noqa: F401 — register models for autogenerate
 
 config = context.config
 

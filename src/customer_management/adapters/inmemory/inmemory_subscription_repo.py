@@ -1,6 +1,8 @@
 from uuid import UUID
 
-from customer_management.application.ports.repositories.subscription_repository import SubscriptionRepository
+from customer_management.application.ports.repositories.subscription_repository import (
+    SubscriptionRepository,
+)
 from customer_management.domain.models.subscription import Subscription
 
 

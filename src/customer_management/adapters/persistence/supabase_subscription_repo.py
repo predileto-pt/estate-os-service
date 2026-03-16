@@ -2,7 +2,9 @@ from uuid import UUID
 
 from supabase import AsyncClient
 
-from customer_management.application.ports.repositories.subscription_repository import SubscriptionRepository
+from customer_management.application.ports.repositories.subscription_repository import (
+    SubscriptionRepository,
+)
 from customer_management.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
@@ -73,9 +75,7 @@ class SupabaseSubscriptionRepository(SubscriptionRepository):
 
     async def save(self, subscription: Subscription) -> Subscription:
         result = (
-            await self._client.table("subscriptions")
-            .insert(self._to_row(subscription))
-            .execute()
+            await self._client.table("subscriptions").insert(self._to_row(subscription)).execute()
         )
         return self._to_domain(result.data[0])
 

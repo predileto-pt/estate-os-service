@@ -14,9 +14,7 @@ class SupabaseUserRepository(UserRepository):
     def _to_domain(self, row: dict) -> User:
         phone = None
         if row.get("phone_country_code") and row.get("phone_number"):
-            phone = PhoneNumber(
-                country_code=row["phone_country_code"], number=row["phone_number"]
-            )
+            phone = PhoneNumber(country_code=row["phone_country_code"], number=row["phone_number"])
         return User(
             id=UUID(row["id"]),
             supabase_user_id=row["supabase_user_id"],
@@ -70,7 +68,5 @@ class SupabaseUserRepository(UserRepository):
 
     async def update(self, user: User) -> User:
         row = self._to_row(user)
-        result = (
-            await self._client.table("users").update(row).eq("id", str(user.id)).execute()
-        )
+        result = await self._client.table("users").update(row).eq("id", str(user.id)).execute()
         return self._to_domain(result.data[0])

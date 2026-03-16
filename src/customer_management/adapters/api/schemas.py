@@ -4,7 +4,11 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from customer_management.domain.models.notification import NotificationStatus
-from customer_management.domain.models.subscription import SubscriptionPlan, SubscriptionStatus, SubscriptionType
+from customer_management.domain.models.subscription import (
+    SubscriptionPlan,
+    SubscriptionStatus,
+    SubscriptionType,
+)
 
 
 # --- Auth ---

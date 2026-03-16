@@ -28,8 +28,13 @@ def upgrade() -> None:
         "stripe", "manual", "deposit", name="subscription_type", create_type=False
     )
     subscription_status = postgresql.ENUM(
-        "active", "cancelled", "past_due", "trialing", "inactive",
-        name="subscription_status", create_type=False,
+        "active",
+        "cancelled",
+        "past_due",
+        "trialing",
+        "inactive",
+        name="subscription_status",
+        create_type=False,
     )
     notification_status = postgresql.ENUM(
         "unread", "read", name="notification_status", create_type=False
@@ -48,8 +53,12 @@ def upgrade() -> None:
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column("nif", sa.Text(), nullable=False),
         sa.Column("address", sa.Text(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("user_id"),
     )
@@ -65,8 +74,12 @@ def upgrade() -> None:
         sa.Column("phone_number", sa.Text(), nullable=True),
         sa.Column("company_id", sa.UUID(), sa.ForeignKey("companies.id"), nullable=False),
         sa.Column("google_metadata", postgresql.JSONB(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("supabase_user_id"),
         sa.UniqueConstraint("email"),
@@ -84,8 +97,12 @@ def upgrade() -> None:
         sa.Column("stripe_price_id", sa.Text(), nullable=True),
         sa.Column("current_period_start", sa.DateTime(timezone=True), nullable=True),
         sa.Column("current_period_end", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
 
@@ -98,7 +115,9 @@ def upgrade() -> None:
         sa.Column("message", sa.Text(), nullable=False),
         sa.Column("status", notification_status, server_default="unread", nullable=False),
         sa.Column("channel", sa.Text(), server_default="in_app", nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.Column("read_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -180,14 +199,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DROP POLICY IF EXISTS \"Service role can manage notifications\" ON notifications;")
-    op.execute("DROP POLICY IF EXISTS \"Users can view own notifications\" ON notifications;")
-    op.execute("DROP POLICY IF EXISTS \"Service role can manage subscriptions\" ON subscriptions;")
-    op.execute("DROP POLICY IF EXISTS \"Service role can manage users\" ON users;")
-    op.execute("DROP POLICY IF EXISTS \"Users can update own record\" ON users;")
-    op.execute("DROP POLICY IF EXISTS \"Users can view own record\" ON users;")
-    op.execute("DROP POLICY IF EXISTS \"Users can manage their own company\" ON companies;")
-    op.execute("DROP POLICY IF EXISTS \"Service role can manage companies\" ON companies;")
+    op.execute('DROP POLICY IF EXISTS "Service role can manage notifications" ON notifications;')
+    op.execute('DROP POLICY IF EXISTS "Users can view own notifications" ON notifications;')
+    op.execute('DROP POLICY IF EXISTS "Service role can manage subscriptions" ON subscriptions;')
+    op.execute('DROP POLICY IF EXISTS "Service role can manage users" ON users;')
+    op.execute('DROP POLICY IF EXISTS "Users can update own record" ON users;')
+    op.execute('DROP POLICY IF EXISTS "Users can view own record" ON users;')
+    op.execute('DROP POLICY IF EXISTS "Users can manage their own company" ON companies;')
+    op.execute('DROP POLICY IF EXISTS "Service role can manage companies" ON companies;')
 
     op.execute("DROP TRIGGER IF EXISTS trg_subscriptions_updated_at ON subscriptions;")
     op.execute("DROP TRIGGER IF EXISTS trg_users_updated_at ON users;")

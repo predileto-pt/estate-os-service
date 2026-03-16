@@ -11,8 +11,12 @@ from customer_management.adapters.database.models import (
     UserModel,
 )
 from customer_management.application.ports.repositories.company_repository import CompanyRepository
-from customer_management.application.ports.repositories.notification_repository import NotificationRepository
-from customer_management.application.ports.repositories.subscription_repository import SubscriptionRepository
+from customer_management.application.ports.repositories.notification_repository import (
+    NotificationRepository,
+)
+from customer_management.application.ports.repositories.subscription_repository import (
+    SubscriptionRepository,
+)
 from customer_management.application.ports.repositories.user_repository import UserRepository
 from customer_management.domain.models.company import Company
 from customer_management.domain.models.notification import Notification, NotificationStatus
@@ -121,9 +125,7 @@ class SqlAlchemyUserRepository(UserRepository):
         )
 
     async def get_by_id(self, user_id: UUID) -> User | None:
-        result = await self._session.execute(
-            select(UserModel).where(UserModel.id == str(user_id))
-        )
+        result = await self._session.execute(select(UserModel).where(UserModel.id == str(user_id)))
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
@@ -135,9 +137,7 @@ class SqlAlchemyUserRepository(UserRepository):
         return self._to_domain(row) if row else None
 
     async def get_by_email(self, email: str) -> User | None:
-        result = await self._session.execute(
-            select(UserModel).where(UserModel.email == email)
-        )
+        result = await self._session.execute(select(UserModel).where(UserModel.email == email))
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
@@ -149,9 +149,7 @@ class SqlAlchemyUserRepository(UserRepository):
         return self._to_domain(model)
 
     async def update(self, user: User) -> User:
-        result = await self._session.execute(
-            select(UserModel).where(UserModel.id == str(user.id))
-        )
+        result = await self._session.execute(select(UserModel).where(UserModel.id == str(user.id)))
         model = result.scalar_one()
         model.supabase_user_id = user.supabase_user_id
         model.email = user.email

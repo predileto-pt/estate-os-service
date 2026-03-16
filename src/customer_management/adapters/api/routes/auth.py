@@ -1,7 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from customer_management.adapters.api.dependencies import get_supabase_user_id
-from customer_management.adapters.api.schemas import RegisterRequest, UserResponse, UserWithCompanyResponse
+from shared.api.dependencies import get_supabase_user_id
+from customer_management.adapters.api.schemas import (
+    RegisterRequest,
+    UserResponse,
+    UserWithCompanyResponse,
+)
 from customer_management.domain.exceptions import UserAlreadyExistsError, UserNotFoundError
 from customer_management.domain.models.value_objects import PhoneNumber
 
