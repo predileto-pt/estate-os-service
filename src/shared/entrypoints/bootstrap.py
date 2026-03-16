@@ -12,10 +12,16 @@ from customer_management.adapters.persistence.supabase_subscription_repo import 
 from customer_management.adapters.persistence.supabase_user_repo import SupabaseUserRepository
 from shared.config import Settings
 from customer_management.container import Container
-from property_management.adapters.ai.openai_document_classifier import OpenAIDocumentClassifier
-from property_management.adapters.ai.openai_document_extractor import OpenAIDocumentExtractor
+from property_management.adapters.ai.openai_id_document_extractor import OpenAIIdDocumentExtractor
+from property_management.adapters.ai.openai_text_document_classifier import (
+    OpenAITextDocumentClassifier,
+)
+from property_management.adapters.ai.reducto_document_parser import ReductoDocumentParser
 from property_management.adapters.ai.reducto_openai_property_extractor import (
     ReductoOpenAIPropertyExtractor,
+)
+from property_management.adapters.persistence.supabase_document_content_repo import (
+    SupabaseDocumentContentRepository,
 )
 from property_management.adapters.persistence.supabase_extraction_job_repo import (
     SupabaseExtractionJobRepository,
@@ -66,8 +72,11 @@ async def get_property_container() -> PropertyContainer:
         aws_secret_access_key=settings.aws_secret_access_key,
     )
 
-    property_extractor = ReductoOpenAIPropertyExtractor(
+    document_parser = ReductoDocumentParser(
         reducto_api_key=settings.reducto_api_key,
+    )
+
+    property_extractor = ReductoOpenAIPropertyExtractor(
         openai_api_key=settings.openai_api_key,
     )
 
@@ -79,15 +88,18 @@ async def get_property_container() -> PropertyContainer:
         aws_secret_access_key=settings.aws_secret_access_key,
     )
 
-    document_classifier = OpenAIDocumentClassifier(settings.openai_api_key)
+    document_classifier = OpenAITextDocumentClassifier(settings.openai_api_key)
+    document_data_extractor = OpenAIIdDocumentExtractor(settings.openai_api_key)
 
     _property_container = PropertyContainer(
         property_repo=SupabasePropertyRepository(client),
-        document_extractor=OpenAIDocumentExtractor(settings.openai_api_key),
+        document_extractor=document_data_extractor,
         document_storage=document_storage,
         property_extractor=property_extractor,
         extraction_job_repo=SupabaseExtractionJobRepository(client),
         event_bus=event_bus,
         document_classifier=document_classifier,
+        document_parser=document_parser,
+        document_content_repo=SupabaseDocumentContentRepository(client),
     )
     return _property_container

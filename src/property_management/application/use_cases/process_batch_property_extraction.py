@@ -8,8 +8,12 @@ import structlog
 
 from property_management.application.ports.document_classifier import DocumentClassifier
 from property_management.application.ports.document_data_extractor import DocumentDataExtractor
+from property_management.application.ports.document_parser import DocumentParser
 from property_management.application.ports.document_storage import DocumentStorage
 from property_management.application.ports.property_extractor import PropertyExtractorService
+from property_management.application.ports.repositories.document_content_repository import (
+    DocumentContentRepository,
+)
 from property_management.application.ports.repositories.extraction_job_repository import (
     ExtractionJobRepository,
 )
@@ -17,6 +21,7 @@ from property_management.application.ports.repositories.property_repository impo
     PropertyRepository,
 )
 from property_management.domain.exceptions import ExtractionJobNotFoundError
+from property_management.domain.models.document_content import DocumentContent
 from property_management.domain.models.extraction_job import ExtractionJob
 from property_management.domain.models.property import (
     Property,
@@ -37,17 +42,21 @@ class ProcessBatchPropertyExtraction:
         self,
         extraction_job_repo: ExtractionJobRepository,
         document_storage: DocumentStorage,
+        document_parser: DocumentParser,
         document_classifier: DocumentClassifier,
         property_extractor: PropertyExtractorService,
         document_data_extractor: DocumentDataExtractor,
         property_repo: PropertyRepository,
+        document_content_repo: DocumentContentRepository,
     ) -> None:
         self.extraction_job_repo = extraction_job_repo
         self.document_storage = document_storage
+        self.document_parser = document_parser
         self.document_classifier = document_classifier
         self.property_extractor = property_extractor
         self.document_data_extractor = document_data_extractor
         self.property_repo = property_repo
+        self.document_content_repo = document_content_repo
 
     async def execute(self, *, job_id: str) -> ExtractionJob:
         start = time.monotonic()
@@ -61,39 +70,73 @@ class ProcessBatchPropertyExtraction:
         log.info("batch_extraction.processing", job_id=job_id)
 
         try:
-            # 1. Download all documents
+            # 1. Download all documents from S3
             documents: list[bytes] = []
             for key in job.document_keys:
                 data = await self.document_storage.download(key)
                 documents.append(data)
 
-            # 2. Classify documents
-            classifications = await self.document_classifier.classify(documents)
+            # 2. Parse all documents with Reducto (single OCR pass)
+            parsed_texts = await self.document_parser.parse_batch(documents)
 
-            property_docs = []
-            id_docs = []
+            # 3. Persist parsed content → document_contents table
+            contents = [
+                DocumentContent(
+                    id=uuid4(),
+                    extraction_job_id=job.id,
+                    document_index=i,
+                    document_key=job.document_keys[i],
+                    parsed_text=text,
+                )
+                for i, text in enumerate(parsed_texts)
+            ]
+            contents = await self.document_content_repo.save_batch(contents)
+
+            # 4. Classify parsed text (text-based, no vision)
+            classifications = await self.document_classifier.classify(parsed_texts)
+
+            # 5. Update document_contents with classification
             for clf in classifications:
-                if clf.category == "property_document":
-                    property_docs.append(documents[clf.index])
-                else:
-                    id_docs.append(documents[clf.index])
+                if 0 <= clf.index < len(contents):
+                    await self.document_content_repo.update_classification(
+                        contents[clf.index].id,
+                        clf.category,
+                        clf.document_subtype,
+                    )
 
-            if not property_docs:
+            # 6. Split into property texts / ID docs by category
+            property_texts: list[str] = []
+            id_docs: list[tuple[str, str]] = []  # (document_subtype, text)
+            for clf in classifications:
+                if clf.index < 0 or clf.index >= len(parsed_texts):
+                    continue
+                text = parsed_texts[clf.index]
+                if clf.category == "property_document":
+                    property_texts.append(text)
+                elif clf.category == "personal_id":
+                    id_docs.append((clf.document_subtype, text))
+                else:
+                    log.warning(
+                        "batch_extraction.unknown_category",
+                        index=clf.index,
+                        category=clf.category,
+                    )
+
+            if not property_texts:
                 raise ValueError("No property documents found — cannot create property")
 
-            # 3. Extract property data from property documents
-            property_result = await self.property_extractor.extract(property_docs)
+            # 7. Extract property data from property texts (no OCR needed)
+            property_result = await self.property_extractor.extract(property_texts)
 
-            # 4. Extract owner data from each ID document
+            # 8. Extract owners from each ID doc text (no OCR, subtype-routed)
             id_owners: list[dict] = []
-            for id_doc in id_docs:
+            for doc_subtype, text in id_docs:
                 owner_data = await self.document_data_extractor.extract_property_owner_data(
-                    id_doc, "application/pdf"
+                    text, doc_subtype
                 )
                 id_owners.append(owner_data)
 
-            # 5. Merge owners: property extraction owners + ID extraction owners
-            #    Deduplicate by NIF — ID extraction takes precedence
+            # 9. Merge owners (dedup by NIF, ID takes precedence)
             owners_by_nif: dict[str, dict] = {}
             for owner_data in property_result.owners:
                 nif = owner_data.get("nif")
@@ -101,10 +144,16 @@ class ProcessBatchPropertyExtraction:
                     owners_by_nif[nif] = owner_data
             for owner_data in id_owners:
                 nif = owner_data.get("nif")
-                if nif:
-                    owners_by_nif[nif] = owner_data
+                if nif and nif != "000000000":
+                    existing = owners_by_nif.get(nif, {})
+                    merged = {**existing, **{k: v for k, v in owner_data.items() if v is not None}}
+                    owners_by_nif[nif] = merged
+                elif nif != "000000000":
+                    name = owner_data.get("full_name", "")
+                    if name:
+                        owners_by_nif[f"_no_nif_{name}"] = owner_data
 
-            # 6. Create Property
+            # 10. Create Property + PropertyOwner records
             if not job.listing_type or not job.typology:
                 raise ValueError("listing_type and typology are required on the job")
 
@@ -127,21 +176,34 @@ class ProcessBatchPropertyExtraction:
             )
             prop = await self.property_repo.save(prop)
 
-            # 7. Create PropertyOwner records
             for owner_data in owners_by_nif.values():
                 dob = owner_data.get("date_of_birth")
                 if isinstance(dob, str):
                     dob = date.fromisoformat(dob)
+
+                nif = owner_data.get("nif")
+                full_name = owner_data.get("full_name")
+                if not nif or not full_name:
+                    log.warning(
+                        "batch_extraction.skipping_owner", reason="missing nif or full_name"
+                    )
+                    continue
+
+                civil_status_raw = owner_data.get("civil_status")
+                civil_status = CivilStatus(civil_status_raw) if civil_status_raw else None
+                doc_type_raw = owner_data.get("document_type")
+                document_type = DocumentType(doc_type_raw) if doc_type_raw else None
+
                 owner = PropertyOwner(
                     id=uuid4(),
                     property_id=prop.id,
-                    full_name=owner_data["full_name"],
-                    civil_status=CivilStatus(owner_data["civil_status"]),
+                    full_name=full_name,
+                    civil_status=civil_status,
                     address=owner_data.get("address", property_result.address),
-                    nif=owner_data["nif"],
-                    document_type=DocumentType(owner_data["document_type"]),
-                    document_id=owner_data["document_id"],
-                    issued_by=owner_data["issued_by"],
+                    nif=nif,
+                    document_type=document_type,
+                    document_id=owner_data.get("document_id"),
+                    issued_by=owner_data.get("issued_by"),
                     issuing_district=owner_data.get("issuing_district"),
                     date_of_birth=dob,
                     created_at=now,
@@ -149,7 +211,7 @@ class ProcessBatchPropertyExtraction:
                 )
                 prop = await self.property_repo.save_owner(prop, owner)
 
-            # 8. Mark completed
+            # 11. Mark job completed
             job.mark_completed(prop.id)
             await self.extraction_job_repo.update(job)
 

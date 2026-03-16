@@ -2,7 +2,7 @@ from property_management.application.ports.document_data_extractor import Docume
 
 
 class InMemoryDocumentExtractor(DocumentDataExtractor):
-    async def extract_property_owner_data(self, file_bytes: bytes, content_type: str) -> dict:
+    async def extract_property_owner_data(self, parsed_text: str, document_subtype: str) -> dict:
         return {
             "full_name": "Maria Silva Santos",
             "civil_status": "married",

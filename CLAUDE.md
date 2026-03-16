@@ -65,7 +65,7 @@ The service hosts two independent bounded contexts, each following the same hexa
 | Context | Package | Container | Entities |
 |---------|---------|-----------|----------|
 | **Customer Management** | `src/customer_management/` | `Container` on `app.state.container` | User, Company, Subscription, Notification |
-| **Property Management** | `src/property_management/` | `Container` on `app.state.property_container` | Property, PropertyOwner, ExtractionJob, PropertyCharacteristics |
+| **Property Management** | `src/property_management/` | `Container` on `app.state.property_container` | Property, PropertyOwner, ExtractionJob, PropertyCharacteristics, DocumentContent |
 
 Both are wired in `shared/main.py` via `create_app(container, property_container)` and bootstrapped for production in `shared/entrypoints/bootstrap.py`. Routes access use cases through `request.app.state.container.<use_case>` or `request.app.state.property_container.<use_case>`. Neither context imports from the other.
 
@@ -80,8 +80,10 @@ Both are wired in `shared/main.py` via `create_app(container, property_container
 
 Two async extraction flows, both following: presign → upload → submit → SQS → process.
 
-1. **Single extraction** (`POST /api/v1/extraction-jobs`): One property document → extracts property + owners.
-2. **Batch extraction** (`POST /api/v1/extraction-jobs/batch`): 1–5 mixed documents → classifies each as property_document or personal_id → extracts property data from property docs → extracts owner data from ID docs with type-specific prompts → merges owners by NIF (ID extraction wins) → creates Property + PropertyOwners.
+1. **Single extraction** (`POST /api/v1/extraction-jobs`): One property document → parse with Reducto → extract property + owners from text.
+2. **Batch extraction** (`POST /api/v1/extraction-jobs/batch`): 1–5 mixed documents → parse all with Reducto (single OCR pass) → persist parsed text in `document_contents` → classify from text → extract property data from property docs → extract owner data from ID docs with subtype-specific prompts → merge owners by NIF (ID extraction wins) → create Property + PropertyOwners.
+
+All document processing follows a **parse-first** approach: documents are OCR'd once via Reducto, and all downstream steps (classification, property extraction, ID extraction) operate on the parsed text — no re-OCR or vision API calls.
 
 `listing_type` and `typology` are **user inputs** provided at submission time, not extracted from documents. They are stored on the ExtractionJob and used when creating the Property.
 
@@ -91,9 +93,11 @@ Two async extraction flows, both following: presign → upload → submit → SQ
 |------|---------|-------------------|
 | `PropertyRepository` | CRUD for properties + owners | `SupabasePropertyRepository` |
 | `ExtractionJobRepository` | CRUD for extraction jobs | `SupabaseExtractionJobRepository` |
-| `PropertyExtractorService` | OCR + AI property extraction | `ReductoOpenAIPropertyExtractor` |
-| `DocumentDataExtractor` | AI owner data from ID docs | `OpenAIDocumentExtractor` |
-| `DocumentClassifier` | AI document classification | `OpenAIDocumentClassifier` |
+| `DocumentContentRepository` | Persist parsed document text + classification | `SupabaseDocumentContentRepository` |
+| `DocumentParser` | OCR / document parsing | `ReductoDocumentParser` |
+| `PropertyExtractorService` | AI property extraction from text | `ReductoOpenAIPropertyExtractor` |
+| `DocumentDataExtractor` | AI owner data from ID doc text | `OpenAIIdDocumentExtractor` |
+| `DocumentClassifier` | AI document classification from text | `OpenAITextDocumentClassifier` |
 | `DocumentStorage` | S3 file upload/download | `S3DocumentStorage` |
 | `EventBus` | SQS event publishing | `SQSEventBus` |
 

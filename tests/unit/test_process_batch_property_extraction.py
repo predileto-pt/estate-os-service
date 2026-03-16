@@ -4,9 +4,13 @@ from uuid import UUID, uuid4
 from property_management.adapters.inmemory.inmemory_document_classifier import (
     InMemoryDocumentClassifier,
 )
+from property_management.adapters.inmemory.inmemory_document_content_repo import (
+    InMemoryDocumentContentRepository,
+)
 from property_management.adapters.inmemory.inmemory_document_extractor import (
     InMemoryDocumentExtractor,
 )
+from property_management.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
 from property_management.adapters.inmemory.inmemory_document_storage import InMemoryDocumentStorage
 from property_management.adapters.inmemory.inmemory_extraction_job_repo import (
     InMemoryExtractionJobRepository,
@@ -79,20 +83,41 @@ def prop_repo():
 
 
 @pytest.fixture
-def use_case(job_repo, storage, classifier, property_extractor, document_extractor, prop_repo):
+def document_parser():
+    return InMemoryDocumentParser()
+
+
+@pytest.fixture
+def document_content_repo():
+    return InMemoryDocumentContentRepository()
+
+
+@pytest.fixture
+def use_case(
+    job_repo,
+    storage,
+    document_parser,
+    classifier,
+    property_extractor,
+    document_extractor,
+    prop_repo,
+    document_content_repo,
+):
     return ProcessBatchPropertyExtraction(
         extraction_job_repo=job_repo,
         document_storage=storage,
+        document_parser=document_parser,
         document_classifier=classifier,
         property_extractor=property_extractor,
         document_data_extractor=document_extractor,
         property_repo=prop_repo,
+        document_content_repo=document_content_repo,
     )
 
 
 class TestProcessBatchPropertyExtraction:
     async def test_happy_path_property_doc_plus_id_docs(
-        self, use_case, job_repo, storage, prop_repo
+        self, use_case, job_repo, storage, prop_repo, document_content_repo
     ):
         """1 property doc + 2 ID docs → property + owners created."""
         job = _make_pending_job(num_docs=3)
@@ -109,32 +134,35 @@ class TestProcessBatchPropertyExtraction:
         assert len(props) == 1
         assert props[0].address == "Rua das Flores 123, 4000-001 Porto"
         assert props[0].characteristics is not None
-        # InMemory classifier: index 0 = property_doc, index 1,2 = personal_id
-        # InMemory property extractor returns 1 owner (NIF 123456789)
-        # InMemory document extractor returns owner with same NIF 123456789
-        # After dedup by NIF, only 1 unique owner (ID extraction wins)
         assert len(props[0].owners) == 1
 
-    async def test_only_property_doc(self, job_repo, storage, prop_repo):
+        # Document contents were persisted
+        contents = await document_content_repo.get_by_job_id(job.id)
+        assert len(contents) == 3
+
+    async def test_only_property_doc(
+        self, job_repo, storage, prop_repo, document_parser, document_content_repo
+    ):
         """Only property documents — owners from property extraction only."""
 
-        # Custom classifier that marks all docs as property docs
         class AllPropertyClassifier(DocumentClassifier):
-            async def classify(self, documents):
+            async def classify(self, document_texts):
                 return [
                     ClassifiedDocument(
                         index=i, category="property_document", document_subtype="escritura"
                     )
-                    for i in range(len(documents))
+                    for i in range(len(document_texts))
                 ]
 
         uc = ProcessBatchPropertyExtraction(
             extraction_job_repo=job_repo,
             document_storage=storage,
+            document_parser=document_parser,
             document_classifier=AllPropertyClassifier(),
             property_extractor=InMemoryPropertyExtractor(),
             document_data_extractor=InMemoryDocumentExtractor(),
             property_repo=prop_repo,
+            document_content_repo=document_content_repo,
         )
 
         job = _make_pending_job(num_docs=1)
@@ -149,25 +177,29 @@ class TestProcessBatchPropertyExtraction:
         assert len(props) == 1
         assert len(props[0].owners) == 1
 
-    async def test_only_id_docs_fails(self, job_repo, storage, prop_repo):
+    async def test_only_id_docs_fails(
+        self, job_repo, storage, prop_repo, document_parser, document_content_repo
+    ):
         """Only ID documents — should fail (no property data)."""
 
         class AllIdClassifier(DocumentClassifier):
-            async def classify(self, documents):
+            async def classify(self, document_texts):
                 return [
                     ClassifiedDocument(
                         index=i, category="personal_id", document_subtype="cartao_cidadao"
                     )
-                    for i in range(len(documents))
+                    for i in range(len(document_texts))
                 ]
 
         uc = ProcessBatchPropertyExtraction(
             extraction_job_repo=job_repo,
             document_storage=storage,
+            document_parser=document_parser,
             document_classifier=AllIdClassifier(),
             property_extractor=InMemoryPropertyExtractor(),
             document_data_extractor=InMemoryDocumentExtractor(),
             property_repo=prop_repo,
+            document_content_repo=document_content_repo,
         )
 
         job = _make_pending_job(num_docs=2)
@@ -184,18 +216,22 @@ class TestProcessBatchPropertyExtraction:
         with pytest.raises(ExtractionJobNotFoundError):
             await use_case.execute(job_id=str(uuid4()))
 
-    async def test_classification_error_marks_job_failed(self, job_repo, storage, prop_repo):
+    async def test_classification_error_marks_job_failed(
+        self, job_repo, storage, prop_repo, document_parser, document_content_repo
+    ):
         class FailingClassifier(DocumentClassifier):
-            async def classify(self, documents):
+            async def classify(self, document_texts):
                 raise RuntimeError("Classification service unavailable")
 
         uc = ProcessBatchPropertyExtraction(
             extraction_job_repo=job_repo,
             document_storage=storage,
+            document_parser=document_parser,
             document_classifier=FailingClassifier(),
             property_extractor=InMemoryPropertyExtractor(),
             document_data_extractor=InMemoryDocumentExtractor(),
             property_repo=prop_repo,
+            document_content_repo=document_content_repo,
         )
 
         job = _make_pending_job(num_docs=1)
@@ -208,18 +244,22 @@ class TestProcessBatchPropertyExtraction:
         assert result.status == ExtractionJobStatus.FAILED
         assert "Classification service unavailable" in result.error_message
 
-    async def test_extraction_error_marks_job_failed(self, job_repo, storage, prop_repo):
+    async def test_extraction_error_marks_job_failed(
+        self, job_repo, storage, prop_repo, document_parser, document_content_repo
+    ):
         class FailingExtractor(PropertyExtractorService):
-            async def extract(self, documents):
+            async def extract(self, document_texts):
                 raise RuntimeError("AI service unavailable")
 
         uc = ProcessBatchPropertyExtraction(
             extraction_job_repo=job_repo,
             document_storage=storage,
+            document_parser=document_parser,
             document_classifier=InMemoryDocumentClassifier(),
             property_extractor=FailingExtractor(),
             document_data_extractor=InMemoryDocumentExtractor(),
             property_repo=prop_repo,
+            document_content_repo=document_content_repo,
         )
 
         job = _make_pending_job(num_docs=1)
@@ -232,11 +272,13 @@ class TestProcessBatchPropertyExtraction:
         assert result.status == ExtractionJobStatus.FAILED
         assert "AI service unavailable" in result.error_message
 
-    async def test_owner_dedup_by_nif_id_wins(self, job_repo, storage, prop_repo):
+    async def test_owner_dedup_by_nif_id_wins(
+        self, job_repo, storage, prop_repo, document_parser, document_content_repo
+    ):
         """When same NIF appears in property extraction + ID extraction, ID version wins."""
 
         class PropertyExtractorWithOwner(PropertyExtractorService):
-            async def extract(self, documents):
+            async def extract(self, document_texts):
                 return PropertyExtractionResult(
                     address="Rua Test 1",
                     owners=[
@@ -254,7 +296,7 @@ class TestProcessBatchPropertyExtraction:
                 )
 
         class IdExtractorWithSameNif(DocumentDataExtractor):
-            async def extract_property_owner_data(self, file_bytes, content_type):
+            async def extract_property_owner_data(self, parsed_text, document_subtype):
                 return {
                     "full_name": "Name From ID Card",
                     "civil_status": "single",
@@ -269,10 +311,12 @@ class TestProcessBatchPropertyExtraction:
         uc = ProcessBatchPropertyExtraction(
             extraction_job_repo=job_repo,
             document_storage=storage,
+            document_parser=document_parser,
             document_classifier=InMemoryDocumentClassifier(),
             property_extractor=PropertyExtractorWithOwner(),
             document_data_extractor=IdExtractorWithSameNif(),
             property_repo=prop_repo,
+            document_content_repo=document_content_repo,
         )
 
         job = _make_pending_job(num_docs=2)

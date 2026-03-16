@@ -1,8 +1,12 @@
 from property_management.application.ports.document_classifier import DocumentClassifier
 from property_management.application.ports.document_data_extractor import DocumentDataExtractor
+from property_management.application.ports.document_parser import DocumentParser
 from property_management.application.ports.document_storage import DocumentStorage
 from property_management.application.ports.event_bus import EventBus
 from property_management.application.ports.property_extractor import PropertyExtractorService
+from property_management.application.ports.repositories.document_content_repository import (
+    DocumentContentRepository,
+)
 from property_management.application.ports.repositories.extraction_job_repository import (
     ExtractionJobRepository,
 )
@@ -45,6 +49,8 @@ class Container:
         extraction_job_repo: ExtractionJobRepository | None = None,
         event_bus: EventBus | None = None,
         document_classifier: DocumentClassifier | None = None,
+        document_parser: DocumentParser | None = None,
+        document_content_repo: DocumentContentRepository | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.document_extractor = document_extractor
@@ -53,6 +59,8 @@ class Container:
         self.extraction_job_repo = extraction_job_repo
         self.event_bus = event_bus
         self.document_classifier = document_classifier
+        self.document_parser = document_parser
+        self.document_content_repo = document_content_repo
 
         # Existing use cases
         self.create_property = CreateProperty(property_repo=property_repo)
@@ -61,9 +69,14 @@ class Container:
         self.create_property_owner = CreatePropertyOwner(
             property_repo=property_repo,
         )
-        self.extract_property_owner_from_document = ExtractPropertyOwnerFromDocument(
-            property_repo=property_repo,
-            document_extractor=document_extractor,
+        self.extract_property_owner_from_document = (
+            ExtractPropertyOwnerFromDocument(
+                property_repo=property_repo,
+                document_extractor=document_extractor,
+                document_parser=document_parser,
+            )
+            if document_parser
+            else None
         )
         self.list_property_owners = ListPropertyOwners(
             property_repo=property_repo,
@@ -85,10 +98,17 @@ class Container:
                 event_bus=event_bus,
             )
 
-        if extraction_job_repo and document_storage and property_extractor and property_repo:
+        if (
+            extraction_job_repo
+            and document_storage
+            and document_parser
+            and property_extractor
+            and property_repo
+        ):
             self.process_property_extraction = ProcessPropertyExtraction(
                 extraction_job_repo=extraction_job_repo,
                 document_storage=document_storage,
+                document_parser=document_parser,
                 property_extractor=property_extractor,
                 property_repo=property_repo,
             )
@@ -103,17 +123,21 @@ class Container:
         if (
             extraction_job_repo
             and document_storage
+            and document_parser
             and document_classifier
             and property_extractor
             and property_repo
+            and document_content_repo
         ):
             self.process_batch_property_extraction = ProcessBatchPropertyExtraction(
                 extraction_job_repo=extraction_job_repo,
                 document_storage=document_storage,
+                document_parser=document_parser,
                 document_classifier=document_classifier,
                 property_extractor=property_extractor,
                 document_data_extractor=document_extractor,
                 property_repo=property_repo,
+                document_content_repo=document_content_repo,
             )
 
         if extraction_job_repo:

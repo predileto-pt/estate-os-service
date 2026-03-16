@@ -1,6 +1,7 @@
 import pytest
 from uuid import UUID, uuid4
 
+from property_management.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
 from property_management.adapters.inmemory.inmemory_document_storage import InMemoryDocumentStorage
 from property_management.adapters.inmemory.inmemory_extraction_job_repo import (
     InMemoryExtractionJobRepository,
@@ -56,10 +57,16 @@ def prop_repo():
 
 
 @pytest.fixture
-def use_case(job_repo, storage, extractor, prop_repo):
+def document_parser():
+    return InMemoryDocumentParser()
+
+
+@pytest.fixture
+def use_case(job_repo, storage, document_parser, extractor, prop_repo):
     return ProcessPropertyExtraction(
         extraction_job_repo=job_repo,
         document_storage=storage,
+        document_parser=document_parser,
         property_extractor=extractor,
         property_repo=prop_repo,
     )
@@ -98,14 +105,17 @@ class TestProcessPropertyExtraction:
         assert result.status == ExtractionJobStatus.FAILED
         assert result.error_message is not None
 
-    async def test_extractor_failure_marks_job_failed(self, job_repo, storage, prop_repo):
+    async def test_extractor_failure_marks_job_failed(
+        self, job_repo, storage, prop_repo, document_parser
+    ):
         class FailingExtractor(PropertyExtractorService):
-            async def extract(self, documents):
+            async def extract(self, document_texts):
                 raise RuntimeError("AI service unavailable")
 
         uc = ProcessPropertyExtraction(
             extraction_job_repo=job_repo,
             document_storage=storage,
+            document_parser=document_parser,
             property_extractor=FailingExtractor(),
             property_repo=prop_repo,
         )

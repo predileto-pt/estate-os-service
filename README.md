@@ -70,7 +70,7 @@ uv run alembic downgrade -1
 uv run alembic stamp head
 ```
 
-Schema is defined in SQLAlchemy models at `src/customer_management/adapters/database/models.py`.
+Schema is defined in SQLAlchemy models at `src/customer_management/adapters/database/models.py` and `src/property_management/adapters/database/models.py`.
 
 **Adopting on an existing database:** If the database already has the schema (e.g. production), stamp it as current without executing any DDL:
 

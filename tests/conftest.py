@@ -30,6 +30,10 @@ from property_management.adapters.inmemory.inmemory_property_extractor import (
 from property_management.adapters.inmemory.inmemory_document_classifier import (
     InMemoryDocumentClassifier,
 )
+from property_management.adapters.inmemory.inmemory_document_content_repo import (
+    InMemoryDocumentContentRepository,
+)
+from property_management.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
 from property_management.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
 from property_management.container import Container as PropertyContainer
 
@@ -121,6 +125,16 @@ def document_classifier():
 
 
 @pytest.fixture
+def document_parser():
+    return InMemoryDocumentParser()
+
+
+@pytest.fixture
+def document_content_repo():
+    return InMemoryDocumentContentRepository()
+
+
+@pytest.fixture
 def property_container(
     property_repo,
     document_extractor,
@@ -129,6 +143,8 @@ def property_container(
     property_extractor_service,
     property_event_bus,
     document_classifier,
+    document_parser,
+    document_content_repo,
 ):
     return PropertyContainer(
         property_repo=property_repo,
@@ -138,6 +154,8 @@ def property_container(
         extraction_job_repo=extraction_job_repo,
         event_bus=property_event_bus,
         document_classifier=document_classifier,
+        document_parser=document_parser,
+        document_content_repo=document_content_repo,
     )
 
 

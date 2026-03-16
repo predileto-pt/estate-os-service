@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import structlog
 
+from property_management.application.ports.document_parser import DocumentParser
 from property_management.application.ports.document_storage import DocumentStorage
 from property_management.application.ports.property_extractor import (
     PropertyExtractorService,
@@ -39,11 +40,13 @@ class ProcessPropertyExtraction:
         self,
         extraction_job_repo: ExtractionJobRepository,
         document_storage: DocumentStorage,
+        document_parser: DocumentParser,
         property_extractor: PropertyExtractorService,
         property_repo: PropertyRepository,
     ) -> None:
         self.extraction_job_repo = extraction_job_repo
         self.document_storage = document_storage
+        self.document_parser = document_parser
         self.property_extractor = property_extractor
         self.property_repo = property_repo
 
@@ -59,12 +62,17 @@ class ProcessPropertyExtraction:
         log.info("extraction.processing", job_id=job_id)
 
         try:
+            # 1. Download documents
             documents = []
             for key in job.document_keys:
                 data = await self.document_storage.download(key)
                 documents.append(data)
 
-            result = await self.property_extractor.extract(documents)
+            # 2. Parse documents (single OCR pass)
+            parsed_texts = await self.document_parser.parse_batch(documents)
+
+            # 3. Extract property data from parsed text
+            result = await self.property_extractor.extract(parsed_texts)
 
             now = datetime.now(timezone.utc)
             characteristics = None

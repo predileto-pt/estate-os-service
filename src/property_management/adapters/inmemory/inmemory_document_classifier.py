@@ -5,9 +5,9 @@ from property_management.application.ports.document_classifier import (
 
 
 class InMemoryDocumentClassifier(DocumentClassifier):
-    async def classify(self, documents: list[bytes]) -> list[ClassifiedDocument]:
+    async def classify(self, document_texts: list[str]) -> list[ClassifiedDocument]:
         result = []
-        for i in range(len(documents)):
+        for i in range(len(document_texts)):
             if i == 0:
                 result.append(
                     ClassifiedDocument(

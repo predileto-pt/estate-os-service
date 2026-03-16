@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone
 from uuid import UUID, uuid4
 
 from property_management.application.ports.document_data_extractor import DocumentDataExtractor
+from property_management.application.ports.document_parser import DocumentParser
 from property_management.application.ports.repositories.property_repository import (
     PropertyRepository,
 )
@@ -19,9 +20,11 @@ class ExtractPropertyOwnerFromDocument:
         self,
         property_repo: PropertyRepository,
         document_extractor: DocumentDataExtractor,
+        document_parser: DocumentParser,
     ) -> None:
         self.property_repo = property_repo
         self.document_extractor = document_extractor
+        self.document_parser = document_parser
 
     async def execute(
         self,
@@ -29,12 +32,17 @@ class ExtractPropertyOwnerFromDocument:
         property_id: UUID,
         file_bytes: bytes,
         content_type: str,
+        document_subtype: str = "cartao_cidadao",
     ) -> Property:
         prop = await self.property_repo.get_by_id(property_id)
         if not prop:
             raise PropertyNotFoundError(str(property_id))
 
-        data = await self.document_extractor.extract_property_owner_data(file_bytes, content_type)
+        # Parse document first, then extract from text
+        parsed_text = await self.document_parser.parse(file_bytes)
+        data = await self.document_extractor.extract_property_owner_data(
+            parsed_text, document_subtype
+        )
 
         try:
             now = datetime.now(timezone.utc)

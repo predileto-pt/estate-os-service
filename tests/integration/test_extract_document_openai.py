@@ -1,7 +1,7 @@
-"""Integration test for document extraction using the real OpenAIDocumentExtractor
-with a mocked OpenAI client returning structured output."""
+"""Integration test for document extraction using the text-based
+OpenAIIdDocumentExtractor with a mocked LangChain LLM."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -18,15 +18,16 @@ from customer_management.adapters.inmemory.inmemory_subscription_repo import (
 from customer_management.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
 from customer_management.container import Container
 from shared.main import create_app
-from property_management.adapters.ai.openai_document_extractor import (
-    OpenAIDocumentExtractor,
-    PropertyOwnerExtraction,
+from property_management.adapters.ai.openai_id_document_extractor import (
+    IdOwnerSchema,
+    OpenAIIdDocumentExtractor,
 )
+from property_management.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
 from property_management.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
 from property_management.container import Container as PropertyContainer
 from tests.conftest import TEST_JWT_SECRET, make_test_token
 
-EXTRACTED_OWNER = PropertyOwnerExtraction(
+EXTRACTED_OWNER = IdOwnerSchema(
     full_name="João Manuel Pereira",
     civil_status="married",
     address="Rua Augusta 45, 1100-053 Lisboa",
@@ -39,26 +40,13 @@ EXTRACTED_OWNER = PropertyOwnerExtraction(
 )
 
 
-def _mock_openai_response(parsed: PropertyOwnerExtraction) -> MagicMock:
-    """Build a mock that mirrors the OpenAI structured output response shape."""
-    message = MagicMock()
-    message.parsed = parsed
-
-    choice = MagicMock()
-    choice.message = message
-
-    response = MagicMock()
-    response.choices = [choice]
-    return response
+@pytest.fixture
+def id_extractor():
+    return OpenAIIdDocumentExtractor(api_key="sk-test-fake-key")
 
 
 @pytest.fixture
-def openai_extractor():
-    return OpenAIDocumentExtractor(api_key="sk-test-fake-key")
-
-
-@pytest.fixture
-def openai_app(openai_extractor, monkeypatch):
+def openai_app(id_extractor, monkeypatch):
     monkeypatch.setattr("shared.config.settings.supabase_jwt_secret", TEST_JWT_SECRET)
 
     container = Container(
@@ -71,7 +59,8 @@ def openai_app(openai_extractor, monkeypatch):
     )
     property_container = PropertyContainer(
         property_repo=InMemoryPropertyRepository(),
-        document_extractor=openai_extractor,
+        document_extractor=id_extractor,
+        document_parser=InMemoryDocumentParser(),
     )
     return create_app(container=container, property_container=property_container)
 
@@ -103,21 +92,30 @@ async def _create_property(client, headers) -> str:
     return resp.json()["id"]
 
 
+def _mock_structured_llm(return_value):
+    """Create a mock that mimics ChatOpenAI.with_structured_output().ainvoke()."""
+    structured_llm = AsyncMock()
+    structured_llm.ainvoke = AsyncMock(return_value=return_value)
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output = MagicMock(return_value=structured_llm)
+    return mock_llm
+
+
 class TestExtractFromDocumentWithOpenAI:
-    async def test_successful_extraction(
-        self, openai_client, openai_auth_headers, openai_extractor
-    ):
+    async def test_successful_extraction(self, openai_client, openai_auth_headers, id_extractor):
         property_id = await _create_property(openai_client, openai_auth_headers)
 
-        mock_response = _mock_openai_response(EXTRACTED_OWNER)
-        openai_extractor._client.beta.chat.completions.parse = AsyncMock(return_value=mock_response)
+        with patch(
+            "property_management.adapters.ai.openai_id_document_extractor.ChatOpenAI"
+        ) as mock_cls:
+            mock_cls.return_value = _mock_structured_llm(EXTRACTED_OWNER)
 
-        response = await openai_client.post(
-            "/api/v1/property-owners/extract-from-document",
-            data={"property_id": property_id},
-            files={"file": ("cidadao.jpg", b"fake-image-bytes", "image/jpeg")},
-            headers=openai_auth_headers,
-        )
+            response = await openai_client.post(
+                "/api/v1/property-owners/extract-from-document",
+                data={"property_id": property_id},
+                files={"file": ("cidadao.jpg", b"fake-image-bytes", "image/jpeg")},
+                headers=openai_auth_headers,
+            )
 
         assert response.status_code == 201
         data = response.json()
@@ -135,17 +133,12 @@ class TestExtractFromDocumentWithOpenAI:
         assert owner["date_of_birth"] == "1978-11-20"
         assert owner["address"] == "Rua Augusta 45, 1100-053 Lisboa"
 
-        # Verify the OpenAI client was called with structured output
-        call_kwargs = openai_extractor._client.beta.chat.completions.parse.call_args.kwargs
-        assert call_kwargs["response_format"] is PropertyOwnerExtraction
-        assert call_kwargs["model"] == "gpt-4o"
-
     async def test_extraction_with_null_issuing_district(
-        self, openai_client, openai_auth_headers, openai_extractor
+        self, openai_client, openai_auth_headers, id_extractor
     ):
         property_id = await _create_property(openai_client, openai_auth_headers)
 
-        extracted = PropertyOwnerExtraction(
+        extracted = IdOwnerSchema(
             full_name="Ana Costa",
             civil_status="single",
             address="Rua do Carmo 5, Porto",
@@ -156,73 +149,53 @@ class TestExtractFromDocumentWithOpenAI:
             issuing_district=None,
             date_of_birth="1995-03-10",
         )
-        openai_extractor._client.beta.chat.completions.parse = AsyncMock(
-            return_value=_mock_openai_response(extracted)
-        )
 
-        response = await openai_client.post(
-            "/api/v1/property-owners/extract-from-document",
-            data={"property_id": property_id},
-            files={"file": ("passport.jpg", b"fake-data", "image/jpeg")},
-            headers=openai_auth_headers,
-        )
+        with patch(
+            "property_management.adapters.ai.openai_id_document_extractor.ChatOpenAI"
+        ) as mock_cls:
+            mock_cls.return_value = _mock_structured_llm(extracted)
+
+            response = await openai_client.post(
+                "/api/v1/property-owners/extract-from-document",
+                data={"property_id": property_id},
+                files={"file": ("passport.jpg", b"fake-data", "image/jpeg")},
+                headers=openai_auth_headers,
+            )
 
         assert response.status_code == 201
         owner = response.json()["owners"][0]
         assert owner["issuing_district"] is None
         assert owner["document_type"] == "passport"
 
-    async def test_extraction_empty_response(
-        self, openai_client, openai_auth_headers, openai_extractor
-    ):
+    async def test_extraction_ai_error(self, openai_client, openai_auth_headers, id_extractor):
         property_id = await _create_property(openai_client, openai_auth_headers)
 
-        # Simulate parsed=None (empty response)
-        message = MagicMock()
-        message.parsed = None
-        choice = MagicMock()
-        choice.message = message
-        mock_resp = MagicMock()
-        mock_resp.choices = [choice]
+        with patch(
+            "property_management.adapters.ai.openai_id_document_extractor.ChatOpenAI"
+        ) as mock_cls:
+            structured = AsyncMock()
+            structured.ainvoke = AsyncMock(side_effect=Exception("API rate limit exceeded"))
+            mock_llm = MagicMock()
+            mock_llm.with_structured_output = MagicMock(return_value=structured)
+            mock_cls.return_value = mock_llm
 
-        openai_extractor._client.beta.chat.completions.parse = AsyncMock(return_value=mock_resp)
-
-        response = await openai_client.post(
-            "/api/v1/property-owners/extract-from-document",
-            data={"property_id": property_id},
-            files={"file": ("doc.jpg", b"fake", "image/jpeg")},
-            headers=openai_auth_headers,
-        )
-
-        assert response.status_code == 422
-        assert "Empty response" in response.json()["detail"]
-
-    async def test_extraction_openai_api_error(
-        self, openai_client, openai_auth_headers, openai_extractor
-    ):
-        property_id = await _create_property(openai_client, openai_auth_headers)
-
-        openai_extractor._client.beta.chat.completions.parse = AsyncMock(
-            side_effect=Exception("API rate limit exceeded")
-        )
-
-        response = await openai_client.post(
-            "/api/v1/property-owners/extract-from-document",
-            data={"property_id": property_id},
-            files={"file": ("doc.jpg", b"fake", "image/jpeg")},
-            headers=openai_auth_headers,
-        )
+            response = await openai_client.post(
+                "/api/v1/property-owners/extract-from-document",
+                data={"property_id": property_id},
+                files={"file": ("doc.jpg", b"fake", "image/jpeg")},
+                headers=openai_auth_headers,
+            )
 
         assert response.status_code == 422
-        assert "AI extraction failed" in response.json()["detail"]
+        assert "AI ID extraction failed" in response.json()["detail"]
 
     async def test_extraction_invalid_civil_status(
-        self, openai_client, openai_auth_headers, openai_extractor
+        self, openai_client, openai_auth_headers, id_extractor
     ):
         """OpenAI returns a civil_status value not in our enum."""
         property_id = await _create_property(openai_client, openai_auth_headers)
 
-        extracted = PropertyOwnerExtraction(
+        extracted = IdOwnerSchema(
             full_name="Test Person",
             civil_status="unknown_status",
             address="Rua X",
@@ -233,22 +206,24 @@ class TestExtractFromDocumentWithOpenAI:
             issuing_district=None,
             date_of_birth="1990-01-01",
         )
-        openai_extractor._client.beta.chat.completions.parse = AsyncMock(
-            return_value=_mock_openai_response(extracted)
-        )
 
-        response = await openai_client.post(
-            "/api/v1/property-owners/extract-from-document",
-            data={"property_id": property_id},
-            files={"file": ("doc.jpg", b"fake", "image/jpeg")},
-            headers=openai_auth_headers,
-        )
+        with patch(
+            "property_management.adapters.ai.openai_id_document_extractor.ChatOpenAI"
+        ) as mock_cls:
+            mock_cls.return_value = _mock_structured_llm(extracted)
+
+            response = await openai_client.post(
+                "/api/v1/property-owners/extract-from-document",
+                data={"property_id": property_id},
+                files={"file": ("doc.jpg", b"fake", "image/jpeg")},
+                headers=openai_auth_headers,
+            )
 
         assert response.status_code == 422
         assert "Invalid extracted data" in response.json()["detail"]
 
     async def test_extraction_property_not_found(
-        self, openai_client, openai_auth_headers, openai_extractor
+        self, openai_client, openai_auth_headers, id_extractor
     ):
         response = await openai_client.post(
             "/api/v1/property-owners/extract-from-document",
@@ -260,7 +235,7 @@ class TestExtractFromDocumentWithOpenAI:
         assert response.status_code == 404
 
     async def test_extraction_not_authorized(
-        self, openai_client, openai_auth_headers, openai_extractor
+        self, openai_client, openai_auth_headers, id_extractor
     ):
         property_id = await _create_property(openai_client, openai_auth_headers)
 

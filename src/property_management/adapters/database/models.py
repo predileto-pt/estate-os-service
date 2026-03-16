@@ -103,28 +103,26 @@ class PropertyOwnerModel(Base):
         UUID(as_uuid=False), ForeignKey("properties.id"), nullable=False
     )
     full_name: Mapped[str] = mapped_column(Text, nullable=False)
-    civil_status: Mapped[CivilStatus] = mapped_column(
+    civil_status: Mapped[CivilStatus | None] = mapped_column(
         Enum(
             CivilStatus,
             name="civil_status",
             values_callable=lambda e: [x.value for x in e],
         ),
-        nullable=False,
     )
     address: Mapped[str] = mapped_column(Text, nullable=False)
     nif: Mapped[str] = mapped_column(Text, nullable=False)
-    document_type: Mapped[DocumentType] = mapped_column(
+    document_type: Mapped[DocumentType | None] = mapped_column(
         Enum(
             DocumentType,
             name="document_type",
             values_callable=lambda e: [x.value for x in e],
         ),
-        nullable=False,
     )
-    document_id: Mapped[str] = mapped_column(Text, nullable=False)
-    issued_by: Mapped[str] = mapped_column(Text, nullable=False)
+    document_id: Mapped[str | None] = mapped_column(Text)
+    issued_by: Mapped[str | None] = mapped_column(Text)
     issuing_district: Mapped[str | None] = mapped_column(Text)
-    date_of_birth: Mapped[date] = mapped_column(Date, nullable=False)
+    date_of_birth: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
@@ -165,3 +163,22 @@ class ExtractionJobModel(Base):
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
     __table_args__ = (Index("idx_extraction_jobs_user_id", "user_id"),)
+
+
+class DocumentContentModel(Base):
+    __tablename__ = "document_contents"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    extraction_job_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("extraction_jobs.id"), nullable=False
+    )
+    document_index: Mapped[int] = mapped_column(nullable=False)
+    document_key: Mapped[str] = mapped_column(Text, nullable=False)
+    parsed_text: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str | None] = mapped_column(Text)
+    document_subtype: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+    __table_args__ = (Index("idx_document_contents_job_id", "extraction_job_id"),)

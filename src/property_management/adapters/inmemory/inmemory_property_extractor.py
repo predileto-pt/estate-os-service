@@ -7,7 +7,7 @@ from property_management.application.ports.property_extractor import (
 
 
 class InMemoryPropertyExtractor(PropertyExtractorService):
-    async def extract(self, documents: list[bytes]) -> PropertyExtractionResult:
+    async def extract(self, document_texts: list[str]) -> PropertyExtractionResult:
         return PropertyExtractionResult(
             address="Rua das Flores 123, 4000-001 Porto",
             description="Apartamento T2 com varanda no centro do Porto",
