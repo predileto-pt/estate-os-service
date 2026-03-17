@@ -8,8 +8,8 @@ class Organization:
     id: UUID
     created_by: UUID
     name: str
-    nif: str
-    address: str
+    nif: str | None
+    address: str | None
     created_at: datetime
     updated_at: datetime
 

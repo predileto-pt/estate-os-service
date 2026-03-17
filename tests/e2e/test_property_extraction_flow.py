@@ -10,8 +10,6 @@ async def _register_user(client, auth_headers):
             "name": "Property Owner",
             "email": "property@e2e-test.pt",
             "organization_name": "E2E Properties",
-            "nif": "123456789",
-            "address": "Rua Augusta 1, PT",
         },
         headers=auth_headers,
     )

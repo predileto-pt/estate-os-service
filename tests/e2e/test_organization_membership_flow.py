@@ -8,8 +8,6 @@ async def _register_user(client, auth_headers):
             "name": "Owner User",
             "email": "owner@e2e-org.pt",
             "organization_name": "E2E Organization",
-            "nif": "123456789",
-            "address": "Rua Augusta 1, PT",
         },
         headers=auth_headers,
     )

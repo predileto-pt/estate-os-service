@@ -11,8 +11,6 @@ async def test_register(client, auth_headers):
             "name": "João Silva",
             "email": "joao@agency.pt",
             "organization_name": "Imobiliária Silva",
-            "nif": "123456789",
-            "address": "Rua Augusta 1, PT",
             "phone_country_code": "+351",
             "phone_number": "912345678",
         },
@@ -34,8 +32,6 @@ async def test_register_creates_membership(client, auth_headers, membership_repo
             "name": "João Silva",
             "email": "joao@agency.pt",
             "organization_name": "Imobiliária Silva",
-            "nif": "123456789",
-            "address": "Rua Augusta 1, PT",
         },
         headers=auth_headers,
     )
@@ -55,8 +51,6 @@ async def test_register_duplicate(client, auth_headers):
         "name": "João Silva",
         "email": "joao@agency.pt",
         "organization_name": "Imobiliária Silva",
-        "nif": "123456789",
-        "address": "Rua Augusta 1, PT",
     }
     await client.post("/api/v1/auth/register", json=payload, headers=auth_headers)
     response = await client.post("/api/v1/auth/register", json=payload, headers=auth_headers)
@@ -72,8 +66,6 @@ async def test_get_me(client, auth_headers):
             "name": "João Silva",
             "email": "joao@agency.pt",
             "organization_name": "Imobiliária Silva",
-            "nif": "123456789",
-            "address": "Rua Augusta 1, PT",
         },
         headers=auth_headers,
     )

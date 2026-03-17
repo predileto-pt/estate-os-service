@@ -70,8 +70,8 @@ class OrganizationModel(Base):
     )
     created_by: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    nif: Mapped[str] = mapped_column(Text, nullable=False)
-    address: Mapped[str] = mapped_column(Text, nullable=False)
+    nif: Mapped[str | None] = mapped_column(Text, nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 

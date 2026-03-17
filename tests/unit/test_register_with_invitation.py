@@ -52,8 +52,6 @@ async def test_register_new_user_creates_org_and_owner_membership(register_use_c
         email="new@test.com",
         name="New User",
         organization_name="New Org",
-        nif="123456789",
-        address="Test Address",
     )
 
     assert user.organization_id is not None
@@ -114,7 +112,7 @@ async def test_register_invited_user_joins_existing_org(register_use_case):
 async def test_register_without_org_fields_and_no_invitation_fails(register_use_case):
     uc, *_ = register_use_case
 
-    with pytest.raises(ValueError, match="organization_name, nif, and address are required"):
+    with pytest.raises(ValueError, match="organization_name is required"):
         await uc.execute(
             supabase_user_id="fail-user-sub",
             email="fail@test.com",

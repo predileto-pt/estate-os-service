@@ -58,8 +58,6 @@ class RegisterUser:
         email: str,
         name: str,
         organization_name: str | None = None,
-        nif: str | None = None,
-        address: str | None = None,
         phone: PhoneNumber | None = None,
         google_metadata: dict | None = None,
     ) -> User:
@@ -82,17 +80,15 @@ class RegisterUser:
             await self.invitation_repo.update(invitation)
         else:
             # New user — create organization
-            if not organization_name or not nif or not address:
-                raise ValueError(
-                    "organization_name, nif, and address are required for new registrations"
-                )
+            if not organization_name:
+                raise ValueError("organization_name is required for new registrations")
 
             organization = Organization(
                 id=uuid4(),
                 created_by=uuid4(),
                 name=organization_name,
-                nif=nif,
-                address=address,
+                nif=None,
+                address=None,
                 created_at=now,
                 updated_at=now,
             )

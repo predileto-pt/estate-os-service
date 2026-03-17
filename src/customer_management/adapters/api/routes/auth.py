@@ -69,8 +69,6 @@ async def register(body: RegisterRequest, request: Request):
             email=body.email,
             name=body.name,
             organization_name=body.organization_name,
-            nif=body.nif,
-            address=body.address,
             phone=phone,
         )
     except UserAlreadyExistsError:

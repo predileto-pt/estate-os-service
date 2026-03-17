@@ -18,8 +18,6 @@ class RegisterRequest(BaseModel):
     name: str
     email: str
     organization_name: str | None = None
-    nif: str | None = Field(default=None, description="Tax identification number (NIF)")
-    address: str | None = Field(default=None, description="Organization address")
     phone_country_code: str | None = Field(default=None, description="E.g. +351")
     phone_number: str | None = None
 
@@ -58,8 +56,8 @@ class OrganizationResponse(BaseModel):
     id: UUID
     created_by: UUID
     name: str
-    nif: str
-    address: str
+    nif: str | None
+    address: str | None
     created_at: datetime
     updated_at: datetime
 

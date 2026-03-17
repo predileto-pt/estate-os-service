@@ -8,8 +8,6 @@ async def _register_user(client, auth_headers):
             "name": "João Silva",
             "email": "joao@agency.pt",
             "organization_name": "Imobiliária Silva",
-            "nif": "123456789",
-            "address": "Rua Augusta 1, PT",
         },
         headers=auth_headers,
     )

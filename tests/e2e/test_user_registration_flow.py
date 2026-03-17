@@ -11,8 +11,6 @@ async def test_register_creates_user_org_subscription_membership(client, auth_he
             "name": "João Silva",
             "email": "joao@e2e-test.pt",
             "organization_name": "Imobiliária E2E",
-            "nif": "123456789",
-            "address": "Rua Augusta 1, PT",
             "phone_country_code": "+351",
             "phone_number": "912345678",
         },
@@ -41,8 +39,6 @@ async def test_register_duplicate_returns_409(client, auth_headers):
         "name": "João Silva",
         "email": "joao-dup@e2e-test.pt",
         "organization_name": "Imobiliária E2E",
-        "nif": "123456789",
-        "address": "Rua Augusta 1, PT",
     }
     response1 = await client.post("/api/v1/auth/register", json=payload, headers=auth_headers)
     assert response1.status_code == 200

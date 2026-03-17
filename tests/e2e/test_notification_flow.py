@@ -8,8 +8,6 @@ async def _register_user(client, auth_headers):
             "name": "Notification User",
             "email": "notif@e2e-test.pt",
             "organization_name": "E2E Notifications",
-            "nif": "123456789",
-            "address": "Rua Augusta 1, PT",
         },
         headers=auth_headers,
     )
