@@ -4,9 +4,21 @@ import json
 import structlog
 
 from customer_management.adapters.workers.event_processor import process_event
-from customer_management.entrypoints.bootstrap import get_container
 
 log = structlog.get_logger()
+
+_container = None
+
+
+async def _get_container():
+    global _container
+    if _container is not None:
+        return _container
+
+    from shared.entrypoints.bootstrap import get_container
+
+    _container = await get_container()
+    return _container
 
 
 def handler(event, context):
@@ -16,5 +28,5 @@ def handler(event, context):
 
 
 async def _process(body: dict) -> None:
-    container = await get_container()
+    container = await _get_container()
     await process_event(body, container)

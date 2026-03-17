@@ -1,3 +1,6 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -18,9 +21,19 @@ from property_management.adapters.api.routes import extraction_jobs, properties,
 def create_app(container=None, property_container=None) -> FastAPI:
     setup_logging(settings.log_level)
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if not hasattr(app.state, "container") or app.state.container is None:
+            from shared.entrypoints.bootstrap import get_container, get_property_container
+
+            app.state.container = await get_container()
+            app.state.property_container = await get_property_container()
+        yield
+
     app = FastAPI(
         title="Predileto Core API",
         version="0.1.0",
+        lifespan=lifespan,
         description=(
             "Core backend service for the Predileto platform. "
             "Handles user registration, company management, subscriptions, "
@@ -63,7 +76,7 @@ def create_app(container=None, property_container=None) -> FastAPI:
     app.include_router(property_owners.router, prefix="/api/v1")
     app.include_router(extraction_jobs.router, prefix="/api/v1")
 
-    # DI container
+    # DI container (set by tests; production uses lifespan)
     if container:
         app.state.container = container
     if property_container:
