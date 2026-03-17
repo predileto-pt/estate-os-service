@@ -33,6 +33,7 @@ class SubmitPropertyExtraction:
         *,
         job_id: str,
         user_id: str,
+        organization_id: str,
         document_keys: list[str],
         listing_type: str,
         typology: str,
@@ -48,6 +49,7 @@ class SubmitPropertyExtraction:
         job = ExtractionJob(
             id=UUID(job_id),
             user_id=UUID(user_id),
+            organization_id=UUID(organization_id),
             status=ExtractionJobStatus.PENDING,
             document_keys=document_keys,
             listing_type=listing_type,

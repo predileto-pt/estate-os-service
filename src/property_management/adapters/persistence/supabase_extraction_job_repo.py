@@ -21,6 +21,7 @@ class SupabaseExtractionJobRepository(ExtractionJobRepository):
         return ExtractionJob(
             id=UUID(row["id"]),
             user_id=UUID(row["user_id"]),
+            organization_id=UUID(row["organization_id"]),
             status=ExtractionJobStatus(row["status"]),
             document_keys=row["document_keys"],
             listing_type=row.get("listing_type"),
@@ -35,6 +36,7 @@ class SupabaseExtractionJobRepository(ExtractionJobRepository):
         return {
             "id": str(job.id),
             "user_id": str(job.user_id),
+            "organization_id": str(job.organization_id),
             "status": job.status.value,
             "document_keys": job.document_keys,
             "listing_type": job.listing_type,
@@ -55,11 +57,11 @@ class SupabaseExtractionJobRepository(ExtractionJobRepository):
             return None
         return self._to_domain(result.data[0])
 
-    async def list_by_user(self, user_id: UUID) -> list[ExtractionJob]:
+    async def list_by_organization(self, organization_id: UUID) -> list[ExtractionJob]:
         result = (
             await self._client.table("extraction_jobs")
             .select("*")
-            .eq("user_id", str(user_id))
+            .eq("organization_id", str(organization_id))
             .order("created_at", desc=True)
             .execute()
         )

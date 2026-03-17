@@ -181,7 +181,7 @@ class ProcessBatchPropertyExtraction:
 
             prop = Property(
                 id=uuid4(),
-                user_id=job.user_id,
+                organization_id=job.organization_id,
                 address=property_result.address,
                 listing_type=ListingType(job.listing_type),
                 typology=Typology(job.typology),

@@ -11,6 +11,7 @@ from property_management.application.use_cases.submit_property_extraction import
 from property_management.domain.models.extraction_job import ExtractionJobStatus
 
 TEST_USER_ID = "00000000-0000-0000-0000-000000000001"
+TEST_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000010"
 
 
 @pytest.fixture
@@ -49,6 +50,7 @@ class TestSubmitPropertyExtraction:
         job = await use_case.execute(
             job_id=job_id,
             user_id=TEST_USER_ID,
+            organization_id=TEST_ORGANIZATION_ID,
             document_keys=keys,
             listing_type="sale",
             typology="apartment",
@@ -71,6 +73,7 @@ class TestSubmitPropertyExtraction:
             await use_case.execute(
                 job_id=job_id,
                 user_id=TEST_USER_ID,
+                organization_id=TEST_ORGANIZATION_ID,
                 document_keys=[key],
                 listing_type="sale",
                 typology="house",
@@ -84,6 +87,7 @@ class TestSubmitPropertyExtraction:
             await use_case.execute(
                 job_id=job_id,
                 user_id=TEST_USER_ID,
+                organization_id=TEST_ORGANIZATION_ID,
                 document_keys=[key],
                 listing_type="sale",
                 typology="house",
@@ -97,6 +101,7 @@ class TestSubmitPropertyExtraction:
         await use_case.execute(
             job_id=job_id,
             user_id=TEST_USER_ID,
+            organization_id=TEST_ORGANIZATION_ID,
             document_keys=[key],
             listing_type="sale",
             typology="house",

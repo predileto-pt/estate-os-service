@@ -64,7 +64,7 @@ class SupabasePropertyRepository(PropertyRepository):
         owners = [self._owner_to_domain(o) for o in (owner_rows or [])]
         return Property(
             id=UUID(row["id"]),
-            user_id=UUID(row["user_id"]),
+            organization_id=UUID(row["organization_id"]),
             address=row["address"],
             listing_type=ListingType(row["listing_type"]),
             typology=Typology(row["typology"]),
@@ -78,7 +78,7 @@ class SupabasePropertyRepository(PropertyRepository):
     def _to_row(self, prop: Property) -> dict:
         return {
             "id": str(prop.id),
-            "user_id": str(prop.user_id),
+            "organization_id": str(prop.organization_id),
             "address": prop.address,
             "listing_type": prop.listing_type.value,
             "typology": prop.typology.value,
@@ -105,11 +105,11 @@ class SupabasePropertyRepository(PropertyRepository):
         owner_rows = await self._load_owners(str(property_id))
         return self._to_domain(result.data[0], owner_rows)
 
-    async def list_by_user(self, user_id: UUID) -> list[Property]:
+    async def list_by_organization(self, organization_id: UUID) -> list[Property]:
         result = (
             await self._client.table("properties")
             .select("*")
-            .eq("user_id", str(user_id))
+            .eq("organization_id", str(organization_id))
             .order("created_at", desc=True)
             .execute()
         )

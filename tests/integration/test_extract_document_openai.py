@@ -33,7 +33,7 @@ from property_management.adapters.ai.openai_id_document_extractor import (
 from property_management.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
 from property_management.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
 from property_management.container import Container as PropertyContainer
-from tests.conftest import TEST_JWT_SECRET, make_test_token
+from tests.conftest import TEST_JWT_SECRET, TEST_ORGANIZATION_ID, make_test_token
 
 EXTRACTED_OWNER = IdOwnerSchema(
     full_name="João Manuel Pereira",
@@ -92,6 +92,7 @@ async def _create_property(client, headers) -> str:
     resp = await client.post(
         "/api/v1/properties/",
         json={
+            "organization_id": TEST_ORGANIZATION_ID,
             "address": "Av. da Liberdade 10, Lisboa",
             "listing_type": "sale",
             "typology": "house",
@@ -122,7 +123,7 @@ class TestExtractFromDocumentWithOpenAI:
 
             response = await openai_client.post(
                 "/api/v1/property-owners/extract-from-document",
-                data={"property_id": property_id},
+                data={"property_id": property_id, "organization_id": TEST_ORGANIZATION_ID},
                 files={"file": ("cidadao.jpg", b"fake-image-bytes", "image/jpeg")},
                 headers=openai_auth_headers,
             )
@@ -167,7 +168,7 @@ class TestExtractFromDocumentWithOpenAI:
 
             response = await openai_client.post(
                 "/api/v1/property-owners/extract-from-document",
-                data={"property_id": property_id},
+                data={"property_id": property_id, "organization_id": TEST_ORGANIZATION_ID},
                 files={"file": ("passport.jpg", b"fake-data", "image/jpeg")},
                 headers=openai_auth_headers,
             )
@@ -191,7 +192,7 @@ class TestExtractFromDocumentWithOpenAI:
 
             response = await openai_client.post(
                 "/api/v1/property-owners/extract-from-document",
-                data={"property_id": property_id},
+                data={"property_id": property_id, "organization_id": TEST_ORGANIZATION_ID},
                 files={"file": ("doc.jpg", b"fake", "image/jpeg")},
                 headers=openai_auth_headers,
             )
@@ -224,7 +225,7 @@ class TestExtractFromDocumentWithOpenAI:
 
             response = await openai_client.post(
                 "/api/v1/property-owners/extract-from-document",
-                data={"property_id": property_id},
+                data={"property_id": property_id, "organization_id": TEST_ORGANIZATION_ID},
                 files={"file": ("doc.jpg", b"fake", "image/jpeg")},
                 headers=openai_auth_headers,
             )
@@ -237,7 +238,10 @@ class TestExtractFromDocumentWithOpenAI:
     ):
         response = await openai_client.post(
             "/api/v1/property-owners/extract-from-document",
-            data={"property_id": "00000000-0000-0000-0000-000000000099"},
+            data={
+                "property_id": "00000000-0000-0000-0000-000000000099",
+                "organization_id": TEST_ORGANIZATION_ID,
+            },
             files={"file": ("doc.jpg", b"fake", "image/jpeg")},
             headers=openai_auth_headers,
         )
@@ -249,14 +253,14 @@ class TestExtractFromDocumentWithOpenAI:
     ):
         property_id = await _create_property(openai_client, openai_auth_headers)
 
-        other_token = make_test_token(sub="00000000-0000-0000-0000-000000000099")
-        other_headers = {"Authorization": f"Bearer {other_token}"}
-
         response = await openai_client.post(
             "/api/v1/property-owners/extract-from-document",
-            data={"property_id": property_id},
+            data={
+                "property_id": property_id,
+                "organization_id": "00000000-0000-0000-0000-000000000099",
+            },
             files={"file": ("doc.jpg", b"fake", "image/jpeg")},
-            headers=other_headers,
+            headers=openai_auth_headers,
         )
 
         assert response.status_code == 403

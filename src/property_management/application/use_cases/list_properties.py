@@ -10,5 +10,5 @@ class ListProperties:
     def __init__(self, property_repo: PropertyRepository) -> None:
         self.property_repo = property_repo
 
-    async def execute(self, *, user_id: str) -> list[Property]:
-        return await self.property_repo.list_by_user(UUID(user_id))
+    async def execute(self, *, organization_id: str) -> list[Property]:
+        return await self.property_repo.list_by_organization(UUID(organization_id))

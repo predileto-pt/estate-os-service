@@ -38,14 +38,14 @@ def _owner_response(owner) -> dict:
 
 
 async def _verify_property_ownership(
-    request: Request, property_id: UUID, supabase_user_id: str
+    request: Request, property_id: UUID, organization_id: UUID
 ) -> None:
     get_prop_uc = request.app.state.property_container.get_property
     try:
         prop = await get_prop_uc.execute(property_id=property_id)
     except PropertyNotFoundError:
         raise HTTPException(status_code=404, detail="Property not found")
-    if str(prop.user_id) != supabase_user_id:
+    if str(prop.organization_id) != str(organization_id):
         raise HTTPException(status_code=403, detail="Not authorized")
 
 
@@ -66,7 +66,7 @@ async def create_property_owner(
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
-    await _verify_property_ownership(request, body.property_id, supabase_user_id)
+    await _verify_property_ownership(request, body.property_id, body.organization_id)
 
     create_uc = request.app.state.property_container.create_property_owner
     try:
@@ -105,10 +105,11 @@ async def create_property_owner(
 async def extract_from_document(
     request: Request,
     property_id: UUID = Form(...),
+    organization_id: UUID = Form(...),
     file: UploadFile = File(...),
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
-    await _verify_property_ownership(request, property_id, supabase_user_id)
+    await _verify_property_ownership(request, property_id, organization_id)
 
     extract_uc = request.app.state.property_container.extract_property_owner_from_document
     try:
@@ -137,10 +138,11 @@ async def extract_from_document(
 )
 async def list_property_owners(
     property_id: UUID,
+    organization_id: UUID,
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
-    await _verify_property_ownership(request, property_id, supabase_user_id)
+    await _verify_property_ownership(request, property_id, organization_id)
 
     list_uc = request.app.state.property_container.list_property_owners
     owners = await list_uc.execute(property_id=property_id)
@@ -160,10 +162,11 @@ async def list_property_owners(
 async def get_property_owner(
     owner_id: UUID,
     property_id: UUID,
+    organization_id: UUID,
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
-    await _verify_property_ownership(request, property_id, supabase_user_id)
+    await _verify_property_ownership(request, property_id, organization_id)
 
     get_uc = request.app.state.property_container.get_property_owner
     try:

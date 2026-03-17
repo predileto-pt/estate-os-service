@@ -19,7 +19,7 @@ class TestPropertyModel:
         now = datetime.now(timezone.utc)
         prop = Property(
             id=uuid4(),
-            user_id=uuid4(),
+            organization_id=uuid4(),
             address="Rua das Flores 123, Porto",
             listing_type=ListingType.SALE,
             typology=Typology.APARTMENT,
@@ -38,7 +38,7 @@ class TestPropertyModel:
         now = datetime.now(timezone.utc)
         prop = Property(
             id=uuid4(),
-            user_id=uuid4(),
+            organization_id=uuid4(),
             address="Rua das Flores 123, Porto",
             listing_type=ListingType.PURCHASE,
             typology=Typology.HOUSE,
@@ -54,7 +54,7 @@ class TestPropertyModel:
         prop_id = uuid4()
         prop = Property(
             id=prop_id,
-            user_id=uuid4(),
+            organization_id=uuid4(),
             address="Rua das Flores 123, Porto",
             listing_type=ListingType.SALE,
             typology=Typology.APARTMENT,
@@ -88,7 +88,7 @@ class TestPropertyModel:
         owner_id = uuid4()
         prop = Property(
             id=prop_id,
-            user_id=uuid4(),
+            organization_id=uuid4(),
             address="Rua das Flores 123, Porto",
             listing_type=ListingType.SALE,
             typology=Typology.APARTMENT,

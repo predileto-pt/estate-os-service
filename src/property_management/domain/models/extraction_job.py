@@ -18,6 +18,7 @@ class ExtractionJobStatus(str, enum.Enum):
 class ExtractionJob:
     id: UUID
     user_id: UUID
+    organization_id: UUID
     status: ExtractionJobStatus
     document_keys: list[str] = field(default_factory=list)
     listing_type: str | None = None

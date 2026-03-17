@@ -63,7 +63,7 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
     def _to_domain(m: PropertyModel, owners: list[PropertyOwnerModel]) -> Property:
         return Property(
             id=UUID(m.id),
-            user_id=UUID(m.user_id),
+            organization_id=UUID(m.organization_id),
             address=m.address,
             listing_type=ListingType(m.listing_type.value),
             typology=Typology(m.typology.value),
@@ -93,10 +93,10 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
         owners = await self._load_owners(row.id)
         return self._to_domain(row, owners)
 
-    async def list_by_user(self, user_id: UUID) -> list[Property]:
+    async def list_by_organization(self, organization_id: UUID) -> list[Property]:
         result = await self._session.execute(
             select(PropertyModel)
-            .where(PropertyModel.user_id == str(user_id))
+            .where(PropertyModel.organization_id == str(organization_id))
             .order_by(PropertyModel.created_at.desc())
         )
         properties = []
@@ -108,7 +108,7 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
     async def save(self, prop: Property) -> Property:
         model = PropertyModel(
             id=str(prop.id),
-            user_id=str(prop.user_id),
+            organization_id=str(prop.organization_id),
             address=prop.address,
             listing_type=prop.listing_type.value,
             typology=prop.typology.value,
@@ -152,6 +152,7 @@ class SqlAlchemyExtractionJobRepository(ExtractionJobRepository):
         return ExtractionJob(
             id=UUID(m.id),
             user_id=UUID(m.user_id),
+            organization_id=UUID(m.organization_id),
             status=ExtractionJobStatus(m.status.value),
             document_keys=m.document_keys or [],
             listing_type=m.listing_type,
@@ -166,6 +167,7 @@ class SqlAlchemyExtractionJobRepository(ExtractionJobRepository):
         model = ExtractionJobModel(
             id=str(job.id),
             user_id=str(job.user_id),
+            organization_id=str(job.organization_id),
             status=job.status.value,
             document_keys=job.document_keys,
             listing_type=job.listing_type,
@@ -185,10 +187,10 @@ class SqlAlchemyExtractionJobRepository(ExtractionJobRepository):
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
-    async def list_by_user(self, user_id: UUID) -> list[ExtractionJob]:
+    async def list_by_organization(self, organization_id: UUID) -> list[ExtractionJob]:
         result = await self._session.execute(
             select(ExtractionJobModel)
-            .where(ExtractionJobModel.user_id == str(user_id))
+            .where(ExtractionJobModel.organization_id == str(organization_id))
             .order_by(ExtractionJobModel.created_at.desc())
         )
         return [self._to_domain(row) for row in result.scalars().all()]

@@ -1,3 +1,6 @@
+from tests.conftest import TEST_ORGANIZATION_ID
+
+
 class TestPresignEndpoint:
     async def test_presign_returns_urls(self, client, auth_headers):
         response = await client.post(
@@ -62,6 +65,7 @@ class TestSubmitExtractionEndpoint:
             "/api/v1/extraction-jobs/",
             json={
                 "job_id": job_id,
+                "organization_id": TEST_ORGANIZATION_ID,
                 "document_keys": [s3_key],
                 "listing_type": "sale",
                 "typology": "apartment",
@@ -74,6 +78,7 @@ class TestSubmitExtractionEndpoint:
         assert result["document_keys"] == [s3_key]
         assert result["listing_type"] == "sale"
         assert result["typology"] == "apartment"
+        assert result["organization_id"] == TEST_ORGANIZATION_ID
 
     async def test_submit_missing_document(self, client, auth_headers):
         job_id = "11111111-1111-1111-1111-111111111111"
@@ -81,6 +86,7 @@ class TestSubmitExtractionEndpoint:
             "/api/v1/extraction-jobs/",
             json={
                 "job_id": job_id,
+                "organization_id": TEST_ORGANIZATION_ID,
                 "document_keys": [f"extractions/{job_id}/0.pdf"],
                 "listing_type": "sale",
                 "typology": "house",
@@ -94,6 +100,7 @@ class TestSubmitExtractionEndpoint:
             "/api/v1/extraction-jobs/",
             json={
                 "job_id": "test",
+                "organization_id": TEST_ORGANIZATION_ID,
                 "document_keys": ["key"],
                 "listing_type": "sale",
                 "typology": "house",
@@ -105,7 +112,7 @@ class TestSubmitExtractionEndpoint:
 class TestListExtractionJobs:
     async def test_list_empty(self, client, auth_headers):
         response = await client.get(
-            "/api/v1/extraction-jobs/",
+            f"/api/v1/extraction-jobs/?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -126,6 +133,7 @@ class TestListExtractionJobs:
             "/api/v1/extraction-jobs/",
             json={
                 "job_id": data["job_id"],
+                "organization_id": TEST_ORGANIZATION_ID,
                 "document_keys": [s3_key],
                 "listing_type": "sale",
                 "typology": "apartment",
@@ -134,7 +142,7 @@ class TestListExtractionJobs:
         )
 
         response = await client.get(
-            "/api/v1/extraction-jobs/",
+            f"/api/v1/extraction-jobs/?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -157,6 +165,7 @@ class TestGetExtractionJob:
             "/api/v1/extraction-jobs/",
             json={
                 "job_id": job_id,
+                "organization_id": TEST_ORGANIZATION_ID,
                 "document_keys": [s3_key],
                 "listing_type": "sale",
                 "typology": "apartment",
@@ -165,7 +174,7 @@ class TestGetExtractionJob:
         )
 
         response = await client.get(
-            f"/api/v1/extraction-jobs/{job_id}",
+            f"/api/v1/extraction-jobs/{job_id}?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -173,13 +182,13 @@ class TestGetExtractionJob:
 
     async def test_get_nonexistent_job(self, client, auth_headers):
         response = await client.get(
-            "/api/v1/extraction-jobs/11111111-1111-1111-1111-111111111111",
+            f"/api/v1/extraction-jobs/11111111-1111-1111-1111-111111111111?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 404
 
     async def test_get_job_requires_auth(self, client):
         response = await client.get(
-            "/api/v1/extraction-jobs/11111111-1111-1111-1111-111111111111",
+            f"/api/v1/extraction-jobs/11111111-1111-1111-1111-111111111111?organization_id={TEST_ORGANIZATION_ID}",
         )
         assert response.status_code == 401

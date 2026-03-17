@@ -32,7 +32,7 @@ class PropertyStatus(str, enum.Enum):
 @dataclass
 class Property:
     id: UUID
-    user_id: UUID
+    organization_id: UUID
     address: str
     listing_type: ListingType
     typology: Typology

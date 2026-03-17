@@ -23,12 +23,14 @@ from property_management.domain.models.extraction_job import (
 )
 
 TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+TEST_ORGANIZATION_ID = UUID("00000000-0000-0000-0000-000000000010")
 
 
 def _make_pending_job(job_id: UUID | None = None) -> ExtractionJob:
     return ExtractionJob(
         id=job_id or uuid4(),
         user_id=TEST_USER_ID,
+        organization_id=TEST_ORGANIZATION_ID,
         status=ExtractionJobStatus.PENDING,
         document_keys=["extractions/test/0.pdf"],
         listing_type="sale",
@@ -84,7 +86,7 @@ class TestProcessPropertyExtraction:
         assert result.property_id is not None
 
         # Property was created
-        props = await prop_repo.list_by_user(TEST_USER_ID)
+        props = await prop_repo.list_by_organization(TEST_ORGANIZATION_ID)
         assert len(props) == 1
         assert props[0].address == "Rua das Flores 123, 4000-001 Porto"
         assert props[0].characteristics is not None

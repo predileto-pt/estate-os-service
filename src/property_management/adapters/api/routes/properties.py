@@ -18,7 +18,7 @@ def _property_response(prop) -> dict:
         characteristics = prop.characteristics.to_dict()
     return {
         "id": prop.id,
-        "user_id": prop.user_id,
+        "organization_id": prop.organization_id,
         "address": prop.address,
         "listing_type": prop.listing_type,
         "typology": prop.typology,
@@ -63,7 +63,7 @@ async def create_property(
 ):
     create_uc = request.app.state.property_container.create_property
     prop = await create_uc.execute(
-        user_id=supabase_user_id,
+        organization_id=str(body.organization_id),
         address=body.address,
         listing_type=body.listing_type,
         typology=body.typology,
@@ -79,11 +79,12 @@ async def create_property(
     responses={401: {"description": "Not authenticated"}},
 )
 async def list_properties(
+    organization_id: UUID,
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
     list_uc = request.app.state.property_container.list_properties
-    props = await list_uc.execute(user_id=supabase_user_id)
+    props = await list_uc.execute(organization_id=str(organization_id))
     return [_property_response(p) for p in props]
 
 
@@ -99,6 +100,7 @@ async def list_properties(
 )
 async def get_property(
     property_id: UUID,
+    organization_id: UUID,
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
@@ -108,7 +110,7 @@ async def get_property(
     except PropertyNotFoundError:
         raise HTTPException(status_code=404, detail="Property not found")
 
-    if str(prop.user_id) != supabase_user_id:
+    if str(prop.organization_id) != str(organization_id):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     return _property_response(prop)

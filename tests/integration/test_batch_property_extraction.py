@@ -1,3 +1,6 @@
+from tests.conftest import TEST_ORGANIZATION_ID
+
+
 class TestSubmitBatchExtractionEndpoint:
     async def test_submit_batch_returns_202(self, client, auth_headers, document_storage):
         # First get presigned URLs
@@ -24,6 +27,7 @@ class TestSubmitBatchExtractionEndpoint:
             "/api/v1/extraction-jobs/batch",
             json={
                 "job_id": job_id,
+                "organization_id": TEST_ORGANIZATION_ID,
                 "document_keys": s3_keys,
                 "listing_type": "sale",
                 "typology": "apartment",
@@ -36,6 +40,7 @@ class TestSubmitBatchExtractionEndpoint:
         assert len(result["document_keys"]) == 2
         assert result["listing_type"] == "sale"
         assert result["typology"] == "apartment"
+        assert result["organization_id"] == TEST_ORGANIZATION_ID
 
     async def test_submit_batch_missing_document(self, client, auth_headers):
         job_id = "11111111-1111-1111-1111-111111111111"
@@ -43,6 +48,7 @@ class TestSubmitBatchExtractionEndpoint:
             "/api/v1/extraction-jobs/batch",
             json={
                 "job_id": job_id,
+                "organization_id": TEST_ORGANIZATION_ID,
                 "document_keys": [f"extractions/{job_id}/0.pdf"],
                 "listing_type": "sale",
                 "typology": "house",
@@ -56,6 +62,7 @@ class TestSubmitBatchExtractionEndpoint:
             "/api/v1/extraction-jobs/batch",
             json={
                 "job_id": "test",
+                "organization_id": TEST_ORGANIZATION_ID,
                 "document_keys": ["key"],
                 "listing_type": "sale",
                 "typology": "house",
@@ -78,6 +85,7 @@ class TestSubmitBatchExtractionEndpoint:
             "/api/v1/extraction-jobs/batch",
             json={
                 "job_id": data["job_id"],
+                "organization_id": TEST_ORGANIZATION_ID,
                 "document_keys": [s3_key],
                 "listing_type": "sale",
                 "typology": "apartment",
@@ -87,7 +95,7 @@ class TestSubmitBatchExtractionEndpoint:
 
         # Should appear in list
         response = await client.get(
-            "/api/v1/extraction-jobs/",
+            f"/api/v1/extraction-jobs/?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -108,6 +116,7 @@ class TestSubmitBatchExtractionEndpoint:
             "/api/v1/extraction-jobs/batch",
             json={
                 "job_id": job_id,
+                "organization_id": TEST_ORGANIZATION_ID,
                 "document_keys": [s3_key],
                 "listing_type": "purchase",
                 "typology": "house",
@@ -116,7 +125,7 @@ class TestSubmitBatchExtractionEndpoint:
         )
 
         response = await client.get(
-            f"/api/v1/extraction-jobs/{job_id}",
+            f"/api/v1/extraction-jobs/{job_id}?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200

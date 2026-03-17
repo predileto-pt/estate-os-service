@@ -12,5 +12,5 @@ class ListExtractionJobs:
     def __init__(self, extraction_job_repo: ExtractionJobRepository) -> None:
         self.extraction_job_repo = extraction_job_repo
 
-    async def execute(self, *, user_id: str) -> list[ExtractionJob]:
-        return await self.extraction_job_repo.list_by_user(UUID(user_id))
+    async def execute(self, *, organization_id: str) -> list[ExtractionJob]:
+        return await self.extraction_job_repo.list_by_organization(UUID(organization_id))

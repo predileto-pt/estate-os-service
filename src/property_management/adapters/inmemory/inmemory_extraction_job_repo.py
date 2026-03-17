@@ -19,8 +19,8 @@ class InMemoryExtractionJobRepository(ExtractionJobRepository):
     async def get_by_id(self, job_id: UUID) -> ExtractionJob | None:
         return self._jobs.get(job_id)
 
-    async def list_by_user(self, user_id: UUID) -> list[ExtractionJob]:
-        return [j for j in self._jobs.values() if j.user_id == user_id]
+    async def list_by_organization(self, organization_id: UUID) -> list[ExtractionJob]:
+        return [j for j in self._jobs.values() if j.organization_id == organization_id]
 
     async def update(self, job: ExtractionJob) -> ExtractionJob:
         self._jobs[job.id] = job

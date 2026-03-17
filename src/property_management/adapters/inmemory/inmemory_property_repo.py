@@ -14,8 +14,8 @@ class InMemoryPropertyRepository(PropertyRepository):
     async def get_by_id(self, property_id: UUID) -> Property | None:
         return self._properties.get(property_id)
 
-    async def list_by_user(self, user_id: UUID) -> list[Property]:
-        return [p for p in self._properties.values() if p.user_id == user_id]
+    async def list_by_organization(self, organization_id: UUID) -> list[Property]:
+        return [p for p in self._properties.values() if p.organization_id == organization_id]
 
     async def save(self, prop: Property) -> Property:
         self._properties[prop.id] = prop

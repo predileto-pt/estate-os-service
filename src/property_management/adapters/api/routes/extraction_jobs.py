@@ -22,6 +22,7 @@ def _job_response(job) -> dict:
     return {
         "id": job.id,
         "user_id": job.user_id,
+        "organization_id": job.organization_id,
         "status": job.status,
         "document_keys": job.document_keys,
         "listing_type": job.listing_type,
@@ -84,6 +85,7 @@ async def submit_extraction(
         job = await uc.execute(
             job_id=body.job_id,
             user_id=supabase_user_id,
+            organization_id=str(body.organization_id),
             document_keys=body.document_keys,
             listing_type=body.listing_type.value,
             typology=body.typology.value,
@@ -117,6 +119,7 @@ async def submit_batch_extraction(
         job = await uc.execute(
             job_id=body.job_id,
             user_id=supabase_user_id,
+            organization_id=str(body.organization_id),
             document_keys=body.document_keys,
             listing_type=body.listing_type.value,
             typology=body.typology.value,
@@ -142,6 +145,7 @@ async def submit_batch_extraction(
 )
 async def retry_extraction_job(
     job_id: UUID,
+    organization_id: UUID,
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
@@ -151,7 +155,7 @@ async def retry_extraction_job(
     except ExtractionJobNotFoundError:
         raise HTTPException(status_code=404, detail="Extraction job not found")
 
-    if str(job.user_id) != supabase_user_id:
+    if str(job.organization_id) != str(organization_id):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     retry_uc = request.app.state.property_container.retry_extraction_job
@@ -170,11 +174,12 @@ async def retry_extraction_job(
     responses={401: {"description": "Not authenticated"}},
 )
 async def list_extraction_jobs(
+    organization_id: UUID,
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
     uc = request.app.state.property_container.list_extraction_jobs
-    jobs = await uc.execute(user_id=supabase_user_id)
+    jobs = await uc.execute(organization_id=str(organization_id))
     return [_job_response(j) for j in jobs]
 
 
@@ -190,6 +195,7 @@ async def list_extraction_jobs(
 )
 async def get_extraction_job(
     job_id: UUID,
+    organization_id: UUID,
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
@@ -199,7 +205,7 @@ async def get_extraction_job(
     except ExtractionJobNotFoundError:
         raise HTTPException(status_code=404, detail="Extraction job not found")
 
-    if str(job.user_id) != supabase_user_id:
+    if str(job.organization_id) != str(organization_id):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     return _job_response(job)

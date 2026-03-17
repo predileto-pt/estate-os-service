@@ -11,6 +11,7 @@ def _make_job(**overrides) -> ExtractionJob:
     defaults = {
         "id": uuid4(),
         "user_id": uuid4(),
+        "organization_id": uuid4(),
         "status": ExtractionJobStatus.PENDING,
         "document_keys": ["extractions/abc/0.pdf"],
     }

@@ -43,11 +43,11 @@ def _make_user(organization_id, **overrides) -> User:
     return User(**(defaults | overrides))
 
 
-def _make_property(user_id, **overrides) -> Property:
+def _make_property(organization_id, **overrides) -> Property:
     now = datetime.now(timezone.utc)
     defaults = {
         "id": uuid4(),
-        "user_id": user_id,
+        "organization_id": organization_id,
         "address": "Rua da Propriedade 1, Lisboa",
         "listing_type": ListingType.SALE,
         "typology": Typology.APARTMENT,
@@ -83,8 +83,8 @@ def _make_owner(property_id, **overrides) -> PropertyOwner:
 
 async def test_save_and_get_property(organization_repo, user_repo, property_repo):
     org = await organization_repo.save(_make_organization())
-    user = await user_repo.save(_make_user(org.id))
-    prop = _make_property(user.id)
+    await user_repo.save(_make_user(org.id))
+    prop = _make_property(org.id)
 
     saved = await property_repo.save(prop)
     assert saved.id == prop.id
@@ -97,21 +97,21 @@ async def test_save_and_get_property(organization_repo, user_repo, property_repo
     assert fetched.status == PropertyStatus.DRAFT
 
 
-async def test_list_by_user(organization_repo, user_repo, property_repo):
+async def test_list_by_organization(organization_repo, user_repo, property_repo):
     org = await organization_repo.save(_make_organization())
-    user = await user_repo.save(_make_user(org.id))
+    await user_repo.save(_make_user(org.id))
 
     for i in range(3):
-        await property_repo.save(_make_property(user.id, address=f"Rua {i}"))
+        await property_repo.save(_make_property(org.id, address=f"Rua {i}"))
 
-    properties = await property_repo.list_by_user(user.id)
+    properties = await property_repo.list_by_organization(org.id)
     assert len(properties) == 3
 
 
 async def test_save_owner_and_get_with_property(organization_repo, user_repo, property_repo):
     org = await organization_repo.save(_make_organization())
-    user = await user_repo.save(_make_user(org.id))
-    prop = _make_property(user.id)
+    await user_repo.save(_make_user(org.id))
+    prop = _make_property(org.id)
     saved_prop = await property_repo.save(prop)
 
     owner = _make_owner(saved_prop.id)

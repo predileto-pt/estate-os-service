@@ -43,11 +43,11 @@ def _make_user(organization_id, **overrides) -> User:
     return User(**(defaults | overrides))
 
 
-def _make_property(user_id, **overrides) -> Property:
+def _make_property(organization_id, **overrides) -> Property:
     now = datetime.now(timezone.utc)
     defaults = {
         "id": uuid4(),
-        "user_id": user_id,
+        "organization_id": organization_id,
         "address": "Rua da Propriedade 1, Lisboa",
         "listing_type": ListingType.SALE,
         "typology": Typology.APARTMENT,
@@ -59,11 +59,12 @@ def _make_property(user_id, **overrides) -> Property:
     return Property(**(defaults | overrides))
 
 
-def _make_extraction_job(user_id=None, **overrides) -> ExtractionJob:
+def _make_extraction_job(user_id=None, organization_id=None, **overrides) -> ExtractionJob:
     now = datetime.now(timezone.utc)
     defaults = {
         "id": uuid4(),
         "user_id": user_id or uuid4(),
+        "organization_id": organization_id or uuid4(),
         "status": ExtractionJobStatus.PENDING,
         "document_keys": ["docs/file1.pdf", "docs/file2.pdf"],
         "listing_type": "sale",
@@ -90,13 +91,13 @@ async def test_save_and_get_extraction_job(extraction_job_repo):
     assert fetched.typology == "apartment"
 
 
-async def test_list_by_user(extraction_job_repo):
-    user_id = uuid4()
+async def test_list_by_organization(extraction_job_repo):
+    org_id = uuid4()
 
     for _ in range(3):
-        await extraction_job_repo.save(_make_extraction_job(user_id=user_id))
+        await extraction_job_repo.save(_make_extraction_job(organization_id=org_id))
 
-    jobs = await extraction_job_repo.list_by_user(user_id)
+    jobs = await extraction_job_repo.list_by_organization(org_id)
     assert len(jobs) == 3
 
 
@@ -117,9 +118,9 @@ async def test_update_completed_with_property(
 ):
     org = await organization_repo.save(_make_organization())
     user = await user_repo.save(_make_user(org.id))
-    prop = await property_repo.save(_make_property(user.id))
+    prop = await property_repo.save(_make_property(org.id))
 
-    job = _make_extraction_job(user_id=user.id)
+    job = _make_extraction_job(user_id=user.id, organization_id=org.id)
     await extraction_job_repo.save(job)
 
     job.mark_completed(prop.id)

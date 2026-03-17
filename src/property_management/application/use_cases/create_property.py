@@ -19,7 +19,7 @@ class CreateProperty:
     async def execute(
         self,
         *,
-        user_id: str,
+        organization_id: str,
         address: str,
         listing_type: ListingType,
         typology: Typology,
@@ -28,7 +28,7 @@ class CreateProperty:
         now = datetime.now(timezone.utc)
         prop = Property(
             id=uuid4(),
-            user_id=UUID(user_id),
+            organization_id=UUID(organization_id),
             address=address,
             listing_type=listing_type,
             typology=typology,

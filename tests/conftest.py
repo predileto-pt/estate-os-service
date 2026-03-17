@@ -47,6 +47,7 @@ from property_management.container import Container as PropertyContainer
 
 TEST_JWT_SECRET = "test-jwt-secret-for-testing-only"
 TEST_SUPABASE_USER_ID = "00000000-0000-0000-0000-000000000001"
+TEST_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000010"
 
 
 def make_test_token(sub: str = TEST_SUPABASE_USER_ID) -> str:

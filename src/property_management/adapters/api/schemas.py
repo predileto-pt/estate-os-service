@@ -12,6 +12,7 @@ from property_management.domain.models.property_owner import CivilStatus, Docume
 
 
 class CreatePropertyOwnerRequest(BaseModel):
+    organization_id: UUID
     property_id: UUID
     full_name: str
     civil_status: CivilStatus
@@ -44,6 +45,7 @@ class PropertyOwnerResponse(BaseModel):
 
 
 class CreatePropertyRequest(BaseModel):
+    organization_id: UUID
     address: str
     listing_type: ListingType
     typology: Typology
@@ -65,7 +67,7 @@ class PropertyCharacteristicsResponse(BaseModel):
 
 class PropertyResponse(BaseModel):
     id: UUID
-    user_id: UUID
+    organization_id: UUID
     address: str
     listing_type: ListingType
     typology: Typology
@@ -101,6 +103,7 @@ class PresignResponse(BaseModel):
 
 class SubmitExtractionRequest(BaseModel):
     job_id: str
+    organization_id: UUID
     document_keys: list[str] = Field(min_length=1, max_length=5)
     listing_type: ListingType
     typology: Typology
@@ -109,6 +112,7 @@ class SubmitExtractionRequest(BaseModel):
 class ExtractionJobResponse(BaseModel):
     id: UUID
     user_id: UUID
+    organization_id: UUID
     status: ExtractionJobStatus
     document_keys: list[str]
     listing_type: str | None = None

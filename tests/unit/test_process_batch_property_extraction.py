@@ -39,6 +39,7 @@ from property_management.domain.models.extraction_job import (
 )
 
 TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+TEST_ORGANIZATION_ID = UUID("00000000-0000-0000-0000-000000000010")
 
 
 def _make_pending_job(job_id: UUID | None = None, num_docs: int = 3) -> ExtractionJob:
@@ -46,6 +47,7 @@ def _make_pending_job(job_id: UUID | None = None, num_docs: int = 3) -> Extracti
     return ExtractionJob(
         id=jid,
         user_id=TEST_USER_ID,
+        organization_id=TEST_ORGANIZATION_ID,
         status=ExtractionJobStatus.PENDING,
         document_keys=[f"extractions/{jid}/{i}.pdf" for i in range(num_docs)],
         listing_type="sale",
@@ -131,7 +133,7 @@ class TestProcessBatchPropertyExtraction:
         assert result.status == ExtractionJobStatus.COMPLETED
         assert result.property_id is not None
 
-        props = await prop_repo.list_by_user(TEST_USER_ID)
+        props = await prop_repo.list_by_organization(TEST_ORGANIZATION_ID)
         assert len(props) == 1
         assert props[0].address == "Rua das Flores 123, 4000-001 Porto"
         assert props[0].characteristics is not None
@@ -174,7 +176,7 @@ class TestProcessBatchPropertyExtraction:
         result = await uc.execute(job_id=str(job.id))
 
         assert result.status == ExtractionJobStatus.COMPLETED
-        props = await prop_repo.list_by_user(TEST_USER_ID)
+        props = await prop_repo.list_by_organization(TEST_ORGANIZATION_ID)
         assert len(props) == 1
         assert len(props[0].owners) == 1
 
@@ -328,7 +330,7 @@ class TestProcessBatchPropertyExtraction:
         result = await uc.execute(job_id=str(job.id))
 
         assert result.status == ExtractionJobStatus.COMPLETED
-        props = await prop_repo.list_by_user(TEST_USER_ID)
+        props = await prop_repo.list_by_organization(TEST_ORGANIZATION_ID)
         assert len(props[0].owners) == 1
         # ID extraction version should win
         assert props[0].owners[0].full_name == "Name From ID Card"
@@ -379,5 +381,5 @@ class TestProcessBatchPropertyExtraction:
         assert len(download_calls) == 0, "download should not be called on retry"
 
         # Property was still created
-        props = await prop_repo.list_by_user(TEST_USER_ID)
+        props = await prop_repo.list_by_organization(TEST_ORGANIZATION_ID)
         assert len(props) == 1

@@ -56,8 +56,8 @@ class PropertyModel(Base):
     id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    user_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("users.id"), nullable=False
+    organization_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=False
     )
     address: Mapped[str] = mapped_column(Text, nullable=False)
     listing_type: Mapped[ListingType] = mapped_column(
@@ -90,7 +90,7 @@ class PropertyModel(Base):
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
-    __table_args__ = (Index("idx_properties_user_id", "user_id"),)
+    __table_args__ = (Index("idx_properties_organization_id", "organization_id"),)
 
 
 class PropertyOwnerModel(Base):
@@ -143,6 +143,9 @@ class ExtractionJobModel(Base):
         UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
     )
     user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    organization_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=False
+    )
     status: Mapped[ExtractionJobStatus] = mapped_column(
         Enum(
             ExtractionJobStatus,
@@ -162,7 +165,10 @@ class ExtractionJobModel(Base):
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
-    __table_args__ = (Index("idx_extraction_jobs_user_id", "user_id"),)
+    __table_args__ = (
+        Index("idx_extraction_jobs_user_id", "user_id"),
+        Index("idx_extraction_jobs_organization_id", "organization_id"),
+    )
 
 
 class DocumentContentModel(Base):

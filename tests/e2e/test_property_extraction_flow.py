@@ -21,7 +21,8 @@ async def _register_user(client, auth_headers):
 async def test_presign_upload_and_submit_extraction(
     client, auth_headers, sqs_client, sqs_queue_url
 ):
-    await _register_user(client, auth_headers)
+    user_data = await _register_user(client, auth_headers)
+    org_id = user_data.get("organization_id", "")
 
     # Generate presigned upload URL
     presign_resp = await client.post(
@@ -57,6 +58,7 @@ async def test_presign_upload_and_submit_extraction(
         "/api/v1/extraction-jobs/",
         json={
             "job_id": job_id,
+            "organization_id": org_id,
             "document_keys": [s3_key],
             "listing_type": "sale",
             "typology": "apartment",
@@ -83,8 +85,11 @@ async def test_presign_upload_and_submit_extraction(
 
 @pytest.mark.e2e
 async def test_list_extraction_jobs(client, auth_headers):
-    await _register_user(client, auth_headers)
+    user_data = await _register_user(client, auth_headers)
+    org_id = user_data.get("organization_id", "")
 
-    list_resp = await client.get("/api/v1/extraction-jobs/", headers=auth_headers)
+    list_resp = await client.get(
+        f"/api/v1/extraction-jobs/?organization_id={org_id}", headers=auth_headers
+    )
     assert list_resp.status_code == 200
     assert isinstance(list_resp.json(), list)
