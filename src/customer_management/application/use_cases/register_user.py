@@ -80,9 +80,6 @@ class RegisterUser:
             await self.invitation_repo.update(invitation)
         else:
             # New user — create organization
-            if not organization_name:
-                raise ValueError("organization_name is required for new registrations")
-
             organization = Organization(
                 id=uuid4(),
                 created_by=uuid4(),

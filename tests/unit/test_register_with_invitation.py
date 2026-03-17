@@ -109,12 +109,21 @@ async def test_register_invited_user_joins_existing_org(register_use_case):
 
 
 @pytest.mark.asyncio
-async def test_register_without_org_fields_and_no_invitation_fails(register_use_case):
-    uc, *_ = register_use_case
+async def test_register_without_organization_name_succeeds(register_use_case):
+    uc, user_repo, org_repo, sub_repo, membership_repo, _ = register_use_case
 
-    with pytest.raises(ValueError, match="organization_name is required"):
-        await uc.execute(
-            supabase_user_id="fail-user-sub",
-            email="fail@test.com",
-            name="Fail User",
-        )
+    user = await uc.execute(
+        supabase_user_id="google-user-sub",
+        email="google@test.com",
+        name="Google User",
+    )
+
+    assert user.organization_id is not None
+    memberships = await membership_repo.list_by_user(user.id)
+    assert len(memberships) == 1
+    assert memberships[0].role == MembershipRole.OWNER
+
+    # Organization should have name=None
+    org = await org_repo.get_by_id(user.organization_id)
+    assert org is not None
+    assert org.name is None

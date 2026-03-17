@@ -55,7 +55,7 @@ class UpdateOrganizationRequest(BaseModel):
 class OrganizationResponse(BaseModel):
     id: UUID
     created_by: UUID
-    name: str
+    name: str | None
     nif: str | None
     address: str | None
     created_at: datetime

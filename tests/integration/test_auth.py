@@ -58,6 +58,23 @@ async def test_register_duplicate(client, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_register_without_organization_name(client, auth_headers):
+    response = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "name": "Google User",
+            "email": "google@test.com",
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["email"] == "google@test.com"
+    assert data["name"] == "Google User"
+    assert data["organization_id"] is not None
+
+
+@pytest.mark.asyncio
 async def test_get_me(client, auth_headers):
     # First register
     await client.post(
