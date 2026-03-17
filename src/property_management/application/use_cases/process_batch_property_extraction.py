@@ -24,8 +24,10 @@ from property_management.domain.exceptions import ExtractionJobNotFoundError
 from property_management.domain.models.document_content import DocumentContent
 from property_management.domain.models.extraction_job import ExtractionJob
 from property_management.domain.models.property import (
+    ListingType,
     Property,
     PropertyStatus,
+    Typology,
 )
 from property_management.domain.models.property_characteristics import PropertyCharacteristics
 from property_management.domain.models.property_owner import (
@@ -181,8 +183,8 @@ class ProcessBatchPropertyExtraction:
                 id=uuid4(),
                 user_id=job.user_id,
                 address=property_result.address,
-                listing_type=job.listing_type,
-                typology=job.typology,
+                listing_type=ListingType(job.listing_type),
+                typology=Typology(job.typology),
                 status=PropertyStatus.DRAFT,
                 description=property_result.description,
                 characteristics=characteristics,

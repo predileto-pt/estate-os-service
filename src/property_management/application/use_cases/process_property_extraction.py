@@ -20,8 +20,10 @@ from property_management.application.ports.repositories.property_repository impo
 from property_management.domain.exceptions import ExtractionJobNotFoundError
 from property_management.domain.models.extraction_job import ExtractionJob
 from property_management.domain.models.property import (
+    ListingType,
     Property,
     PropertyStatus,
+    Typology,
 )
 from property_management.domain.models.property_characteristics import (
     PropertyCharacteristics,
@@ -86,8 +88,8 @@ class ProcessPropertyExtraction:
                 id=uuid4(),
                 user_id=job.user_id,
                 address=result.address,
-                listing_type=job.listing_type,
-                typology=job.typology,
+                listing_type=ListingType(job.listing_type),
+                typology=Typology(job.typology),
                 status=PropertyStatus.DRAFT,
                 description=result.description,
                 characteristics=characteristics,
@@ -132,10 +134,11 @@ class ProcessPropertyExtraction:
             await self.extraction_job_repo.update(job)
 
             duration_ms = int((time.monotonic() - start) * 1000)
-            log.error(
+            log.exception(
                 "extraction.failed",
                 job_id=job_id,
                 error=str(exc),
+                exc_type=type(exc).__qualname__,
                 duration_ms=duration_ms,
             )
 
