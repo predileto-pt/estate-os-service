@@ -1,6 +1,8 @@
-from pydantic_settings import BaseSettings
-import structlog
 import logging
+
+import logfire
+import structlog
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -50,15 +52,27 @@ class Settings(BaseSettings):
 
 
 def setup_logging(log_level: str = "info") -> None:
+    processors: list[structlog.types.Processor] = [
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.StackInfoRenderer(),
+        structlog.dev.set_exc_info,
+        structlog.processors.TimeStamper(fmt="iso"),
+    ]
+
+    if settings.logfire_token:
+        logfire.configure(
+            token=settings.logfire_token,
+            service_name="customers-dashboard-service",
+            environment=settings.app_env,
+            console=False,
+        )
+        processors.append(logfire.StructlogProcessor())
+
+    processors.append(structlog.dev.ConsoleRenderer())
+
     structlog.configure(
-        processors=[
-            structlog.contextvars.merge_contextvars,
-            structlog.processors.add_log_level,
-            structlog.processors.StackInfoRenderer(),
-            structlog.dev.set_exc_info,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.dev.ConsoleRenderer(),
-        ],
+        processors=processors,
         wrapper_class=structlog.make_filtering_bound_logger(
             getattr(logging, log_level.upper(), logging.INFO)
         ),
