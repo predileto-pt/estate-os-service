@@ -24,19 +24,21 @@ class SupabasePropertyRepository(PropertyRepository):
         self._client = client
 
     def _owner_to_domain(self, row: dict) -> PropertyOwner:
-        dob = row["date_of_birth"]
+        dob = row.get("date_of_birth")
         if isinstance(dob, str):
             dob = date.fromisoformat(dob)
+        civil_status_raw = row.get("civil_status")
+        doc_type_raw = row.get("document_type")
         return PropertyOwner(
             id=UUID(row["id"]),
             property_id=UUID(row["property_id"]),
             full_name=row["full_name"],
-            civil_status=CivilStatus(row["civil_status"]),
+            civil_status=CivilStatus(civil_status_raw) if civil_status_raw else None,
             address=row["address"],
             nif=row["nif"],
-            document_type=DocumentType(row["document_type"]),
-            document_id=row["document_id"],
-            issued_by=row["issued_by"],
+            document_type=DocumentType(doc_type_raw) if doc_type_raw else None,
+            document_id=row.get("document_id"),
+            issued_by=row.get("issued_by"),
             issuing_district=row.get("issuing_district"),
             date_of_birth=dob,
             created_at=row["created_at"],
@@ -48,14 +50,14 @@ class SupabasePropertyRepository(PropertyRepository):
             "id": str(owner.id),
             "property_id": str(owner.property_id),
             "full_name": owner.full_name,
-            "civil_status": owner.civil_status.value,
+            "civil_status": owner.civil_status.value if owner.civil_status else None,
             "address": owner.address,
             "nif": owner.nif,
-            "document_type": owner.document_type.value,
+            "document_type": owner.document_type.value if owner.document_type else None,
             "document_id": owner.document_id,
             "issued_by": owner.issued_by,
             "issuing_district": owner.issuing_district,
-            "date_of_birth": owner.date_of_birth.isoformat(),
+            "date_of_birth": owner.date_of_birth.isoformat() if owner.date_of_birth else None,
         }
 
     def _to_domain(self, row: dict, owner_rows: list[dict] | None = None) -> Property:

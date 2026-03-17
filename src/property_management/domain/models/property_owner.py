@@ -27,14 +27,14 @@ class PropertyOwner:
     id: UUID
     property_id: UUID
     full_name: str
-    civil_status: CivilStatus
+    civil_status: CivilStatus | None
     address: str
     nif: str
-    document_type: DocumentType
-    document_id: str
-    issued_by: str
+    document_type: DocumentType | None
+    document_id: str | None
+    issued_by: str | None
     issuing_district: str | None
-    date_of_birth: date
+    date_of_birth: date | None
     created_at: datetime
     updated_at: datetime
 
