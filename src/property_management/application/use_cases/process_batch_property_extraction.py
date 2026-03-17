@@ -70,27 +70,42 @@ class ProcessBatchPropertyExtraction:
         log.info("batch_extraction.processing", job_id=job_id)
 
         try:
-            # 1. Download all documents from S3
-            documents: list[bytes] = []
-            for key in job.document_keys:
-                data = await self.document_storage.download(key)
-                documents.append(data)
-
-            # 2. Parse all documents with Reducto (single OCR pass)
-            parsed_texts = await self.document_parser.parse_batch(documents)
-
-            # 3. Persist parsed content → document_contents table
-            contents = [
-                DocumentContent(
-                    id=uuid4(),
-                    extraction_job_id=job.id,
-                    document_index=i,
-                    document_key=job.document_keys[i],
-                    parsed_text=text,
+            # Check for already-parsed content (retry scenario)
+            existing_contents = await self.document_content_repo.get_by_job_id(job.id)
+            if (
+                existing_contents
+                and len(existing_contents) == len(job.document_keys)
+                and all(c.parsed_text for c in existing_contents)
+            ):
+                log.info(
+                    "batch_extraction.using_cached_parse",
+                    job_id=job_id,
+                    num_docs=len(existing_contents),
                 )
-                for i, text in enumerate(parsed_texts)
-            ]
-            contents = await self.document_content_repo.save_batch(contents)
+                contents = existing_contents
+                parsed_texts = [c.parsed_text for c in existing_contents]
+            else:
+                # 1. Download all documents from S3
+                documents: list[bytes] = []
+                for key in job.document_keys:
+                    data = await self.document_storage.download(key)
+                    documents.append(data)
+
+                # 2. Parse all documents with Reducto (single OCR pass)
+                parsed_texts = await self.document_parser.parse_batch(documents)
+
+                # 3. Persist parsed content → document_contents table
+                contents = [
+                    DocumentContent(
+                        id=uuid4(),
+                        extraction_job_id=job.id,
+                        document_index=i,
+                        document_key=job.document_keys[i],
+                        parsed_text=text,
+                    )
+                    for i, text in enumerate(parsed_texts)
+                ]
+                contents = await self.document_content_repo.save_batch(contents)
 
             # 4. Classify parsed text (text-based, no vision)
             classifications = await self.document_classifier.classify(parsed_texts)
@@ -228,10 +243,11 @@ class ProcessBatchPropertyExtraction:
             await self.extraction_job_repo.update(job)
 
             duration_ms = int((time.monotonic() - start) * 1000)
-            log.error(
+            log.exception(
                 "batch_extraction.failed",
                 job_id=job_id,
                 error=str(exc),
+                exc_type=type(exc).__qualname__,
                 duration_ms=duration_ms,
             )
 

@@ -32,6 +32,7 @@ from property_management.application.use_cases.process_batch_property_extraction
     ProcessBatchPropertyExtraction,
 )
 from property_management.domain.exceptions import ExtractionJobNotFoundError
+from property_management.domain.models.document_content import DocumentContent
 from property_management.domain.models.extraction_job import (
     ExtractionJob,
     ExtractionJobStatus,
@@ -332,3 +333,51 @@ class TestProcessBatchPropertyExtraction:
         # ID extraction version should win
         assert props[0].owners[0].full_name == "Name From ID Card"
         assert props[0].owners[0].document_id == "NEW-ID"
+
+    async def test_retry_uses_cached_parsed_text(
+        self, use_case, job_repo, storage, document_parser, document_content_repo, prop_repo
+    ):
+        """On retry, cached parsed text is used — no S3 download or Reducto parse."""
+        job = _make_pending_job(num_docs=3)
+        await job_repo.save(job)
+
+        # Pre-populate document_contents as if first attempt parsed successfully
+        for i, key in enumerate(job.document_keys):
+            content = DocumentContent(
+                id=uuid4(),
+                extraction_job_id=job.id,
+                document_index=i,
+                document_key=key,
+                parsed_text=f"Cached parsed text for doc {i}",
+            )
+            await document_content_repo.save(content)
+
+        # Track calls to parser and storage
+        parse_calls = []
+        original_parse_batch = document_parser.parse_batch
+
+        async def spy_parse_batch(documents):
+            parse_calls.append(documents)
+            return await original_parse_batch(documents)
+
+        document_parser.parse_batch = spy_parse_batch
+
+        download_calls = []
+        original_download = storage.download
+
+        async def spy_download(key):
+            download_calls.append(key)
+            return await original_download(key)
+
+        storage.download = spy_download
+
+        result = await use_case.execute(job_id=str(job.id))
+
+        assert result.status == ExtractionJobStatus.COMPLETED
+        assert result.property_id is not None
+        assert len(parse_calls) == 0, "parse_batch should not be called on retry"
+        assert len(download_calls) == 0, "download should not be called on retry"
+
+        # Property was still created
+        props = await prop_repo.list_by_user(TEST_USER_ID)
+        assert len(props) == 1
