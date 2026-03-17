@@ -13,9 +13,9 @@ class InMemorySubscriptionRepository(SubscriptionRepository):
     async def get_by_id(self, subscription_id: UUID) -> Subscription | None:
         return self._subscriptions.get(subscription_id)
 
-    async def get_by_company_id(self, company_id: UUID) -> Subscription | None:
+    async def get_by_organization_id(self, organization_id: UUID) -> Subscription | None:
         for sub in self._subscriptions.values():
-            if sub.company_id == company_id:
+            if sub.organization_id == organization_id:
                 return sub
         return None
 

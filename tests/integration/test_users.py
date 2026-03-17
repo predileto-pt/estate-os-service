@@ -7,7 +7,7 @@ async def _register_user(client, auth_headers):
         json={
             "name": "João Silva",
             "email": "joao@agency.pt",
-            "company_name": "Imobiliária Silva",
+            "organization_name": "Imobiliária Silva",
             "nif": "123456789",
             "address": "Rua Augusta 1, PT",
         },
@@ -22,7 +22,7 @@ async def test_get_user_profile(client, auth_headers):
     assert response.status_code == 200
     data = response.json()
     assert data["user"]["email"] == "joao@agency.pt"
-    assert data["company"]["name"] == "Imobiliária Silva"
+    assert data["organization"]["name"] == "Imobiliária Silva"
 
 
 @pytest.mark.asyncio

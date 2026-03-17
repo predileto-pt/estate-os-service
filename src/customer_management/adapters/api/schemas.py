@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from customer_management.domain.models.invitation import InvitationStatus
+from customer_management.domain.models.membership import MembershipRole
 from customer_management.domain.models.notification import NotificationStatus
 from customer_management.domain.models.subscription import (
     SubscriptionPlan,
@@ -15,9 +17,9 @@ from customer_management.domain.models.subscription import (
 class RegisterRequest(BaseModel):
     name: str
     email: str
-    company_name: str
-    nif: str = Field(description="Tax identification number (NIF)")
-    address: str = Field(description="Company address")
+    organization_name: str | None = None
+    nif: str | None = Field(default=None, description="Tax identification number (NIF)")
+    address: str | None = Field(default=None, description="Organization address")
     phone_country_code: str | None = Field(default=None, description="E.g. +351")
     phone_number: str | None = None
 
@@ -40,21 +42,21 @@ class UserResponse(BaseModel):
     email: str
     name: str
     phone: PhoneResponse | None
-    company_id: UUID
+    organization_id: UUID | None
     created_at: datetime
     updated_at: datetime
 
 
-# --- Company ---
-class UpdateCompanyRequest(BaseModel):
+# --- Organization ---
+class UpdateOrganizationRequest(BaseModel):
     name: str | None = None
     nif: str | None = Field(default=None, description="Tax identification number (NIF)")
     address: str | None = None
 
 
-class CompanyResponse(BaseModel):
+class OrganizationResponse(BaseModel):
     id: UUID
-    user_id: UUID
+    created_by: UUID
     name: str
     nif: str
     address: str
@@ -83,7 +85,7 @@ class UpdateSubscriptionRequest(BaseModel):
 
 class SubscriptionResponse(BaseModel):
     id: UUID
-    company_id: UUID
+    organization_id: UUID
     plan: SubscriptionPlan
     type: SubscriptionType
     status: SubscriptionStatus
@@ -131,7 +133,39 @@ class SendEmailRequest(BaseModel):
     from_email: str = "noreply@predileto.pt"
 
 
-# --- User with company ---
-class UserWithCompanyResponse(BaseModel):
+# --- Membership ---
+class InviteMemberRequest(BaseModel):
+    email: str
+    role: MembershipRole
+
+
+class UpdateMemberRoleRequest(BaseModel):
+    role: MembershipRole
+
+
+class MembershipResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    organization_id: UUID
+    role: MembershipRole
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- Invitation ---
+class InvitationResponse(BaseModel):
+    id: UUID
+    email: str
+    role: MembershipRole
+    status: InvitationStatus
+    invited_by: UUID
+    organization_id: UUID
+    expires_at: datetime
+    created_at: datetime
+
+
+# --- User with organization ---
+class UserWithOrganizationResponse(BaseModel):
     user: UserResponse
-    company: CompanyResponse | None
+    organization: OrganizationResponse | None
+    role: MembershipRole | None = None

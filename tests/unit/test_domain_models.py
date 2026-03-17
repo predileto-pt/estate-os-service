@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from customer_management.domain.models.company import Company
+from customer_management.domain.models.membership import Membership, MembershipRole
 from customer_management.domain.models.notification import Notification, NotificationStatus
+from customer_management.domain.models.organization import Organization
 from customer_management.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
@@ -22,7 +23,7 @@ class TestUser:
             email="test@example.com",
             name="Test User",
             phone=PhoneNumber(country_code="+351", number="912345678"),
-            company_id=uuid4(),
+            organization_id=uuid4(),
             google_metadata=None,
             created_at=now,
             updated_at=now,
@@ -38,7 +39,7 @@ class TestUser:
             email="test@example.com",
             name="Test User",
             phone=None,
-            company_id=uuid4(),
+            organization_id=uuid4(),
             google_metadata=None,
             created_at=now,
             updated_at=now,
@@ -46,20 +47,39 @@ class TestUser:
         assert user.phone is None
 
 
-class TestCompany:
-    def test_create_company(self):
+class TestOrganization:
+    def test_create_organization(self):
         now = datetime.now(timezone.utc)
-        company = Company(
+        org = Organization(
             id=uuid4(),
-            user_id=uuid4(),
+            created_by=uuid4(),
             name="Test Agency",
             nif="123456789",
             address="Rua Augusta 1, Lisboa, PT",
             created_at=now,
             updated_at=now,
         )
-        assert company.name == "Test Agency"
-        assert company.nif == "123456789"
+        assert org.name == "Test Agency"
+        assert org.nif == "123456789"
+
+
+class TestMembership:
+    def test_create_membership(self):
+        now = datetime.now(timezone.utc)
+        membership = Membership(
+            id=uuid4(),
+            user_id=uuid4(),
+            organization_id=uuid4(),
+            role=MembershipRole.OWNER,
+            created_at=now,
+            updated_at=now,
+        )
+        assert membership.role == MembershipRole.OWNER
+
+    def test_membership_roles(self):
+        assert MembershipRole.OWNER.value == "owner"
+        assert MembershipRole.ADMIN.value == "admin"
+        assert MembershipRole.MEMBER.value == "member"
 
 
 class TestSubscription:
@@ -67,7 +87,7 @@ class TestSubscription:
         now = datetime.now(timezone.utc)
         sub = Subscription(
             id=uuid4(),
-            company_id=uuid4(),
+            organization_id=uuid4(),
             plan=SubscriptionPlan.FREEMIUM,
             type=SubscriptionType.MANUAL,
             status=SubscriptionStatus.ACTIVE,

@@ -34,6 +34,7 @@ from property_management.application.use_cases.process_property_extraction impor
 from property_management.application.use_cases.submit_batch_property_extraction import (
     SubmitBatchPropertyExtraction,
 )
+from property_management.application.use_cases.retry_extraction_job import RetryExtractionJob
 from property_management.application.use_cases.submit_property_extraction import (
     SubmitPropertyExtraction,
 )
@@ -146,4 +147,10 @@ class Container:
             )
             self.list_extraction_jobs = ListExtractionJobs(
                 extraction_job_repo=extraction_job_repo,
+            )
+
+        if extraction_job_repo and event_bus:
+            self.retry_extraction_job = RetryExtractionJob(
+                extraction_job_repo=extraction_job_repo,
+                event_bus=event_bus,
             )

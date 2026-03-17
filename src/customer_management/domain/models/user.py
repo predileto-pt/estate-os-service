@@ -12,7 +12,7 @@ class User:
     email: str
     name: str
     phone: PhoneNumber | None
-    company_id: UUID  # FK → Company
+    organization_id: UUID | None  # FK → Organization (nullable for invited users)
     google_metadata: dict | None
     created_at: datetime
     updated_at: datetime

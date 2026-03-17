@@ -20,7 +20,7 @@ class SupabaseSubscriptionRepository(SubscriptionRepository):
     def _to_domain(self, row: dict) -> Subscription:
         return Subscription(
             id=UUID(row["id"]),
-            company_id=UUID(row["company_id"]),
+            organization_id=UUID(row["organization_id"]),
             plan=SubscriptionPlan(row["plan"]),
             type=SubscriptionType(row["type"]),
             status=SubscriptionStatus(row["status"]),
@@ -35,7 +35,7 @@ class SupabaseSubscriptionRepository(SubscriptionRepository):
     def _to_row(self, sub: Subscription) -> dict:
         return {
             "id": str(sub.id),
-            "company_id": str(sub.company_id),
+            "organization_id": str(sub.organization_id),
             "plan": sub.plan.value,
             "type": sub.type.value,
             "status": sub.status.value,
@@ -60,11 +60,11 @@ class SupabaseSubscriptionRepository(SubscriptionRepository):
             return None
         return self._to_domain(result.data[0])
 
-    async def get_by_company_id(self, company_id: UUID) -> Subscription | None:
+    async def get_by_organization_id(self, organization_id: UUID) -> Subscription | None:
         result = (
             await self._client.table("subscriptions")
             .select("*")
-            .eq("company_id", str(company_id))
+            .eq("organization_id", str(organization_id))
             .order("created_at", desc=True)
             .limit(1)
             .execute()

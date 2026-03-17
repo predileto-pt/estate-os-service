@@ -8,10 +8,12 @@ from shared.api.middleware import JWTAuthMiddleware, RequestLoggingMiddleware
 from shared.config import settings, setup_logging
 from customer_management.adapters.api.routes import (
     auth,
-    companies,
     email,
     health,
+    invitations,
+    memberships,
     notifications,
+    organizations,
     subscriptions,
     users,
 )
@@ -36,14 +38,16 @@ def create_app(container=None, property_container=None) -> FastAPI:
         lifespan=lifespan,
         description=(
             "Core backend service for the Predileto platform. "
-            "Handles user registration, company management, subscriptions, "
+            "Handles user registration, organization management, subscriptions, "
             "notifications, and email."
         ),
         openapi_tags=[
             {"name": "health", "description": "Health check"},
             {"name": "auth", "description": "Authentication and user registration"},
             {"name": "users", "description": "User profile management"},
-            {"name": "companies", "description": "Company management"},
+            {"name": "organizations", "description": "Organization management"},
+            {"name": "memberships", "description": "Organization membership management"},
+            {"name": "invitations", "description": "Member invitation management"},
             {"name": "subscriptions", "description": "Subscription and plan management"},
             {"name": "notifications", "description": "In-app notification management"},
             {"name": "email", "description": "Transactional email sending"},
@@ -68,7 +72,9 @@ def create_app(container=None, property_container=None) -> FastAPI:
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(users.router, prefix="/api/v1")
-    app.include_router(companies.router, prefix="/api/v1")
+    app.include_router(organizations.router, prefix="/api/v1")
+    app.include_router(memberships.router, prefix="/api/v1")
+    app.include_router(invitations.router, prefix="/api/v1")
     app.include_router(subscriptions.router, prefix="/api/v1")
     app.include_router(notifications.router, prefix="/api/v1")
     app.include_router(email.router, prefix="/api/v1")

@@ -46,16 +46,29 @@ class NotificationStatus(str, enum.Enum):
     READ = "read"
 
 
+class MembershipRoleEnum(str, enum.Enum):
+    OWNER = "owner"
+    ADMIN = "admin"
+    MEMBER = "member"
+
+
+class InvitationStatusEnum(str, enum.Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
 # ── Models ───────────────────────────────────────────────────────────────────
 
 
-class CompanyModel(Base):
-    __tablename__ = "companies"
+class OrganizationModel(Base):
+    __tablename__ = "organizations"
 
     id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False, unique=True)
+    created_by: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     nif: Mapped[str] = mapped_column(Text, nullable=False)
     address: Mapped[str] = mapped_column(Text, nullable=False)
@@ -74,8 +87,8 @@ class UserModel(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     phone_country_code: Mapped[str | None] = mapped_column(Text)
     phone_number: Mapped[str | None] = mapped_column(Text)
-    company_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("companies.id"), nullable=False
+    organization_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=True
     )
     google_metadata: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
@@ -93,8 +106,8 @@ class SubscriptionModel(Base):
     id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    company_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("companies.id"), nullable=False
+    organization_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=False
     )
     plan: Mapped[SubscriptionPlan] = mapped_column(
         Enum(
@@ -155,3 +168,72 @@ class NotificationModel(Base):
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (Index("idx_notifications_user_status", "user_id", "status"),)
+
+
+class MembershipModel(Base):
+    __tablename__ = "memberships"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id"), nullable=False
+    )
+    organization_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=False
+    )
+    role: Mapped[MembershipRoleEnum] = mapped_column(
+        Enum(
+            MembershipRoleEnum,
+            name="membership_role",
+            values_callable=lambda e: [x.value for x in e],
+            _create_events=False,
+        ),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "organization_id", name="uq_memberships_user_org"),
+        Index("idx_memberships_organization_id", "organization_id"),
+    )
+
+
+class InvitationModel(Base):
+    __tablename__ = "invitations"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    organization_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=False
+    )
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[MembershipRoleEnum] = mapped_column(
+        Enum(
+            MembershipRoleEnum,
+            name="membership_role",
+            values_callable=lambda e: [x.value for x in e],
+            _create_events=False,
+        ),
+        nullable=False,
+    )
+    invited_by: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id"), nullable=False
+    )
+    token: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    status: Mapped[InvitationStatusEnum] = mapped_column(
+        Enum(
+            InvitationStatusEnum,
+            name="invitation_status",
+            values_callable=lambda e: [x.value for x in e],
+            _create_events=False,
+        ),
+        nullable=False,
+        server_default="pending",
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+    __table_args__ = (Index("idx_invitations_email_status", "email", "status"),)

@@ -13,13 +13,13 @@ class DomainEvent:
 class UserRegistered(DomainEvent):
     user_id: UUID = field(default_factory=uuid4)
     email: str = ""
-    company_id: UUID = field(default_factory=uuid4)
+    organization_id: UUID = field(default_factory=uuid4)
 
 
 @dataclass(frozen=True)
 class SubscriptionCreated(DomainEvent):
     subscription_id: UUID = field(default_factory=uuid4)
-    company_id: UUID = field(default_factory=uuid4)
+    organization_id: UUID = field(default_factory=uuid4)
     plan: str = ""
 
 
@@ -35,3 +35,35 @@ class NotificationSent(DomainEvent):
     notification_id: UUID = field(default_factory=uuid4)
     user_id: UUID = field(default_factory=uuid4)
     channel: str = ""
+
+
+@dataclass(frozen=True)
+class MemberInvited(DomainEvent):
+    invitation_id: UUID = field(default_factory=uuid4)
+    organization_id: UUID = field(default_factory=uuid4)
+    email: str = ""
+    role: str = ""
+
+
+@dataclass(frozen=True)
+class MemberJoined(DomainEvent):
+    membership_id: UUID = field(default_factory=uuid4)
+    user_id: UUID = field(default_factory=uuid4)
+    organization_id: UUID = field(default_factory=uuid4)
+    role: str = ""
+
+
+@dataclass(frozen=True)
+class MemberRemoved(DomainEvent):
+    membership_id: UUID = field(default_factory=uuid4)
+    user_id: UUID = field(default_factory=uuid4)
+    organization_id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(frozen=True)
+class MemberRoleChanged(DomainEvent):
+    membership_id: UUID = field(default_factory=uuid4)
+    user_id: UUID = field(default_factory=uuid4)
+    organization_id: UUID = field(default_factory=uuid4)
+    old_role: str = ""
+    new_role: str = ""

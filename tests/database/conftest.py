@@ -6,13 +6,21 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
+
 from testcontainers.postgres import PostgresContainer
 
 from customer_management.adapters.database.repositories import (
-    SqlAlchemyCompanyRepository,
+    SqlAlchemyInvitationRepository,
+    SqlAlchemyMembershipRepository,
     SqlAlchemyNotificationRepository,
+    SqlAlchemyOrganizationRepository,
     SqlAlchemySubscriptionRepository,
     SqlAlchemyUserRepository,
+)
+from property_management.adapters.database.repositories import (
+    SqlAlchemyDocumentContentRepository,
+    SqlAlchemyExtractionJobRepository,
+    SqlAlchemyPropertyRepository,
 )
 
 # ── Container + Engine (session-scoped) ──────────────────────────────────────
@@ -92,8 +100,8 @@ async def session(engine):
 
 
 @pytest.fixture
-def company_repo(session):
-    return SqlAlchemyCompanyRepository(session)
+def organization_repo(session):
+    return SqlAlchemyOrganizationRepository(session)
 
 
 @pytest.fixture
@@ -109,3 +117,28 @@ def subscription_repo(session):
 @pytest.fixture
 def notification_repo(session):
     return SqlAlchemyNotificationRepository(session)
+
+
+@pytest.fixture
+def membership_repo(session):
+    return SqlAlchemyMembershipRepository(session)
+
+
+@pytest.fixture
+def invitation_repo(session):
+    return SqlAlchemyInvitationRepository(session)
+
+
+@pytest.fixture
+def property_repo(session):
+    return SqlAlchemyPropertyRepository(session)
+
+
+@pytest.fixture
+def extraction_job_repo(session):
+    return SqlAlchemyExtractionJobRepository(session)
+
+
+@pytest.fixture
+def document_content_repo(session):
+    return SqlAlchemyDocumentContentRepository(session)

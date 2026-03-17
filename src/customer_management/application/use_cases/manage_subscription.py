@@ -31,7 +31,7 @@ class CreateSubscription:
     async def execute(
         self,
         *,
-        company_id: UUID,
+        organization_id: UUID,
         plan: SubscriptionPlan,
         type: SubscriptionType,
         status: SubscriptionStatus = SubscriptionStatus.ACTIVE,
@@ -43,7 +43,7 @@ class CreateSubscription:
         now = datetime.now(timezone.utc)
         subscription = Subscription(
             id=uuid4(),
-            company_id=company_id,
+            organization_id=organization_id,
             plan=plan,
             type=type,
             status=status,
@@ -59,7 +59,7 @@ class CreateSubscription:
         await self.event_bus.publish(
             SubscriptionCreated(
                 subscription_id=subscription.id,
-                company_id=company_id,
+                organization_id=organization_id,
                 plan=plan.value,
             )
         )

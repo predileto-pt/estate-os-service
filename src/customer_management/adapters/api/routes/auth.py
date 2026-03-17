@@ -4,7 +4,7 @@ from shared.api.dependencies import get_supabase_user_id
 from customer_management.adapters.api.schemas import (
     RegisterRequest,
     UserResponse,
-    UserWithCompanyResponse,
+    UserWithOrganizationResponse,
 )
 from customer_management.domain.exceptions import UserAlreadyExistsError, UserNotFoundError
 from customer_management.domain.models.value_objects import PhoneNumber
@@ -23,23 +23,23 @@ def _user_response(user) -> dict:
             if user.phone
             else None
         ),
-        "company_id": user.company_id,
+        "organization_id": user.organization_id,
         "created_at": user.created_at,
         "updated_at": user.updated_at,
     }
 
 
-def _company_response(company) -> dict | None:
-    if not company:
+def _organization_response(organization) -> dict | None:
+    if not organization:
         return None
     return {
-        "id": company.id,
-        "user_id": company.user_id,
-        "name": company.name,
-        "nif": company.nif,
-        "address": company.address,
-        "created_at": company.created_at,
-        "updated_at": company.updated_at,
+        "id": organization.id,
+        "created_by": organization.created_by,
+        "name": organization.name,
+        "nif": organization.nif,
+        "address": organization.address,
+        "created_at": organization.created_at,
+        "updated_at": organization.updated_at,
     }
 
 
@@ -68,20 +68,22 @@ async def register(body: RegisterRequest, request: Request):
             supabase_user_id=supabase_user_id,
             email=body.email,
             name=body.name,
-            company_name=body.company_name,
+            organization_name=body.organization_name,
             nif=body.nif,
             address=body.address,
             phone=phone,
         )
     except UserAlreadyExistsError:
         raise HTTPException(status_code=409, detail="User already exists")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
     return _user_response(user)
 
 
 @router.get(
     "/me",
-    response_model=UserWithCompanyResponse,
+    response_model=UserWithOrganizationResponse,
     summary="Get authenticated user",
     responses={
         401: {"description": "Not authenticated"},
@@ -95,8 +97,14 @@ async def get_me(
     get_profile_uc = request.app.state.container.get_user_profile
 
     try:
-        user, company = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
+        user, organization, membership = await get_profile_uc.execute(
+            supabase_user_id=supabase_user_id
+        )
     except UserNotFoundError:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return {"user": _user_response(user), "company": _company_response(company)}
+    return {
+        "user": _user_response(user),
+        "organization": _organization_response(organization),
+        "role": membership.role.value if membership else None,
+    }

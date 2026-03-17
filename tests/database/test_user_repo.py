@@ -4,26 +4,26 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from customer_management.domain.models.company import Company
+from customer_management.domain.models.organization import Organization
 from customer_management.domain.models.user import User
 from customer_management.domain.models.value_objects import PhoneNumber
 
 
-def _make_company(**overrides) -> Company:
+def _make_organization(**overrides) -> Organization:
     now = datetime.now(timezone.utc)
     defaults = {
         "id": uuid4(),
-        "user_id": uuid4(),
-        "name": "Test Company",
+        "created_by": uuid4(),
+        "name": "Test Organization",
         "nif": "123456789",
         "address": "Rua do Teste 1, Lisboa",
         "created_at": now,
         "updated_at": now,
     }
-    return Company(**(defaults | overrides))
+    return Organization(**(defaults | overrides))
 
 
-def _make_user(company_id, **overrides) -> User:
+def _make_user(organization_id, **overrides) -> User:
     now = datetime.now(timezone.utc)
     defaults = {
         "id": uuid4(),
@@ -31,7 +31,7 @@ def _make_user(company_id, **overrides) -> User:
         "email": f"user-{uuid4().hex[:8]}@test.com",
         "name": "Test User",
         "phone": PhoneNumber(country_code="+351", number="912345678"),
-        "company_id": company_id,
+        "organization_id": organization_id,
         "google_metadata": None,
         "created_at": now,
         "updated_at": now,
@@ -39,9 +39,9 @@ def _make_user(company_id, **overrides) -> User:
     return User(**(defaults | overrides))
 
 
-async def test_save_and_get_user(company_repo, user_repo):
-    company = await company_repo.save(_make_company())
-    user = _make_user(company.id)
+async def test_save_and_get_user(organization_repo, user_repo):
+    org = await organization_repo.save(_make_organization())
+    user = _make_user(org.id)
 
     saved = await user_repo.save(user)
     assert saved.id == user.id
@@ -53,9 +53,9 @@ async def test_save_and_get_user(company_repo, user_repo):
     assert fetched.phone == user.phone
 
 
-async def test_get_by_supabase_id(company_repo, user_repo):
-    company = await company_repo.save(_make_company())
-    user = _make_user(company.id)
+async def test_get_by_supabase_id(organization_repo, user_repo):
+    org = await organization_repo.save(_make_organization())
+    user = _make_user(org.id)
     await user_repo.save(user)
 
     fetched = await user_repo.get_by_supabase_id(user.supabase_user_id)
@@ -63,9 +63,9 @@ async def test_get_by_supabase_id(company_repo, user_repo):
     assert fetched.id == user.id
 
 
-async def test_get_by_email(company_repo, user_repo):
-    company = await company_repo.save(_make_company())
-    user = _make_user(company.id)
+async def test_get_by_email(organization_repo, user_repo):
+    org = await organization_repo.save(_make_organization())
+    user = _make_user(org.id)
     await user_repo.save(user)
 
     fetched = await user_repo.get_by_email(user.email)
@@ -73,9 +73,9 @@ async def test_get_by_email(company_repo, user_repo):
     assert fetched.id == user.id
 
 
-async def test_update_user(company_repo, user_repo):
-    company = await company_repo.save(_make_company())
-    user = _make_user(company.id)
+async def test_update_user(organization_repo, user_repo):
+    org = await organization_repo.save(_make_organization())
+    user = _make_user(org.id)
     await user_repo.save(user)
 
     user.name = "Updated Name"
@@ -87,16 +87,16 @@ async def test_update_user(company_repo, user_repo):
     assert updated.phone.number == "611222333"
 
 
-async def test_user_email_unique_constraint(company_repo, user_repo):
-    company = await company_repo.save(_make_company())
+async def test_user_email_unique_constraint(organization_repo, user_repo):
+    org = await organization_repo.save(_make_organization())
     email = "duplicate@test.com"
-    await user_repo.save(_make_user(company.id, email=email))
+    await user_repo.save(_make_user(org.id, email=email))
 
     with pytest.raises(IntegrityError):
-        await user_repo.save(_make_user(company.id, email=email))
+        await user_repo.save(_make_user(org.id, email=email))
 
 
-async def test_user_requires_company(user_repo):
-    user = _make_user(company_id=uuid4())  # non-existent company
+async def test_user_requires_organization(user_repo):
+    user = _make_user(organization_id=uuid4())  # non-existent organization
     with pytest.raises(IntegrityError):
         await user_repo.save(user)

@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from shared.api.dependencies import get_supabase_user_id
-from customer_management.adapters.api.routes.auth import _company_response, _user_response
+from customer_management.adapters.api.routes.auth import _organization_response, _user_response
 from customer_management.adapters.api.schemas import (
     UpdateUserRequest,
     UserResponse,
-    UserWithCompanyResponse,
+    UserWithOrganizationResponse,
 )
 from customer_management.domain.exceptions import UserNotFoundError
 from customer_management.domain.models.value_objects import PhoneNumber
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 @router.get(
     "/me",
-    response_model=UserWithCompanyResponse,
+    response_model=UserWithOrganizationResponse,
     summary="Get user profile",
     responses={
         401: {"description": "Not authenticated"},
@@ -29,11 +29,17 @@ async def get_user_profile(
     get_profile_uc = request.app.state.container.get_user_profile
 
     try:
-        user, company = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
+        user, organization, membership = await get_profile_uc.execute(
+            supabase_user_id=supabase_user_id
+        )
     except UserNotFoundError:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return {"user": _user_response(user), "company": _company_response(company)}
+    return {
+        "user": _user_response(user),
+        "organization": _organization_response(organization),
+        "role": membership.role.value if membership else None,
+    }
 
 
 @router.patch(
@@ -54,7 +60,7 @@ async def update_user_profile(
     update_uc = request.app.state.container.update_user_profile
 
     try:
-        user, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
+        user, _, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
     except UserNotFoundError:
         raise HTTPException(status_code=404, detail="User not found")
 

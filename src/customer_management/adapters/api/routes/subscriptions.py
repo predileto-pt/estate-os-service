@@ -18,7 +18,7 @@ router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
 def _subscription_response(sub) -> dict:
     return {
         "id": sub.id,
-        "company_id": sub.company_id,
+        "organization_id": sub.organization_id,
         "plan": sub.plan.value,
         "type": sub.type.value,
         "status": sub.status.value,
@@ -52,12 +52,12 @@ async def get_current_subscription(
     get_profile_uc = request.app.state.container.get_user_profile
 
     try:
-        user, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
+        user, _, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
     except UserNotFoundError:
         raise HTTPException(status_code=404, detail="User not found")
 
     subscription_repo = request.app.state.container.subscription_repo
-    sub = await subscription_repo.get_by_company_id(user.company_id)
+    sub = await subscription_repo.get_by_organization_id(user.organization_id)
     if not sub:
         raise HTTPException(status_code=404, detail="No active subscription")
 
@@ -84,12 +84,12 @@ async def create_subscription(
     create_sub_uc = request.app.state.container.create_subscription
 
     try:
-        user, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
+        user, _, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
     except UserNotFoundError:
         raise HTTPException(status_code=404, detail="User not found")
 
     sub = await create_sub_uc.execute(
-        company_id=user.company_id,
+        organization_id=user.organization_id,
         plan=body.plan,
         type=body.type,
         status=body.status,

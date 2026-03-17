@@ -27,7 +27,7 @@ class SubscriptionStatus(str, Enum):
 @dataclass
 class Subscription:
     id: UUID
-    company_id: UUID
+    organization_id: UUID
     plan: SubscriptionPlan
     type: SubscriptionType
     status: SubscriptionStatus

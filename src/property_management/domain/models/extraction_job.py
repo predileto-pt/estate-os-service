@@ -11,6 +11,7 @@ class ExtractionJobStatus(str, enum.Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    RETRYING = "retrying"
 
 
 @dataclass
@@ -38,4 +39,9 @@ class ExtractionJob:
     def mark_failed(self, error_message: str) -> None:
         self.status = ExtractionJobStatus.FAILED
         self.error_message = error_message
+        self.updated_at = datetime.now(timezone.utc)
+
+    def mark_retrying(self) -> None:
+        self.status = ExtractionJobStatus.RETRYING
+        self.error_message = None
         self.updated_at = datetime.now(timezone.utc)

@@ -4,9 +4,9 @@ from uuid import UUID
 
 
 @dataclass
-class Company:
+class Organization:
     id: UUID
-    user_id: UUID
+    created_by: UUID
     name: str
     nif: str
     address: str

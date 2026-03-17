@@ -129,6 +129,40 @@ async def submit_batch_extraction(
     return _job_response(job)
 
 
+@router.post(
+    "/{job_id}/retry",
+    response_model=ExtractionJobResponse,
+    summary="Retry a failed extraction job",
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not authorized"},
+        404: {"description": "Job not found"},
+        422: {"description": "Job is not in failed status"},
+    },
+)
+async def retry_extraction_job(
+    job_id: UUID,
+    request: Request,
+    supabase_user_id: str = Depends(get_supabase_user_id),
+):
+    get_uc = request.app.state.property_container.get_extraction_job
+    try:
+        job = await get_uc.execute(job_id=job_id)
+    except ExtractionJobNotFoundError:
+        raise HTTPException(status_code=404, detail="Extraction job not found")
+
+    if str(job.user_id) != supabase_user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    retry_uc = request.app.state.property_container.retry_extraction_job
+    try:
+        job = await retry_uc.execute(job_id=job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    return _job_response(job)
+
+
 @router.get(
     "/",
     response_model=list[ExtractionJobResponse],

@@ -2,9 +2,17 @@ from supabase import acreate_client
 
 from customer_management.adapters.email.resend_email_service import ResendEmailService
 from customer_management.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
-from customer_management.adapters.persistence.supabase_company_repo import SupabaseCompanyRepository
+from customer_management.adapters.persistence.supabase_invitation_repo import (
+    SupabaseInvitationRepository,
+)
+from customer_management.adapters.persistence.supabase_membership_repo import (
+    SupabaseMembershipRepository,
+)
 from customer_management.adapters.persistence.supabase_notification_repo import (
     SupabaseNotificationRepository,
+)
+from customer_management.adapters.persistence.supabase_organization_repo import (
+    SupabaseOrganizationRepository,
 )
 from customer_management.adapters.persistence.supabase_subscription_repo import (
     SupabaseSubscriptionRepository,
@@ -47,9 +55,11 @@ async def get_container() -> Container:
 
     _container = Container(
         user_repo=SupabaseUserRepository(client),
-        company_repo=SupabaseCompanyRepository(client),
+        organization_repo=SupabaseOrganizationRepository(client),
         subscription_repo=SupabaseSubscriptionRepository(client),
         notification_repo=SupabaseNotificationRepository(client),
+        membership_repo=SupabaseMembershipRepository(client),
+        invitation_repo=SupabaseInvitationRepository(client),
         email_service=ResendEmailService(settings.resend_api_key),
         event_bus=InMemoryEventBus(),
     )

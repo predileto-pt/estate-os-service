@@ -2,11 +2,19 @@ import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from customer_management.adapters.inmemory.inmemory_company_repo import InMemoryCompanyRepository
 from customer_management.adapters.inmemory.inmemory_email_service import InMemoryEmailService
 from customer_management.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
+from customer_management.adapters.inmemory.inmemory_invitation_repo import (
+    InMemoryInvitationRepository,
+)
+from customer_management.adapters.inmemory.inmemory_membership_repo import (
+    InMemoryMembershipRepository,
+)
 from customer_management.adapters.inmemory.inmemory_notification_repo import (
     InMemoryNotificationRepository,
+)
+from customer_management.adapters.inmemory.inmemory_organization_repo import (
+    InMemoryOrganizationRepository,
 )
 from customer_management.adapters.inmemory.inmemory_subscription_repo import (
     InMemorySubscriptionRepository,
@@ -51,8 +59,8 @@ def user_repo():
 
 
 @pytest.fixture
-def company_repo():
-    return InMemoryCompanyRepository()
+def organization_repo():
+    return InMemoryOrganizationRepository()
 
 
 @pytest.fixture
@@ -63,6 +71,16 @@ def subscription_repo():
 @pytest.fixture
 def notification_repo():
     return InMemoryNotificationRepository()
+
+
+@pytest.fixture
+def membership_repo():
+    return InMemoryMembershipRepository()
+
+
+@pytest.fixture
+def invitation_repo():
+    return InMemoryInvitationRepository()
 
 
 @pytest.fixture
@@ -87,13 +105,22 @@ def document_extractor():
 
 @pytest.fixture
 def container(
-    user_repo, company_repo, subscription_repo, notification_repo, email_service, event_bus
+    user_repo,
+    organization_repo,
+    subscription_repo,
+    notification_repo,
+    membership_repo,
+    invitation_repo,
+    email_service,
+    event_bus,
 ):
     return Container(
         user_repo=user_repo,
-        company_repo=company_repo,
+        organization_repo=organization_repo,
         subscription_repo=subscription_repo,
         notification_repo=notification_repo,
+        membership_repo=membership_repo,
+        invitation_repo=invitation_repo,
         email_service=email_service,
         event_bus=event_bus,
     )

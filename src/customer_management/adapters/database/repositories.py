@@ -5,21 +5,34 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from customer_management.adapters.database.models import (
-    CompanyModel,
+    InvitationModel,
+    InvitationStatusEnum,
+    MembershipModel,
     NotificationModel,
+    OrganizationModel,
     SubscriptionModel,
     UserModel,
 )
-from customer_management.application.ports.repositories.company_repository import CompanyRepository
+from customer_management.application.ports.repositories.invitation_repository import (
+    InvitationRepository,
+)
+from customer_management.application.ports.repositories.membership_repository import (
+    MembershipRepository,
+)
 from customer_management.application.ports.repositories.notification_repository import (
     NotificationRepository,
+)
+from customer_management.application.ports.repositories.organization_repository import (
+    OrganizationRepository,
 )
 from customer_management.application.ports.repositories.subscription_repository import (
     SubscriptionRepository,
 )
 from customer_management.application.ports.repositories.user_repository import UserRepository
-from customer_management.domain.models.company import Company
+from customer_management.domain.models.invitation import Invitation, InvitationStatus
+from customer_management.domain.models.membership import Membership, MembershipRole
 from customer_management.domain.models.notification import Notification, NotificationStatus
+from customer_management.domain.models.organization import Organization
 from customer_management.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
@@ -30,18 +43,18 @@ from customer_management.domain.models.user import User
 from customer_management.domain.models.value_objects import PhoneNumber
 
 
-# ── Company ──────────────────────────────────────────────────────────────────
+# ── Organization ────────────────────────────────────────────────────────────
 
 
-class SqlAlchemyCompanyRepository(CompanyRepository):
+class SqlAlchemyOrganizationRepository(OrganizationRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
     @staticmethod
-    def _to_domain(m: CompanyModel) -> Company:
-        return Company(
+    def _to_domain(m: OrganizationModel) -> Organization:
+        return Organization(
             id=UUID(m.id),
-            user_id=UUID(m.user_id),
+            created_by=UUID(m.created_by),
             name=m.name,
             nif=m.nif,
             address=m.address,
@@ -50,38 +63,38 @@ class SqlAlchemyCompanyRepository(CompanyRepository):
         )
 
     @staticmethod
-    def _to_model(c: Company) -> CompanyModel:
-        return CompanyModel(
-            id=str(c.id),
-            user_id=str(c.user_id),
-            name=c.name,
-            nif=c.nif,
-            address=c.address,
+    def _to_model(o: Organization) -> OrganizationModel:
+        return OrganizationModel(
+            id=str(o.id),
+            created_by=str(o.created_by),
+            name=o.name,
+            nif=o.nif,
+            address=o.address,
         )
 
-    async def get_by_id(self, company_id: UUID) -> Company | None:
+    async def get_by_id(self, organization_id: UUID) -> Organization | None:
         result = await self._session.execute(
-            select(CompanyModel).where(CompanyModel.id == str(company_id))
+            select(OrganizationModel).where(OrganizationModel.id == str(organization_id))
         )
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
-    async def save(self, company: Company) -> Company:
-        model = self._to_model(company)
+    async def save(self, organization: Organization) -> Organization:
+        model = self._to_model(organization)
         self._session.add(model)
         await self._session.flush()
         await self._session.refresh(model)
         return self._to_domain(model)
 
-    async def update(self, company: Company) -> Company:
+    async def update(self, organization: Organization) -> Organization:
         result = await self._session.execute(
-            select(CompanyModel).where(CompanyModel.id == str(company.id))
+            select(OrganizationModel).where(OrganizationModel.id == str(organization.id))
         )
         model = result.scalar_one()
-        model.user_id = str(company.user_id)
-        model.name = company.name
-        model.nif = company.nif
-        model.address = company.address
+        model.created_by = str(organization.created_by)
+        model.name = organization.name
+        model.nif = organization.nif
+        model.address = organization.address
         await self._session.flush()
         await self._session.refresh(model)
         return self._to_domain(model)
@@ -105,7 +118,7 @@ class SqlAlchemyUserRepository(UserRepository):
             email=m.email,
             name=m.name,
             phone=phone,
-            company_id=UUID(m.company_id),
+            organization_id=UUID(m.organization_id) if m.organization_id else None,
             google_metadata=m.google_metadata,
             created_at=m.created_at,
             updated_at=m.updated_at,
@@ -120,7 +133,7 @@ class SqlAlchemyUserRepository(UserRepository):
             name=u.name,
             phone_country_code=u.phone.country_code if u.phone else None,
             phone_number=u.phone.number if u.phone else None,
-            company_id=str(u.company_id),
+            organization_id=str(u.organization_id) if u.organization_id else None,
             google_metadata=u.google_metadata,
         )
 
@@ -156,7 +169,7 @@ class SqlAlchemyUserRepository(UserRepository):
         model.name = user.name
         model.phone_country_code = user.phone.country_code if user.phone else None
         model.phone_number = user.phone.number if user.phone else None
-        model.company_id = str(user.company_id)
+        model.organization_id = str(user.organization_id) if user.organization_id else None
         model.google_metadata = user.google_metadata
         await self._session.flush()
         await self._session.refresh(model)
@@ -174,7 +187,7 @@ class SqlAlchemySubscriptionRepository(SubscriptionRepository):
     def _to_domain(m: SubscriptionModel) -> Subscription:
         return Subscription(
             id=UUID(m.id),
-            company_id=UUID(m.company_id),
+            organization_id=UUID(m.organization_id),
             plan=SubscriptionPlan(m.plan.value),
             type=SubscriptionType(m.type.value),
             status=SubscriptionStatus(m.status.value),
@@ -187,17 +200,22 @@ class SqlAlchemySubscriptionRepository(SubscriptionRepository):
         )
 
     @staticmethod
-    def _to_model(s: Subscription) -> SubscriptionModel:
+    def _strip_tz(dt: datetime | None) -> datetime | None:
+        """Strip timezone info for TIMESTAMP WITHOUT TIME ZONE columns."""
+        return dt.replace(tzinfo=None) if dt and dt.tzinfo else dt
+
+    @classmethod
+    def _to_model(cls, s: Subscription) -> SubscriptionModel:
         return SubscriptionModel(
             id=str(s.id),
-            company_id=str(s.company_id),
+            organization_id=str(s.organization_id),
             plan=s.plan.value,
             type=s.type.value,
             status=s.status.value,
             stripe_subscription_id=s.stripe_subscription_id,
             stripe_price_id=s.stripe_price_id,
-            current_period_start=s.current_period_start,
-            current_period_end=s.current_period_end,
+            current_period_start=cls._strip_tz(s.current_period_start),
+            current_period_end=cls._strip_tz(s.current_period_end),
         )
 
     async def get_by_id(self, subscription_id: UUID) -> Subscription | None:
@@ -207,10 +225,10 @@ class SqlAlchemySubscriptionRepository(SubscriptionRepository):
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
-    async def get_by_company_id(self, company_id: UUID) -> Subscription | None:
+    async def get_by_organization_id(self, organization_id: UUID) -> Subscription | None:
         result = await self._session.execute(
             select(SubscriptionModel)
-            .where(SubscriptionModel.company_id == str(company_id))
+            .where(SubscriptionModel.organization_id == str(organization_id))
             .order_by(SubscriptionModel.created_at.desc())
             .limit(1)
         )
@@ -229,14 +247,14 @@ class SqlAlchemySubscriptionRepository(SubscriptionRepository):
             select(SubscriptionModel).where(SubscriptionModel.id == str(subscription.id))
         )
         model = result.scalar_one()
-        model.company_id = str(subscription.company_id)
+        model.organization_id = str(subscription.organization_id)
         model.plan = subscription.plan.value
         model.type = subscription.type.value
         model.status = subscription.status.value
         model.stripe_subscription_id = subscription.stripe_subscription_id
         model.stripe_price_id = subscription.stripe_price_id
-        model.current_period_start = subscription.current_period_start
-        model.current_period_end = subscription.current_period_end
+        model.current_period_start = self._strip_tz(subscription.current_period_start)
+        model.current_period_end = self._strip_tz(subscription.current_period_end)
         await self._session.flush()
         await self._session.refresh(model)
         return self._to_domain(model)
@@ -314,3 +332,179 @@ class SqlAlchemyNotificationRepository(NotificationRepository):
             row.read_at = now
         await self._session.flush()
         return len(rows)
+
+
+# ── Membership ──────────────────────────────────────────────────────────────
+
+
+class SqlAlchemyMembershipRepository(MembershipRepository):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    @staticmethod
+    def _to_domain(m: MembershipModel) -> Membership:
+        return Membership(
+            id=UUID(m.id),
+            user_id=UUID(m.user_id),
+            organization_id=UUID(m.organization_id),
+            role=MembershipRole(m.role.value),
+            created_at=m.created_at,
+            updated_at=m.updated_at,
+        )
+
+    @staticmethod
+    def _to_model(membership: Membership) -> MembershipModel:
+        return MembershipModel(
+            id=str(membership.id),
+            user_id=str(membership.user_id),
+            organization_id=str(membership.organization_id),
+            role=membership.role.value,
+        )
+
+    async def get_by_id(self, membership_id: UUID) -> Membership | None:
+        result = await self._session.execute(
+            select(MembershipModel).where(MembershipModel.id == str(membership_id))
+        )
+        row = result.scalar_one_or_none()
+        return self._to_domain(row) if row else None
+
+    async def get_by_user_and_organization(
+        self, user_id: UUID, organization_id: UUID
+    ) -> Membership | None:
+        result = await self._session.execute(
+            select(MembershipModel).where(
+                MembershipModel.user_id == str(user_id),
+                MembershipModel.organization_id == str(organization_id),
+            )
+        )
+        row = result.scalar_one_or_none()
+        return self._to_domain(row) if row else None
+
+    async def list_by_organization(self, organization_id: UUID) -> list[Membership]:
+        result = await self._session.execute(
+            select(MembershipModel).where(MembershipModel.organization_id == str(organization_id))
+        )
+        return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def list_by_user(self, user_id: UUID) -> list[Membership]:
+        result = await self._session.execute(
+            select(MembershipModel).where(MembershipModel.user_id == str(user_id))
+        )
+        return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def save(self, membership: Membership) -> Membership:
+        model = self._to_model(membership)
+        self._session.add(model)
+        await self._session.flush()
+        await self._session.refresh(model)
+        return self._to_domain(model)
+
+    async def update(self, membership: Membership) -> Membership:
+        result = await self._session.execute(
+            select(MembershipModel).where(MembershipModel.id == str(membership.id))
+        )
+        model = result.scalar_one()
+        model.role = membership.role.value
+        await self._session.flush()
+        await self._session.refresh(model)
+        return self._to_domain(model)
+
+    async def delete(self, membership_id: UUID) -> None:
+        result = await self._session.execute(
+            select(MembershipModel).where(MembershipModel.id == str(membership_id))
+        )
+        model = result.scalar_one_or_none()
+        if model:
+            await self._session.delete(model)
+            await self._session.flush()
+
+
+# ── Invitation ──────────────────────────────────────────────────────────────
+
+
+class SqlAlchemyInvitationRepository(InvitationRepository):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    @staticmethod
+    def _to_domain(m: InvitationModel) -> Invitation:
+        return Invitation(
+            id=UUID(m.id),
+            organization_id=UUID(m.organization_id),
+            email=m.email,
+            role=MembershipRole(m.role.value),
+            invited_by=UUID(m.invited_by),
+            token=m.token,
+            status=InvitationStatus(m.status.value),
+            expires_at=m.expires_at,
+            created_at=m.created_at,
+        )
+
+    @staticmethod
+    def _to_model(invitation: Invitation) -> InvitationModel:
+        return InvitationModel(
+            id=str(invitation.id),
+            organization_id=str(invitation.organization_id),
+            email=invitation.email,
+            role=invitation.role.value,
+            invited_by=str(invitation.invited_by),
+            token=invitation.token,
+            status=invitation.status.value,
+            expires_at=invitation.expires_at,
+        )
+
+    async def get_by_id(self, invitation_id: UUID) -> Invitation | None:
+        result = await self._session.execute(
+            select(InvitationModel).where(InvitationModel.id == str(invitation_id))
+        )
+        row = result.scalar_one_or_none()
+        return self._to_domain(row) if row else None
+
+    async def get_pending_by_email(self, email: str) -> Invitation | None:
+        result = await self._session.execute(
+            select(InvitationModel)
+            .where(
+                InvitationModel.email == email,
+                InvitationModel.status == InvitationStatusEnum.PENDING,
+            )
+            .limit(1)
+        )
+        row = result.scalar_one_or_none()
+        return self._to_domain(row) if row else None
+
+    async def get_pending_by_email_and_organization(
+        self, email: str, organization_id: UUID
+    ) -> Invitation | None:
+        result = await self._session.execute(
+            select(InvitationModel).where(
+                InvitationModel.email == email,
+                InvitationModel.organization_id == str(organization_id),
+                InvitationModel.status == InvitationStatusEnum.PENDING,
+            )
+        )
+        row = result.scalar_one_or_none()
+        return self._to_domain(row) if row else None
+
+    async def list_by_organization(self, organization_id: UUID) -> list[Invitation]:
+        result = await self._session.execute(
+            select(InvitationModel).where(InvitationModel.organization_id == str(organization_id))
+        )
+        return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def save(self, invitation: Invitation) -> Invitation:
+        model = self._to_model(invitation)
+        self._session.add(model)
+        await self._session.flush()
+        await self._session.refresh(model)
+        return self._to_domain(model)
+
+    async def update(self, invitation: Invitation) -> Invitation:
+        result = await self._session.execute(
+            select(InvitationModel).where(InvitationModel.id == str(invitation.id))
+        )
+        model = result.scalar_one()
+        model.status = invitation.status.value
+        model.role = invitation.role.value
+        await self._session.flush()
+        await self._session.refresh(model)
+        return self._to_domain(model)

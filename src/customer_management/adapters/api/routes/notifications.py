@@ -43,7 +43,7 @@ async def list_notifications(
     list_uc = request.app.state.container.list_notifications
 
     try:
-        user, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
+        user, _, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
     except UserNotFoundError:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -68,7 +68,7 @@ async def mark_notifications_read(
     mark_read_uc = request.app.state.container.mark_notifications_read
 
     try:
-        user, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
+        user, _, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
     except UserNotFoundError:
         raise HTTPException(status_code=404, detail="User not found")
 

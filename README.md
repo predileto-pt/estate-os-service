@@ -369,6 +369,37 @@ aws --endpoint-url=http://localhost:4566 sqs send-message \
 
 Replace `form_request_id` and `owner_id` with real UUIDs from your Supabase `intake_form_requests` table. The events worker will log `screening_result_processed` and the applicant row will appear in the `applicants` table.
 
+## Property Extraction Worker
+
+The property extraction worker processes document extraction jobs from SQS.
+
+### Running the worker
+
+```bash
+uv run python -m property_management.entrypoints.worker --queue extraction
+```
+
+### Retrying a failed extraction job
+
+If an extraction job fails (e.g. due to a transient error), you can retry it via CLI or API.
+
+**CLI:**
+
+```bash
+uv run python -m property_management.entrypoints.worker --retry-job <job_id>
+```
+
+This marks the job as `retrying`, re-publishes the extraction event to SQS, and exits. The running worker will then pick up and reprocess the job.
+
+**API:**
+
+```bash
+curl -X POST http://localhost:8000/api/v1/extraction-jobs/<job_id>/retry \
+  -H "Authorization: Bearer <token>"
+```
+
+Only jobs with `failed` status can be retried.
+
 ## Linting
 
 ```bash

@@ -10,7 +10,7 @@ async def test_register(client, auth_headers):
         json={
             "name": "João Silva",
             "email": "joao@agency.pt",
-            "company_name": "Imobiliária Silva",
+            "organization_name": "Imobiliária Silva",
             "nif": "123456789",
             "address": "Rua Augusta 1, PT",
             "phone_country_code": "+351",
@@ -27,11 +27,34 @@ async def test_register(client, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_register_creates_membership(client, auth_headers, membership_repo):
+    response = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "name": "João Silva",
+            "email": "joao@agency.pt",
+            "organization_name": "Imobiliária Silva",
+            "nif": "123456789",
+            "address": "Rua Augusta 1, PT",
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    from uuid import UUID
+
+    user_id = UUID(data["id"])
+    memberships = await membership_repo.list_by_user(user_id)
+    assert len(memberships) == 1
+    assert memberships[0].role.value == "owner"
+
+
+@pytest.mark.asyncio
 async def test_register_duplicate(client, auth_headers):
     payload = {
         "name": "João Silva",
         "email": "joao@agency.pt",
-        "company_name": "Imobiliária Silva",
+        "organization_name": "Imobiliária Silva",
         "nif": "123456789",
         "address": "Rua Augusta 1, PT",
     }
@@ -48,7 +71,7 @@ async def test_get_me(client, auth_headers):
         json={
             "name": "João Silva",
             "email": "joao@agency.pt",
-            "company_name": "Imobiliária Silva",
+            "organization_name": "Imobiliária Silva",
             "nif": "123456789",
             "address": "Rua Augusta 1, PT",
         },
@@ -59,7 +82,8 @@ async def test_get_me(client, auth_headers):
     assert response.status_code == 200
     data = response.json()
     assert data["user"]["email"] == "joao@agency.pt"
-    assert data["company"]["name"] == "Imobiliária Silva"
+    assert data["organization"]["name"] == "Imobiliária Silva"
+    assert data["role"] == "owner"
 
 
 @pytest.mark.asyncio

@@ -22,7 +22,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "langchain-openai>=0.3.0",
     "langchain-core>=0.3.0",
-    "reducto>=1.0.0",
+    "reductoai>=0.16.0",
     "logfire[structlog]>=3.0.0",
 ]
 
@@ -31,7 +31,7 @@ dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.25.0",
     "ruff>=0.9.0",
-    "testcontainers[postgres]>=4.0",
+    "testcontainers[postgres,localstack]>=4.0",
 ]
 
 [build-system]
@@ -45,6 +45,7 @@ packages = ["src/shared", "src/customer_management", "src/property_management"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["src"]
+markers = ["e2e: end-to-end tests with real Postgres + LocalStack"]
 
 [tool.ruff]
 target-version = "py313"

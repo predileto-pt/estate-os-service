@@ -3,19 +3,22 @@ import asyncio
 import json
 import signal
 from typing import Any
+from uuid import UUID
 
 import aioboto3
 import structlog
 
 from property_management.adapters.workers.extraction_processor import process_event
-from shared.config import Settings
+from shared.config import Settings, setup_logging
 from shared.entrypoints.bootstrap import get_property_container
 
 log = structlog.get_logger()
 
 
 class ExtractionWorker:
-    def __init__(self, session: aioboto3.Session, queue_url: str, container, endpoint_url: str | None = None) -> None:
+    def __init__(
+        self, session: aioboto3.Session, queue_url: str, container, endpoint_url: str | None = None
+    ) -> None:
         self._session = session
         self._queue_url = queue_url
         self._container = container
@@ -35,7 +38,9 @@ class ExtractionWorker:
                 for msg in messages:
                     await process_event(msg["body"], self._container)
                     await self._delete_message(msg["receipt_handle"])
-                    log.info("extraction_message_processed", event_type=msg["body"].get("event_type"))
+                    log.info(
+                        "extraction_message_processed", event_type=msg["body"].get("event_type")
+                    )
             except Exception:
                 log.exception("extraction_worker_error")
                 await asyncio.sleep(5)
@@ -73,8 +78,16 @@ class ExtractionWorker:
         self._running = False
 
 
+async def _retry_extraction_job(job_id: str) -> None:
+    setup_logging(Settings().log_level)
+    container = await get_property_container()
+    job = await container.retry_extraction_job.execute(job_id=UUID(job_id))
+    log.info("extraction_job_retried", job_id=str(job.id), status=job.status.value)
+
+
 async def _run_extraction_worker() -> None:
     settings = Settings()
+    setup_logging(settings.log_level)
     session = aioboto3.Session(
         aws_access_key_id=settings.aws_access_key_id,
         aws_secret_access_key=settings.aws_secret_access_key,
@@ -92,10 +105,14 @@ async def _run_extraction_worker() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Property Management SQS Worker")
-    parser.add_argument("--queue", choices=["extraction"], required=True)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--queue", choices=["extraction"])
+    group.add_argument("--retry-job", metavar="JOB_ID", help="Retry a failed extraction job")
     args = parser.parse_args()
 
-    if args.queue == "extraction":
+    if args.retry_job:
+        asyncio.run(_retry_extraction_job(args.retry_job))
+    elif args.queue == "extraction":
         asyncio.run(_run_extraction_worker())
 
 

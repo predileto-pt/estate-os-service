@@ -6,11 +6,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from customer_management.adapters.inmemory.inmemory_company_repo import InMemoryCompanyRepository
 from customer_management.adapters.inmemory.inmemory_email_service import InMemoryEmailService
 from customer_management.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
+from customer_management.adapters.inmemory.inmemory_invitation_repo import (
+    InMemoryInvitationRepository,
+)
+from customer_management.adapters.inmemory.inmemory_membership_repo import (
+    InMemoryMembershipRepository,
+)
 from customer_management.adapters.inmemory.inmemory_notification_repo import (
     InMemoryNotificationRepository,
+)
+from customer_management.adapters.inmemory.inmemory_organization_repo import (
+    InMemoryOrganizationRepository,
 )
 from customer_management.adapters.inmemory.inmemory_subscription_repo import (
     InMemorySubscriptionRepository,
@@ -51,9 +59,11 @@ def openai_app(id_extractor, monkeypatch):
 
     container = Container(
         user_repo=InMemoryUserRepository(),
-        company_repo=InMemoryCompanyRepository(),
+        organization_repo=InMemoryOrganizationRepository(),
         subscription_repo=InMemorySubscriptionRepository(),
         notification_repo=InMemoryNotificationRepository(),
+        membership_repo=InMemoryMembershipRepository(),
+        invitation_repo=InMemoryInvitationRepository(),
         email_service=InMemoryEmailService(),
         event_bus=InMemoryEventBus(),
     )

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from customer_management.domain.models.company import Company
+from customer_management.domain.models.organization import Organization
 from customer_management.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
@@ -10,25 +10,25 @@ from customer_management.domain.models.subscription import (
 )
 
 
-def _make_company(**overrides) -> Company:
+def _make_organization(**overrides) -> Organization:
     now = datetime.now(timezone.utc)
     defaults = {
         "id": uuid4(),
-        "user_id": uuid4(),
-        "name": "Test Company",
+        "created_by": uuid4(),
+        "name": "Test Organization",
         "nif": "123456789",
         "address": "Rua do Teste 1, Lisboa",
         "created_at": now,
         "updated_at": now,
     }
-    return Company(**(defaults | overrides))
+    return Organization(**(defaults | overrides))
 
 
-def _make_subscription(company_id, **overrides) -> Subscription:
+def _make_subscription(organization_id, **overrides) -> Subscription:
     now = datetime.now(timezone.utc)
     defaults = {
         "id": uuid4(),
-        "company_id": company_id,
+        "organization_id": organization_id,
         "plan": SubscriptionPlan.FREEMIUM,
         "type": SubscriptionType.MANUAL,
         "status": SubscriptionStatus.ACTIVE,
@@ -42,9 +42,9 @@ def _make_subscription(company_id, **overrides) -> Subscription:
     return Subscription(**(defaults | overrides))
 
 
-async def test_save_and_get_subscription(company_repo, subscription_repo):
-    company = await company_repo.save(_make_company())
-    sub = _make_subscription(company.id)
+async def test_save_and_get_subscription(organization_repo, subscription_repo):
+    org = await organization_repo.save(_make_organization())
+    sub = _make_subscription(org.id)
 
     saved = await subscription_repo.save(sub)
     assert saved.id == sub.id
@@ -56,19 +56,19 @@ async def test_save_and_get_subscription(company_repo, subscription_repo):
     assert fetched.status == SubscriptionStatus.ACTIVE
 
 
-async def test_get_by_company_id(company_repo, subscription_repo):
-    company = await company_repo.save(_make_company())
-    sub = _make_subscription(company.id)
+async def test_get_by_organization_id(organization_repo, subscription_repo):
+    org = await organization_repo.save(_make_organization())
+    sub = _make_subscription(org.id)
     await subscription_repo.save(sub)
 
-    fetched = await subscription_repo.get_by_company_id(company.id)
+    fetched = await subscription_repo.get_by_organization_id(org.id)
     assert fetched is not None
     assert fetched.id == sub.id
 
 
-async def test_update_subscription_status(company_repo, subscription_repo):
-    company = await company_repo.save(_make_company())
-    sub = _make_subscription(company.id)
+async def test_update_subscription_status(organization_repo, subscription_repo):
+    org = await organization_repo.save(_make_organization())
+    sub = _make_subscription(org.id)
     await subscription_repo.save(sub)
 
     sub.status = SubscriptionStatus.CANCELLED

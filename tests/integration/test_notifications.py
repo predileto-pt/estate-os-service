@@ -7,7 +7,7 @@ async def _register_user(client, auth_headers):
         json={
             "name": "João Silva",
             "email": "joao@agency.pt",
-            "company_name": "Imobiliária Silva",
+            "organization_name": "Imobiliária Silva",
             "nif": "123456789",
             "address": "Rua Augusta 1, PT",
         },
