@@ -1,7 +1,7 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import Date, Enum, ForeignKey, Index, Text, func, text
+from sqlalchemy import Date, Enum, Float, ForeignKey, Index, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -87,6 +87,8 @@ class PropertyModel(Base):
     )
     description: Mapped[str | None] = mapped_column(Text)
     characteristics: Mapped[dict | None] = mapped_column(JSONB)
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 

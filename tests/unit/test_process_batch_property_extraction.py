@@ -25,7 +25,7 @@ from property_management.application.ports.document_classifier import (
 )
 from property_management.application.ports.document_data_extractor import DocumentDataExtractor
 from property_management.application.ports.property_extractor import (
-    PropertyExtractionResult,
+    GeoLocationResult,
     PropertyExtractorService,
 )
 from property_management.application.use_cases.process_batch_property_extraction import (
@@ -122,7 +122,7 @@ class TestProcessBatchPropertyExtraction:
     async def test_happy_path_property_doc_plus_id_docs(
         self, use_case, job_repo, storage, prop_repo, document_content_repo
     ):
-        """1 property doc + 2 ID docs → property + owners created."""
+        """1 property doc + 2 ID docs → property + owners from ID docs."""
         job = _make_pending_job(num_docs=3)
         await job_repo.save(job)
         for key in job.document_keys:
@@ -137,16 +137,21 @@ class TestProcessBatchPropertyExtraction:
         assert len(props) == 1
         assert props[0].address == "Rua das Flores 123, 4000-001 Porto"
         assert props[0].characteristics is not None
+        # Owners come only from ID docs (InMemoryDocumentExtractor returns 1 per ID doc)
         assert len(props[0].owners) == 1
+
+        # Geolocation populated
+        assert props[0].latitude == pytest.approx(41.1579)
+        assert props[0].longitude == pytest.approx(-8.6291)
 
         # Document contents were persisted
         contents = await document_content_repo.get_by_job_id(job.id)
         assert len(contents) == 3
 
-    async def test_only_property_doc(
+    async def test_only_property_doc_has_zero_owners(
         self, job_repo, storage, prop_repo, document_parser, document_content_repo
     ):
-        """Only property documents — owners from property extraction only."""
+        """Only property documents — no owners (owners only come from ID docs)."""
 
         class AllPropertyClassifier(DocumentClassifier):
             async def classify(self, document_texts):
@@ -178,7 +183,7 @@ class TestProcessBatchPropertyExtraction:
         assert result.status == ExtractionJobStatus.COMPLETED
         props = await prop_repo.list_by_organization(TEST_ORGANIZATION_ID)
         assert len(props) == 1
-        assert len(props[0].owners) == 1
+        assert len(props[0].owners) == 0
 
     async def test_only_id_docs_fails(
         self, job_repo, storage, prop_repo, document_parser, document_content_repo
@@ -254,6 +259,9 @@ class TestProcessBatchPropertyExtraction:
             async def extract(self, document_texts):
                 raise RuntimeError("AI service unavailable")
 
+            async def extract_geolocation(self, address):
+                return GeoLocationResult()
+
         uc = ProcessBatchPropertyExtraction(
             extraction_job_repo=job_repo,
             document_storage=storage,
@@ -275,54 +283,67 @@ class TestProcessBatchPropertyExtraction:
         assert result.status == ExtractionJobStatus.FAILED
         assert "AI service unavailable" in result.error_message
 
-    async def test_owner_dedup_by_nif_id_wins(
+    async def test_owner_dedup_by_nif_from_id_docs(
         self, job_repo, storage, prop_repo, document_parser, document_content_repo
     ):
-        """When same NIF appears in property extraction + ID extraction, ID version wins."""
+        """When same NIF appears in multiple ID docs, last one wins."""
 
-        class PropertyExtractorWithOwner(PropertyExtractorService):
-            async def extract(self, document_texts):
-                return PropertyExtractionResult(
-                    address="Rua Test 1",
-                    owners=[
-                        {
-                            "full_name": "Name From Escritura",
-                            "civil_status": "single",
-                            "address": "Rua Test 1",
-                            "nif": "987654321",
-                            "document_type": "cartao_cidadao",
-                            "document_id": "OLD-ID",
-                            "issued_by": "Old Authority",
-                            "date_of_birth": "1990-01-01",
-                        }
-                    ],
-                )
+        class IdExtractorDuplicate(DocumentDataExtractor):
+            def __init__(self):
+                self._call_count = 0
 
-        class IdExtractorWithSameNif(DocumentDataExtractor):
             async def extract_property_owner_data(self, parsed_text, document_subtype):
+                self._call_count += 1
+                if self._call_count == 1:
+                    return {
+                        "full_name": "Name From First ID",
+                        "civil_status": "single",
+                        "address": "Rua Test 1",
+                        "nif": "987654321",
+                        "document_type": "cartao_cidadao",
+                        "document_id": "FIRST-ID",
+                        "issued_by": "First Authority",
+                        "date_of_birth": "1990-01-01",
+                    }
                 return {
-                    "full_name": "Name From ID Card",
+                    "full_name": "Name From Second ID",
                     "civil_status": "single",
                     "address": "Rua Test 1",
                     "nif": "987654321",
                     "document_type": "cartao_cidadao",
-                    "document_id": "NEW-ID",
-                    "issued_by": "New Authority",
+                    "document_id": "SECOND-ID",
+                    "issued_by": "Second Authority",
                     "date_of_birth": "1990-01-01",
                 }
+
+        # Classifier: doc 0 = property, docs 1+2 = personal_id
+        class MixedClassifier(DocumentClassifier):
+            async def classify(self, document_texts):
+                results = [
+                    ClassifiedDocument(
+                        index=0, category="property_document", document_subtype="escritura"
+                    ),
+                ]
+                for i in range(1, len(document_texts)):
+                    results.append(
+                        ClassifiedDocument(
+                            index=i, category="personal_id", document_subtype="cartao_cidadao"
+                        )
+                    )
+                return results
 
         uc = ProcessBatchPropertyExtraction(
             extraction_job_repo=job_repo,
             document_storage=storage,
             document_parser=document_parser,
-            document_classifier=InMemoryDocumentClassifier(),
-            property_extractor=PropertyExtractorWithOwner(),
-            document_data_extractor=IdExtractorWithSameNif(),
+            document_classifier=MixedClassifier(),
+            property_extractor=InMemoryPropertyExtractor(),
+            document_data_extractor=IdExtractorDuplicate(),
             property_repo=prop_repo,
             document_content_repo=document_content_repo,
         )
 
-        job = _make_pending_job(num_docs=2)
+        job = _make_pending_job(num_docs=3)
         await job_repo.save(job)
         for key in job.document_keys:
             await storage.upload(key, b"fake-pdf", "application/pdf")
@@ -332,9 +353,39 @@ class TestProcessBatchPropertyExtraction:
         assert result.status == ExtractionJobStatus.COMPLETED
         props = await prop_repo.list_by_organization(TEST_ORGANIZATION_ID)
         assert len(props[0].owners) == 1
-        # ID extraction version should win
-        assert props[0].owners[0].full_name == "Name From ID Card"
-        assert props[0].owners[0].document_id == "NEW-ID"
+        # Second ID doc wins (last write)
+        assert props[0].owners[0].full_name == "Name From Second ID"
+        assert props[0].owners[0].document_id == "SECOND-ID"
+
+    async def test_geolocation_failure_does_not_fail_job(
+        self, job_repo, storage, prop_repo, document_parser, document_content_repo
+    ):
+        class GeoFailExtractor(InMemoryPropertyExtractor):
+            async def extract_geolocation(self, address):
+                raise RuntimeError("Geolocation unavailable")
+
+        uc = ProcessBatchPropertyExtraction(
+            extraction_job_repo=job_repo,
+            document_storage=storage,
+            document_parser=document_parser,
+            document_classifier=InMemoryDocumentClassifier(),
+            property_extractor=GeoFailExtractor(),
+            document_data_extractor=InMemoryDocumentExtractor(),
+            property_repo=prop_repo,
+            document_content_repo=document_content_repo,
+        )
+
+        job = _make_pending_job(num_docs=3)
+        await job_repo.save(job)
+        for key in job.document_keys:
+            await storage.upload(key, b"fake-pdf", "application/pdf")
+
+        result = await uc.execute(job_id=str(job.id))
+
+        assert result.status == ExtractionJobStatus.COMPLETED
+        props = await prop_repo.list_by_organization(TEST_ORGANIZATION_ID)
+        assert props[0].latitude is None
+        assert props[0].longitude is None
 
     async def test_retry_uses_cached_parsed_text(
         self, use_case, job_repo, storage, document_parser, document_content_repo, prop_repo

@@ -72,6 +72,8 @@ class SupabasePropertyRepository(PropertyRepository):
             description=row.get("description"),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            latitude=row.get("latitude"),
+            longitude=row.get("longitude"),
             owners=owners,
         )
 
@@ -84,6 +86,8 @@ class SupabasePropertyRepository(PropertyRepository):
             "typology": prop.typology.value,
             "status": prop.status.value,
             "description": prop.description,
+            "latitude": prop.latitude,
+            "longitude": prop.longitude,
         }
 
     async def _load_owners(self, property_id: str) -> list[dict]:

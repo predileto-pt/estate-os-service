@@ -25,6 +25,8 @@ def _property_response(prop) -> dict:
         "status": prop.status,
         "description": prop.description,
         "characteristics": characteristics,
+        "latitude": prop.latitude,
+        "longitude": prop.longitude,
         "created_at": prop.created_at,
         "updated_at": prop.updated_at,
         "owners": [_owner_response(o) for o in prop.owners],

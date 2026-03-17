@@ -24,6 +24,8 @@ class TestCreateProperty:
         assert data["status"] == "draft"
         assert data["description"] == "Beautiful apartment"
         assert data["organization_id"] == TEST_ORGANIZATION_ID
+        assert data["latitude"] is None
+        assert data["longitude"] is None
         assert data["owners"] == []
 
     async def test_create_property_without_description(self, client, auth_headers):

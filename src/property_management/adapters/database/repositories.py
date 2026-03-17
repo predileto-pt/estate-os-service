@@ -74,6 +74,8 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
             characteristics=(
                 PropertyCharacteristics.from_dict(m.characteristics) if m.characteristics else None
             ),
+            latitude=m.latitude,
+            longitude=m.longitude,
             owners=[SqlAlchemyPropertyRepository._owner_to_domain(o) for o in owners],
         )
 
@@ -115,6 +117,8 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
             status=prop.status.value,
             description=prop.description,
             characteristics=prop.characteristics.to_dict() if prop.characteristics else None,
+            latitude=prop.latitude,
+            longitude=prop.longitude,
         )
         self._session.add(model)
         await self._session.flush()

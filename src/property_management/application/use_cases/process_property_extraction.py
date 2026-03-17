@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import structlog
@@ -27,11 +27,6 @@ from property_management.domain.models.property import (
 )
 from property_management.domain.models.property_characteristics import (
     PropertyCharacteristics,
-)
-from property_management.domain.models.property_owner import (
-    CivilStatus,
-    DocumentType,
-    PropertyOwner,
 )
 
 log = structlog.get_logger()
@@ -84,6 +79,16 @@ class ProcessPropertyExtraction:
             if not job.listing_type or not job.typology:
                 raise ValueError("listing_type and typology are required on the job")
 
+            # Extract geolocation (non-fatal)
+            latitude = None
+            longitude = None
+            try:
+                geo = await self.property_extractor.extract_geolocation(result.address)
+                latitude = geo.latitude
+                longitude = geo.longitude
+            except Exception:
+                log.warning("extraction.geolocation_failed", address=result.address)
+
             prop = Property(
                 id=uuid4(),
                 organization_id=job.organization_id,
@@ -93,33 +98,12 @@ class ProcessPropertyExtraction:
                 status=PropertyStatus.DRAFT,
                 description=result.description,
                 characteristics=characteristics,
+                latitude=latitude,
+                longitude=longitude,
                 created_at=now,
                 updated_at=now,
             )
             prop = await self.property_repo.save(prop)
-
-            for owner_data in result.owners:
-                dob = owner_data.get("date_of_birth")
-                if isinstance(dob, str) and dob:
-                    dob = date.fromisoformat(dob)
-                else:
-                    dob = None
-                owner = PropertyOwner(
-                    id=uuid4(),
-                    property_id=prop.id,
-                    full_name=owner_data["full_name"],
-                    civil_status=CivilStatus(owner_data["civil_status"]),
-                    address=owner_data.get("address", result.address),
-                    nif=owner_data["nif"],
-                    document_type=DocumentType(owner_data["document_type"]),
-                    document_id=owner_data["document_id"],
-                    issued_by=owner_data["issued_by"],
-                    issuing_district=owner_data.get("issuing_district"),
-                    date_of_birth=dob,
-                    created_at=now,
-                    updated_at=now,
-                )
-                prop = await self.property_repo.save_owner(prop, owner)
 
             job.mark_completed(prop.id)
             await self.extraction_job_repo.update(job)

@@ -6,6 +6,7 @@ from langfuse.langchain import CallbackHandler as LangfuseCallbackHandler
 from pydantic import BaseModel
 
 from property_management.application.ports.property_extractor import (
+    GeoLocationResult,
     PropertyExtractionResult,
     PropertyExtractorService,
 )
@@ -14,18 +15,6 @@ log = structlog.get_logger()
 
 
 # ── Property extraction schemas & prompt ─────────────────────────────────────
-
-
-class OwnerSchema(BaseModel):
-    full_name: str
-    civil_status: str
-    address: str
-    nif: str
-    document_type: str
-    document_id: str
-    issued_by: str
-    issuing_district: str | None = None
-    date_of_birth: str
 
 
 class CharacteristicsSchema(BaseModel):
@@ -45,7 +34,6 @@ class PropertyExtractionSchema(BaseModel):
     address: str
     description: str | None = None
     characteristics: CharacteristicsSchema | None = None
-    owners: list[OwnerSchema]
     extraction_reasoning: str
 
 
@@ -53,12 +41,7 @@ PROPERTY_EXTRACTION_PROMPT = """\
 You are extracting structured data from Portuguese real estate documents \
 (escrituras, cadernetas prediais, certidões).
 
-Extract the property address, description, physical characteristics, \
-and all property owners mentioned in the documents.
-
-For civil_status use: 'single', 'married', 'divorced', 'widowed', 'civil_union', or 'separated'
-For document_type use: 'cartao_cidadao' or 'passport' (based on what is referenced in the deed)
-For date_of_birth use ISO format: YYYY-MM-DD
+Extract the property address, description, and physical characteristics.
 
 In the extraction_reasoning field, explain in Portuguese your reasoning: which parts \
 of the document(s) you used to extract each piece of data, any ambiguities you \
@@ -67,6 +50,25 @@ sections when possible.
 
 Documents:
 {documents_text}\
+"""
+
+
+# ── Geolocation schemas & prompt ─────────────────────────────────────────────
+
+
+class GeoLocationSchema(BaseModel):
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+GEOLOCATION_EXTRACTION_PROMPT = """\
+You are a geolocation assistant. Given a Portuguese property address, \
+return the approximate latitude and longitude coordinates.
+
+If you cannot determine the location, return null for both fields.
+
+Address:
+{address}\
 """
 
 
@@ -106,6 +108,25 @@ class ReductoOpenAIPropertyExtractor(PropertyExtractorService):
             address=result.address,
             description=result.description,
             characteristics=characteristics_dict,
-            owners=[owner.model_dump() for owner in result.owners],
             extraction_reasoning=result.extraction_reasoning,
+        )
+
+    async def extract_geolocation(self, address: str) -> GeoLocationResult:
+        llm = ChatOpenAI(model=self._model, api_key=self._openai_api_key)
+        structured_llm = llm.with_structured_output(GeoLocationSchema)
+
+        prompt = GEOLOCATION_EXTRACTION_PROMPT.format(address=address)
+
+        log.info("extraction.geolocation", address=address)
+        langfuse_handler = LangfuseCallbackHandler()
+        config = {
+            "callbacks": [langfuse_handler],
+            "run_name": "geolocation_extraction",
+            "metadata": {"langfuse_tags": ["geolocation-extraction"]},
+        }
+        result = await structured_llm.ainvoke(prompt, config=config)
+
+        return GeoLocationResult(
+            latitude=result.latitude,
+            longitude=result.longitude,
         )

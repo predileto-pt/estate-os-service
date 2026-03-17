@@ -162,18 +162,22 @@ class ProcessBatchPropertyExtraction:
                 )
                 id_owners.append(owner_data)
 
-            # 9. Merge owners (dedup by NIF, ID takes precedence)
+            # 7c. Extract geolocation (non-fatal)
+            latitude = None
+            longitude = None
+            try:
+                geo = await self.property_extractor.extract_geolocation(property_result.address)
+                latitude = geo.latitude
+                longitude = geo.longitude
+            except Exception:
+                log.warning("batch_extraction.geolocation_failed", address=property_result.address)
+
+            # 9. Collect owners from ID docs (dedup by NIF)
             owners_by_nif: dict[str, dict] = {}
-            for owner_data in property_result.owners:
-                nif = owner_data.get("nif")
-                if nif:
-                    owners_by_nif[nif] = owner_data
             for owner_data in id_owners:
                 nif = owner_data.get("nif")
                 if nif and nif != "000000000":
-                    existing = owners_by_nif.get(nif, {})
-                    merged = {**existing, **{k: v for k, v in owner_data.items() if v is not None}}
-                    owners_by_nif[nif] = merged
+                    owners_by_nif[nif] = owner_data
                 elif nif != "000000000":
                     name = owner_data.get("full_name", "")
                     if name:
@@ -197,6 +201,8 @@ class ProcessBatchPropertyExtraction:
                 status=PropertyStatus.DRAFT,
                 description=property_result.description,
                 characteristics=characteristics,
+                latitude=latitude,
+                longitude=longitude,
                 created_at=now,
                 updated_at=now,
             )
@@ -227,7 +233,7 @@ class ProcessBatchPropertyExtraction:
                     property_id=prop.id,
                     full_name=full_name,
                     civil_status=civil_status,
-                    address=owner_data.get("address", property_result.address),
+                    address=owner_data.get("address") or property_result.address,
                     nif=nif,
                     document_type=document_type,
                     document_id=owner_data.get("document_id"),

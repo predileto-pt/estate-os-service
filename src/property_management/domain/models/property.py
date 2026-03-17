@@ -41,6 +41,8 @@ class Property:
     created_at: datetime
     updated_at: datetime
     characteristics: PropertyCharacteristics | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     owners: list[PropertyOwner] = field(default_factory=list)
 
     def add_owner(self, owner: PropertyOwner) -> None:

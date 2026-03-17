@@ -74,6 +74,8 @@ class PropertyResponse(BaseModel):
     status: PropertyStatus
     description: str | None
     characteristics: PropertyCharacteristicsResponse | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     created_at: datetime
     updated_at: datetime
     owners: list[PropertyOwnerResponse]

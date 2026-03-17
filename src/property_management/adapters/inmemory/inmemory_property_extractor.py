@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from property_management.application.ports.property_extractor import (
+    GeoLocationResult,
     PropertyExtractionResult,
     PropertyExtractorService,
 )
@@ -23,18 +24,8 @@ class InMemoryPropertyExtractor(PropertyExtractorService):
                 "has_garden": False,
                 "has_pool": False,
             },
-            owners=[
-                {
-                    "full_name": "Maria Silva Santos",
-                    "civil_status": "married",
-                    "address": "Rua das Flores 123, 4000-001 Porto",
-                    "nif": "123456789",
-                    "document_type": "cartao_cidadao",
-                    "document_id": "12345678",
-                    "issued_by": "Servicos de Identificacao Civil de Porto",
-                    "issuing_district": "Porto",
-                    "date_of_birth": "1985-06-15",
-                }
-            ],
             extraction_reasoning="Dados extraídos da escritura de compra e venda.",
         )
+
+    async def extract_geolocation(self, address: str) -> GeoLocationResult:
+        return GeoLocationResult(latitude=41.1579, longitude=-8.6291)
