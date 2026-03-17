@@ -100,8 +100,10 @@ class ProcessPropertyExtraction:
 
             for owner_data in result.owners:
                 dob = owner_data.get("date_of_birth")
-                if isinstance(dob, str):
+                if isinstance(dob, str) and dob:
                     dob = date.fromisoformat(dob)
+                else:
+                    dob = None
                 owner = PropertyOwner(
                     id=uuid4(),
                     property_id=prop.id,

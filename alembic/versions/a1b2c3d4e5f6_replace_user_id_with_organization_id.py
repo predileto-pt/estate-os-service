@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "a1b2c3d4e5f6"
-down_revision: Union[str, None] = "f7b2c9d3e890"
+down_revision: Union[str, None] = "e3f4a5b6c7d8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -43,9 +43,18 @@ def upgrade() -> None:
             nullable=True,
         ),
     )
-    # Backfill: copy user_id into organization_id as a temporary measure
-    # (in production, a data migration script should set correct org IDs)
-    op.execute("UPDATE extraction_jobs SET organization_id = user_id WHERE organization_id IS NULL")
+    # Backfill: resolve each user's organization from the users table
+    op.execute(
+        "UPDATE extraction_jobs ej SET organization_id = u.organization_id "
+        "FROM users u WHERE u.supabase_user_id = ej.user_id::text "
+        "AND ej.organization_id IS NULL"
+    )
+    # Remove orphan rows that couldn't be resolved (children first)
+    op.execute(
+        "DELETE FROM document_contents WHERE extraction_job_id IN "
+        "(SELECT id FROM extraction_jobs WHERE organization_id IS NULL)"
+    )
+    op.execute("DELETE FROM extraction_jobs WHERE organization_id IS NULL")
     op.alter_column("extraction_jobs", "organization_id", nullable=False)
     op.create_index("idx_extraction_jobs_organization_id", "extraction_jobs", ["organization_id"])
 

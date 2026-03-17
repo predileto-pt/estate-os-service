@@ -1,15 +1,31 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from customer_management.domain.models.organization import Organization
 from property_management.domain.models.document_content import DocumentContent
 from property_management.domain.models.extraction_job import ExtractionJob, ExtractionJobStatus
 
 
-def _make_extraction_job(**overrides) -> ExtractionJob:
+def _make_organization(**overrides) -> Organization:
+    now = datetime.now(timezone.utc)
+    defaults = {
+        "id": uuid4(),
+        "created_by": uuid4(),
+        "name": "Test Organization",
+        "nif": "123456789",
+        "address": "Rua do Teste 1, Lisboa",
+        "created_at": now,
+        "updated_at": now,
+    }
+    return Organization(**(defaults | overrides))
+
+
+def _make_extraction_job(organization_id=None, **overrides) -> ExtractionJob:
     now = datetime.now(timezone.utc)
     defaults = {
         "id": uuid4(),
         "user_id": uuid4(),
+        "organization_id": organization_id or uuid4(),
         "status": ExtractionJobStatus.PENDING,
         "document_keys": ["docs/file1.pdf"],
         "created_at": now,
@@ -32,8 +48,11 @@ def _make_document_content(extraction_job_id, **overrides) -> DocumentContent:
     return DocumentContent(**(defaults | overrides))
 
 
-async def test_save_and_get_by_job_id(extraction_job_repo, document_content_repo):
-    job = _make_extraction_job()
+async def test_save_and_get_by_job_id(
+    organization_repo, extraction_job_repo, document_content_repo
+):
+    org = await organization_repo.save(_make_organization())
+    job = _make_extraction_job(organization_id=org.id)
     await extraction_job_repo.save(job)
 
     content = _make_document_content(job.id)
@@ -46,8 +65,9 @@ async def test_save_and_get_by_job_id(extraction_job_repo, document_content_repo
     assert results[0].document_key == "docs/file1.pdf"
 
 
-async def test_save_batch(extraction_job_repo, document_content_repo):
-    job = _make_extraction_job()
+async def test_save_batch(organization_repo, extraction_job_repo, document_content_repo):
+    org = await organization_repo.save(_make_organization())
+    job = _make_extraction_job(organization_id=org.id)
     await extraction_job_repo.save(job)
 
     contents = [
@@ -64,8 +84,9 @@ async def test_save_batch(extraction_job_repo, document_content_repo):
     assert [r.document_index for r in results] == [0, 1, 2]
 
 
-async def test_update_classification(extraction_job_repo, document_content_repo):
-    job = _make_extraction_job()
+async def test_update_classification(organization_repo, extraction_job_repo, document_content_repo):
+    org = await organization_repo.save(_make_organization())
+    job = _make_extraction_job(organization_id=org.id)
     await extraction_job_repo.save(job)
 
     content = _make_document_content(job.id)
@@ -80,8 +101,11 @@ async def test_update_classification(extraction_job_repo, document_content_repo)
     assert results[0].document_subtype == "escritura"
 
 
-async def test_ordering_by_document_index(extraction_job_repo, document_content_repo):
-    job = _make_extraction_job()
+async def test_ordering_by_document_index(
+    organization_repo, extraction_job_repo, document_content_repo
+):
+    org = await organization_repo.save(_make_organization())
+    job = _make_extraction_job(organization_id=org.id)
     await extraction_job_repo.save(job)
 
     # Save in reverse order

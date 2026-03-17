@@ -185,6 +185,7 @@ class DocumentContentModel(Base):
     parsed_text: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str | None] = mapped_column(Text)
     document_subtype: Mapped[str | None] = mapped_column(Text)
+    extraction_reasoning: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
     __table_args__ = (Index("idx_document_contents_job_id", "extraction_job_id"),)

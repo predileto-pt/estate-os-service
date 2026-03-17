@@ -228,6 +228,7 @@ class SqlAlchemyDocumentContentRepository(DocumentContentRepository):
             parsed_text=m.parsed_text,
             category=m.category,
             document_subtype=m.document_subtype,
+            extraction_reasoning=m.extraction_reasoning,
             created_at=m.created_at,
         )
 
@@ -240,6 +241,7 @@ class SqlAlchemyDocumentContentRepository(DocumentContentRepository):
             parsed_text=content.parsed_text,
             category=content.category,
             document_subtype=content.document_subtype,
+            extraction_reasoning=content.extraction_reasoning,
         )
         self._session.add(model)
         await self._session.flush()
@@ -257,6 +259,7 @@ class SqlAlchemyDocumentContentRepository(DocumentContentRepository):
                 parsed_text=content.parsed_text,
                 category=content.category,
                 document_subtype=content.document_subtype,
+                extraction_reasoning=content.extraction_reasoning,
             )
             self._session.add(model)
             models.append(model)
@@ -282,4 +285,14 @@ class SqlAlchemyDocumentContentRepository(DocumentContentRepository):
         model = result.scalar_one()
         model.category = category
         model.document_subtype = document_subtype
+        await self._session.flush()
+
+    async def update_extraction_reasoning(
+        self, content_id: UUID, extraction_reasoning: str
+    ) -> None:
+        result = await self._session.execute(
+            select(DocumentContentModel).where(DocumentContentModel.id == str(content_id))
+        )
+        model = result.scalar_one()
+        model.extraction_reasoning = extraction_reasoning
         await self._session.flush()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import structlog
 from langchain_openai import ChatOpenAI
+from langfuse.langchain import CallbackHandler as LangfuseCallbackHandler
 from pydantic import BaseModel
 
 from property_management.application.ports.property_extractor import (
@@ -45,6 +46,7 @@ class PropertyExtractionSchema(BaseModel):
     description: str | None = None
     characteristics: CharacteristicsSchema | None = None
     owners: list[OwnerSchema]
+    extraction_reasoning: str
 
 
 PROPERTY_EXTRACTION_PROMPT = """\
@@ -57,6 +59,11 @@ and all property owners mentioned in the documents.
 For civil_status use: 'single', 'married', 'divorced', 'widowed', 'civil_union', or 'separated'
 For document_type use: 'cartao_cidadao' or 'passport' (based on what is referenced in the deed)
 For date_of_birth use ISO format: YYYY-MM-DD
+
+In the extraction_reasoning field, explain in Portuguese your reasoning: which parts \
+of the document(s) you used to extract each piece of data, any ambiguities you \
+encountered, and how you resolved them. Be specific about page references or \
+sections when possible.
 
 Documents:
 {documents_text}\
@@ -83,7 +90,13 @@ class ReductoOpenAIPropertyExtractor(PropertyExtractorService):
         prompt = PROPERTY_EXTRACTION_PROMPT.format(documents_text=documents_text)
 
         log.info("extraction.property_extraction", num_documents=len(document_texts))
-        result = await structured_llm.ainvoke(prompt)
+        langfuse_handler = LangfuseCallbackHandler()
+        config = {
+            "callbacks": [langfuse_handler],
+            "run_name": "property_extraction",
+            "metadata": {"langfuse_tags": ["property-extraction"]},
+        }
+        result = await structured_llm.ainvoke(prompt, config=config)
 
         characteristics_dict = None
         if result.characteristics:
@@ -94,4 +107,5 @@ class ReductoOpenAIPropertyExtractor(PropertyExtractorService):
             description=result.description,
             characteristics=characteristics_dict,
             owners=[owner.model_dump() for owner in result.owners],
+            extraction_reasoning=result.extraction_reasoning,
         )

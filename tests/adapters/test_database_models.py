@@ -1,5 +1,6 @@
 from shared.database.models import Base
 import customer_management.adapters.database.models  # noqa: F401 — register models
+import property_management.adapters.database.models  # noqa: F401 — register models
 
 
 EXPECTED_TABLES = {
@@ -9,6 +10,10 @@ EXPECTED_TABLES = {
     "notifications",
     "memberships",
     "invitations",
+    "properties",
+    "property_owners",
+    "extraction_jobs",
+    "document_contents",
 }
 
 

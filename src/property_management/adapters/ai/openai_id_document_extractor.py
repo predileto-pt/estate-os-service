@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import structlog
 from langchain_openai import ChatOpenAI
+from langfuse.langchain import CallbackHandler as LangfuseCallbackHandler
 from pydantic import BaseModel
 
 from property_management.application.ports.document_data_extractor import DocumentDataExtractor
@@ -120,8 +121,14 @@ class OpenAIIdDocumentExtractor(DocumentDataExtractor):
         prompt = prompt_template.format(document_text=parsed_text)
 
         log.info("id_extraction.text_based", document_subtype=document_subtype)
+        langfuse_handler = LangfuseCallbackHandler()
+        config = {
+            "callbacks": [langfuse_handler],
+            "run_name": f"id_extraction_{document_subtype}",
+            "metadata": {"langfuse_tags": ["id-extraction", document_subtype]},
+        }
         try:
-            result = await structured_llm.ainvoke(prompt)
+            result = await structured_llm.ainvoke(prompt, config=config)
             return result.model_dump()
         except Exception as e:
             raise DocumentExtractionError(f"AI ID extraction failed: {e}") from e

@@ -36,4 +36,5 @@ class InMemoryPropertyExtractor(PropertyExtractorService):
                     "date_of_birth": "1985-06-15",
                 }
             ],
+            extraction_reasoning="Dados extraídos da escritura de compra e venda.",
         )

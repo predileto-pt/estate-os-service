@@ -31,3 +31,11 @@ class InMemoryDocumentContentRepository(DocumentContentRepository):
                 c.category = category
                 c.document_subtype = document_subtype
                 break
+
+    async def update_extraction_reasoning(
+        self, content_id: UUID, extraction_reasoning: str
+    ) -> None:
+        for c in self._contents:
+            if c.id == content_id:
+                c.extraction_reasoning = extraction_reasoning
+                break

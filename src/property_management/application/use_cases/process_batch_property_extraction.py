@@ -145,6 +145,15 @@ class ProcessBatchPropertyExtraction:
             # 7. Extract property data from property texts (no OCR needed)
             property_result = await self.property_extractor.extract(property_texts)
 
+            # 7b. Store extraction reasoning on property document contents
+            if property_result.extraction_reasoning:
+                for clf in classifications:
+                    if clf.category == "property_document" and 0 <= clf.index < len(contents):
+                        await self.document_content_repo.update_extraction_reasoning(
+                            contents[clf.index].id,
+                            property_result.extraction_reasoning,
+                        )
+
             # 8. Extract owners from each ID doc text (no OCR, subtype-routed)
             id_owners: list[dict] = []
             for doc_subtype, text in id_docs:
@@ -195,8 +204,10 @@ class ProcessBatchPropertyExtraction:
 
             for owner_data in owners_by_nif.values():
                 dob = owner_data.get("date_of_birth")
-                if isinstance(dob, str):
+                if isinstance(dob, str) and dob:
                     dob = date.fromisoformat(dob)
+                else:
+                    dob = None
 
                 nif = owner_data.get("nif")
                 full_name = owner_data.get("full_name")

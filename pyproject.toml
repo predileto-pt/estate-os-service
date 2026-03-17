@@ -24,6 +24,8 @@ dependencies = [
     "langchain-core>=0.3.0",
     "reductoai>=0.16.0",
     "logfire[structlog]>=3.0.0",
+    "langchain>=0.3.0",
+    "langfuse>=3.0.0",
 ]
 
 [project.optional-dependencies]

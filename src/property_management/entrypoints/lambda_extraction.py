@@ -26,6 +26,14 @@ def handler(event, context):
         body = json.loads(record["body"])
         asyncio.run(_process(body))
 
+    try:
+        from langfuse import get_client
+
+        langfuse = get_client()
+        langfuse.flush()
+    except Exception:
+        pass
+
 
 async def _process(body: dict) -> None:
     container = await _get_container()

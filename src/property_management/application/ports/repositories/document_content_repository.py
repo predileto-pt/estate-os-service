@@ -20,3 +20,8 @@ class DocumentContentRepository(ABC):
     async def update_classification(
         self, content_id: UUID, category: str, document_subtype: str
     ) -> None: ...
+
+    @abstractmethod
+    async def update_extraction_reasoning(
+        self, content_id: UUID, extraction_reasoning: str
+    ) -> None: ...

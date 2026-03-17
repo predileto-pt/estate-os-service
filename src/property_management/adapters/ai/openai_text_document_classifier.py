@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import structlog
 from langchain_openai import ChatOpenAI
+from langfuse.langchain import CallbackHandler as LangfuseCallbackHandler
 from pydantic import BaseModel
 
 from property_management.application.ports.document_classifier import (
@@ -61,8 +62,14 @@ class OpenAITextDocumentClassifier(DocumentClassifier):
         prompt = f"{CLASSIFICATION_PROMPT}\n\nDocuments:\n{combined}"
 
         log.info("classification.text_based", num_documents=len(document_texts))
+        langfuse_handler = LangfuseCallbackHandler()
+        config = {
+            "callbacks": [langfuse_handler],
+            "run_name": "document_classification",
+            "metadata": {"langfuse_tags": ["classification"]},
+        }
         try:
-            result = await structured_llm.ainvoke(prompt)
+            result = await structured_llm.ainvoke(prompt, config=config)
             return [
                 ClassifiedDocument(
                     index=d.index,

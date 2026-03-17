@@ -23,6 +23,7 @@ class SupabaseDocumentContentRepository(DocumentContentRepository):
             parsed_text=row["parsed_text"],
             category=row.get("category"),
             document_subtype=row.get("document_subtype"),
+            extraction_reasoning=row.get("extraction_reasoning"),
             created_at=row["created_at"],
         )
 
@@ -35,6 +36,7 @@ class SupabaseDocumentContentRepository(DocumentContentRepository):
             "parsed_text": content.parsed_text,
             "category": content.category,
             "document_subtype": content.document_subtype,
+            "extraction_reasoning": content.extraction_reasoning,
         }
 
     async def save(self, content: DocumentContent) -> DocumentContent:
@@ -64,6 +66,16 @@ class SupabaseDocumentContentRepository(DocumentContentRepository):
         await (
             self._client.table("document_contents")
             .update({"category": category, "document_subtype": document_subtype})
+            .eq("id", str(content_id))
+            .execute()
+        )
+
+    async def update_extraction_reasoning(
+        self, content_id: UUID, extraction_reasoning: str
+    ) -> None:
+        await (
+            self._client.table("document_contents")
+            .update({"extraction_reasoning": extraction_reasoning})
             .eq("id", str(content_id))
             .execute()
         )

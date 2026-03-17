@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     # Logfire
     logfire_token: str = ""
 
+    # Langfuse (CallbackHandler reads these env vars automatically)
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = ""
+
     # Database (direct PostgreSQL for Alembic migrations)
     database_url: str = ""
 
@@ -52,6 +57,10 @@ class Settings(BaseSettings):
 
 
 def setup_logging(log_level: str = "info") -> None:
+    # Suppress noisy "Failed to detach context" from OTel async context propagation
+    # https://github.com/open-telemetry/opentelemetry-python/issues/2606
+    logging.getLogger("opentelemetry.context").setLevel(logging.CRITICAL)
+
     processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,

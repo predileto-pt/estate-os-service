@@ -77,8 +77,9 @@ def _make_extraction_job(user_id=None, organization_id=None, **overrides) -> Ext
     return ExtractionJob(**(defaults | overrides))
 
 
-async def test_save_and_get_extraction_job(extraction_job_repo):
-    job = _make_extraction_job()
+async def test_save_and_get_extraction_job(organization_repo, extraction_job_repo):
+    org = await organization_repo.save(_make_organization())
+    job = _make_extraction_job(organization_id=org.id)
 
     saved = await extraction_job_repo.save(job)
     assert saved.id == job.id
@@ -91,18 +92,19 @@ async def test_save_and_get_extraction_job(extraction_job_repo):
     assert fetched.typology == "apartment"
 
 
-async def test_list_by_organization(extraction_job_repo):
-    org_id = uuid4()
+async def test_list_by_organization(organization_repo, extraction_job_repo):
+    org = await organization_repo.save(_make_organization())
 
     for _ in range(3):
-        await extraction_job_repo.save(_make_extraction_job(organization_id=org_id))
+        await extraction_job_repo.save(_make_extraction_job(organization_id=org.id))
 
-    jobs = await extraction_job_repo.list_by_organization(org_id)
+    jobs = await extraction_job_repo.list_by_organization(org.id)
     assert len(jobs) == 3
 
 
-async def test_update_status(extraction_job_repo):
-    job = _make_extraction_job()
+async def test_update_status(organization_repo, extraction_job_repo):
+    org = await organization_repo.save(_make_organization())
+    job = _make_extraction_job(organization_id=org.id)
     await extraction_job_repo.save(job)
 
     job.mark_processing()
@@ -130,8 +132,9 @@ async def test_update_completed_with_property(
     assert updated.property_id == prop.id
 
 
-async def test_update_failed(extraction_job_repo):
-    job = _make_extraction_job()
+async def test_update_failed(organization_repo, extraction_job_repo):
+    org = await organization_repo.save(_make_organization())
+    job = _make_extraction_job(organization_id=org.id)
     await extraction_job_repo.save(job)
 
     job.mark_failed("Something went wrong")
