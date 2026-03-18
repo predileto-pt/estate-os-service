@@ -28,6 +28,22 @@ class PropertyPriceResponse(BaseModel):
     updated_at: datetime
 
 
+# --- Property Summary ---
+
+
+class PropertySummaryOwnerResponse(BaseModel):
+    full_name: str
+
+
+class PropertySummaryResponse(BaseModel):
+    id: UUID
+    address: str
+    listing_type: ListingType
+    typology: Typology
+    price: Decimal | None
+    owners: list[PropertySummaryOwnerResponse]
+
+
 # --- Property Owner ---
 
 

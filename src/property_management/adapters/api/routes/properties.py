@@ -6,6 +6,7 @@ from shared.api.dependencies import get_supabase_user_id
 from property_management.adapters.api.schemas import (
     CreatePropertyRequest,
     PropertyResponse,
+    PropertySummaryResponse,
 )
 from property_management.domain.exceptions import PropertyNotFoundError
 
@@ -100,6 +101,34 @@ async def list_properties(
     list_uc = request.app.state.property_container.list_properties
     props = await list_uc.execute(organization_id=str(organization_id))
     return [_property_response(p) for p in props]
+
+
+@router.get(
+    "/summary",
+    response_model=list[PropertySummaryResponse],
+    summary="List properties summary",
+    responses={401: {"description": "Not authenticated"}},
+)
+async def list_properties_summary(
+    organization_id: UUID,
+    request: Request,
+    supabase_user_id: str = Depends(get_supabase_user_id),
+):
+    list_uc = request.app.state.property_container.list_properties
+    props = await list_uc.execute(organization_id=str(organization_id))
+    return [
+        {
+            "id": p.id,
+            "address": p.address,
+            "listing_type": p.listing_type,
+            "typology": p.typology,
+            "price": max(p.prices, key=lambda pr: pr.created_at).amount
+            if p.prices
+            else None,
+            "owners": [{"full_name": o.full_name} for o in p.owners],
+        }
+        for p in props
+    ]
 
 
 @router.get(

@@ -117,6 +117,102 @@ class TestListProperties:
         assert response.json() == []
 
 
+class TestListPropertiesSummary:
+    async def test_list_properties_summary(self, client, auth_headers):
+        # Create a property
+        create_resp = await client.post(
+            "/api/v1/properties/",
+            json={
+                "organization_id": TEST_ORGANIZATION_ID,
+                "address": "Rua das Flores 123, Porto",
+                "listing_type": "sale",
+                "typology": "apartment",
+            },
+            headers=auth_headers,
+        )
+        property_id = create_resp.json()["id"]
+
+        # Add an owner
+        await client.post(
+            "/api/v1/property-owners/",
+            json={
+                "organization_id": TEST_ORGANIZATION_ID,
+                "property_id": property_id,
+                "full_name": "Maria Silva",
+                "civil_status": "single",
+                "address": "Rua do Exemplo 1",
+                "nif": "123456789",
+                "document_type": "cartao_cidadao",
+                "document_id": "12345678",
+                "issued_by": "SEF",
+                "date_of_birth": "1990-01-01",
+            },
+            headers=auth_headers,
+        )
+
+        # Add a price
+        await client.post(
+            "/api/v1/property-prices/",
+            json={
+                "organization_id": TEST_ORGANIZATION_ID,
+                "property_id": property_id,
+                "amount": "250000.00",
+                "listing_type": "sale",
+            },
+            headers=auth_headers,
+        )
+
+        response = await client.get(
+            f"/api/v1/properties/summary?organization_id={TEST_ORGANIZATION_ID}",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["id"] == property_id
+        assert data[0]["address"] == "Rua das Flores 123, Porto"
+        assert data[0]["listing_type"] == "sale"
+        assert data[0]["typology"] == "apartment"
+        assert data[0]["price"] == "250000.00"
+        assert data[0]["owners"] == [{"full_name": "Maria Silva"}]
+        # Should NOT contain full property fields
+        assert "prices" not in data[0]
+        assert "characteristics" not in data[0]
+
+    async def test_list_properties_summary_no_price(self, client, auth_headers):
+        # Property with no prices should return price as None
+        await client.post(
+            "/api/v1/properties/",
+            json={
+                "organization_id": TEST_ORGANIZATION_ID,
+                "address": "Rua Sem Preço 1",
+                "listing_type": "purchase",
+                "typology": "house",
+            },
+            headers=auth_headers,
+        )
+
+        response = await client.get(
+            f"/api/v1/properties/summary?organization_id={TEST_ORGANIZATION_ID}",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["listing_type"] == "purchase"
+        assert data[0]["typology"] == "house"
+        assert data[0]["price"] is None
+        assert data[0]["owners"] == []
+
+    async def test_list_properties_summary_empty(self, client, auth_headers):
+        response = await client.get(
+            f"/api/v1/properties/summary?organization_id={TEST_ORGANIZATION_ID}",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json() == []
+
+
 class TestGetProperty:
     async def test_get_property(self, client, auth_headers):
         create_resp = await client.post(
