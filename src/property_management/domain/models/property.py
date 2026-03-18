@@ -7,6 +7,7 @@ from uuid import UUID
 
 from property_management.domain.models.property_characteristics import PropertyCharacteristics
 from property_management.domain.models.property_owner import PropertyOwner
+from property_management.domain.models.property_price import PropertyPrice
 
 
 class ListingType(str, enum.Enum):
@@ -44,6 +45,14 @@ class Property:
     latitude: float | None = None
     longitude: float | None = None
     owners: list[PropertyOwner] = field(default_factory=list)
+    prices: list[PropertyPrice] = field(default_factory=list)
+
+    def add_price(self, price: PropertyPrice) -> None:
+        price.property_id = self.id
+        self.prices.append(price)
+
+    def get_price(self, price_id: UUID) -> PropertyPrice | None:
+        return next((p for p in self.prices if p.id == price_id), None)
 
     def add_owner(self, owner: PropertyOwner) -> None:
         owner.property_id = self.id

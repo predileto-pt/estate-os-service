@@ -16,6 +16,13 @@ class PropertyOwnerNotFoundError(DomainError):
         )
 
 
+class PropertyPriceNotFoundError(DomainError):
+    def __init__(self, identifier: str = "") -> None:
+        super().__init__(
+            f"Property price not found: {identifier}" if identifier else "Property price not found"
+        )
+
+
 class InvalidNIFError(DomainError):
     def __init__(self, nif: str = "") -> None:
         super().__init__(f"Invalid NIF: {nif}" if nif else "Invalid NIF")

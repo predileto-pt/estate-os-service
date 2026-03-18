@@ -1,7 +1,7 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import Date, Enum, Float, ForeignKey, Index, Text, func, text
+from sqlalchemy import Date, Enum, Float, ForeignKey, Index, Numeric, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -129,6 +129,31 @@ class PropertyOwnerModel(Base):
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
     __table_args__ = (Index("idx_property_owners_property_id", "property_id"),)
+
+
+class PropertyPriceModel(Base):
+    __tablename__ = "property_prices"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    property_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("properties.id"), nullable=False
+    )
+    amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    listing_type: Mapped[ListingType] = mapped_column(
+        Enum(
+            ListingType,
+            name="listing_type",
+            values_callable=lambda e: [x.value for x in e],
+            create_type=False,
+        ),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+    __table_args__ = (Index("idx_property_prices_property_id", "property_id"),)
 
 
 class ExtractionJobStatus(str, enum.Enum):

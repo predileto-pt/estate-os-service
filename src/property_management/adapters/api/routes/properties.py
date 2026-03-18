@@ -30,6 +30,18 @@ def _property_response(prop) -> dict:
         "created_at": prop.created_at,
         "updated_at": prop.updated_at,
         "owners": [_owner_response(o) for o in prop.owners],
+        "prices": [_price_response(p) for p in prop.prices],
+    }
+
+
+def _price_response(price) -> dict:
+    return {
+        "id": price.id,
+        "property_id": price.property_id,
+        "amount": price.amount,
+        "listing_type": price.listing_type,
+        "created_at": price.created_at,
+        "updated_at": price.updated_at,
     }
 
 

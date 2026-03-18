@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -6,6 +7,25 @@ from pydantic import BaseModel, Field
 from property_management.domain.models.extraction_job import ExtractionJobStatus
 from property_management.domain.models.property import ListingType, PropertyStatus, Typology
 from property_management.domain.models.property_owner import CivilStatus, DocumentType
+
+
+# --- Property Price ---
+
+
+class CreatePropertyPriceRequest(BaseModel):
+    organization_id: UUID
+    property_id: UUID
+    amount: Decimal = Field(gt=0, description="Price amount in euros")
+    listing_type: ListingType
+
+
+class PropertyPriceResponse(BaseModel):
+    id: UUID
+    property_id: UUID
+    amount: Decimal
+    listing_type: ListingType
+    created_at: datetime
+    updated_at: datetime
 
 
 # --- Property Owner ---
@@ -79,6 +99,7 @@ class PropertyResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     owners: list[PropertyOwnerResponse]
+    prices: list[PropertyPriceResponse]
 
 
 # --- Extraction Jobs ---

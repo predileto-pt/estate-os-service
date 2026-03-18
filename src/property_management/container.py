@@ -15,6 +15,8 @@ from property_management.application.ports.repositories.property_repository impo
 )
 from property_management.application.use_cases.create_property import CreateProperty
 from property_management.application.use_cases.create_property_owner import CreatePropertyOwner
+from property_management.application.use_cases.create_property_price import CreatePropertyPrice
+from property_management.application.use_cases.list_property_prices import ListPropertyPrices
 from property_management.application.use_cases.extract_property_owner_from_document import (
     ExtractPropertyOwnerFromDocument,
 )
@@ -83,6 +85,12 @@ class Container:
             property_repo=property_repo,
         )
         self.get_property_owner = GetPropertyOwner(
+            property_repo=property_repo,
+        )
+        self.create_property_price = CreatePropertyPrice(
+            property_repo=property_repo,
+        )
+        self.list_property_prices = ListPropertyPrices(
             property_repo=property_repo,
         )
 

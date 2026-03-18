@@ -17,7 +17,12 @@ from customer_management.adapters.api.routes import (
     subscriptions,
     users,
 )
-from property_management.adapters.api.routes import extraction_jobs, properties, property_owners
+from property_management.adapters.api.routes import (
+    extraction_jobs,
+    properties,
+    property_owners,
+    property_prices,
+)
 
 
 def create_app(container=None, property_container=None) -> FastAPI:
@@ -54,6 +59,7 @@ def create_app(container=None, property_container=None) -> FastAPI:
             {"name": "properties", "description": "Property management"},
             {"name": "property-owners", "description": "Property owner management"},
             {"name": "extraction-jobs", "description": "AI-powered property extraction"},
+            {"name": "property-prices", "description": "Property price management"},
         ],
     )
 
@@ -80,6 +86,7 @@ def create_app(container=None, property_container=None) -> FastAPI:
     app.include_router(email.router, prefix="/api/v1")
     app.include_router(properties.router, prefix="/api/v1")
     app.include_router(property_owners.router, prefix="/api/v1")
+    app.include_router(property_prices.router, prefix="/api/v1")
     app.include_router(extraction_jobs.router, prefix="/api/v1")
 
     # DI container (set by tests; production uses lifespan)

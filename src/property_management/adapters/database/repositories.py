@@ -1,3 +1,4 @@
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -8,6 +9,7 @@ from property_management.adapters.database.models import (
     ExtractionJobModel,
     PropertyModel,
     PropertyOwnerModel,
+    PropertyPriceModel,
 )
 from property_management.application.ports.repositories.document_content_repository import (
     DocumentContentRepository,
@@ -32,6 +34,7 @@ from property_management.domain.models.property_owner import (
     DocumentType,
     PropertyOwner,
 )
+from property_management.domain.models.property_price import PropertyPrice
 
 
 # ── Property ────────────────────────────────────────────────────────────────
@@ -60,7 +63,24 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
         )
 
     @staticmethod
-    def _to_domain(m: PropertyModel, owners: list[PropertyOwnerModel]) -> Property:
+    def _price_to_domain(m: PropertyPriceModel) -> PropertyPrice:
+        lt = m.listing_type
+        listing_type = ListingType(lt.value if hasattr(lt, "value") else lt)
+        return PropertyPrice(
+            id=UUID(m.id),
+            property_id=UUID(m.property_id),
+            amount=Decimal(str(m.amount)),
+            listing_type=listing_type,
+            created_at=m.created_at,
+            updated_at=m.updated_at,
+        )
+
+    @staticmethod
+    def _to_domain(
+        m: PropertyModel,
+        owners: list[PropertyOwnerModel],
+        prices: list[PropertyPriceModel] | None = None,
+    ) -> Property:
         return Property(
             id=UUID(m.id),
             organization_id=UUID(m.organization_id),
@@ -77,11 +97,20 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
             latitude=m.latitude,
             longitude=m.longitude,
             owners=[SqlAlchemyPropertyRepository._owner_to_domain(o) for o in owners],
+            prices=[SqlAlchemyPropertyRepository._price_to_domain(p) for p in (prices or [])],
         )
 
     async def _load_owners(self, property_id: str) -> list[PropertyOwnerModel]:
         result = await self._session.execute(
             select(PropertyOwnerModel).where(PropertyOwnerModel.property_id == property_id)
+        )
+        return list(result.scalars().all())
+
+    async def _load_prices(self, property_id: str) -> list[PropertyPriceModel]:
+        result = await self._session.execute(
+            select(PropertyPriceModel)
+            .where(PropertyPriceModel.property_id == property_id)
+            .order_by(PropertyPriceModel.created_at.desc())
         )
         return list(result.scalars().all())
 
@@ -93,7 +122,8 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
         if not row:
             return None
         owners = await self._load_owners(row.id)
-        return self._to_domain(row, owners)
+        prices = await self._load_prices(row.id)
+        return self._to_domain(row, owners, prices)
 
     async def list_by_organization(self, organization_id: UUID) -> list[Property]:
         result = await self._session.execute(
@@ -104,7 +134,8 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
         properties = []
         for row in result.scalars().all():
             owners = await self._load_owners(row.id)
-            properties.append(self._to_domain(row, owners))
+            prices = await self._load_prices(row.id)
+            properties.append(self._to_domain(row, owners, prices))
         return properties
 
     async def save(self, prop: Property) -> Property:
@@ -140,6 +171,17 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
             date_of_birth=owner.date_of_birth,
         )
         self._session.add(owner_model)
+        await self._session.flush()
+        return await self.get_by_id(prop.id)
+
+    async def save_price(self, prop: Property, price: PropertyPrice) -> Property:
+        price_model = PropertyPriceModel(
+            id=str(price.id),
+            property_id=str(prop.id),
+            amount=float(price.amount),
+            listing_type=price.listing_type.value,
+        )
+        self._session.add(price_model)
         await self._session.flush()
         return await self.get_by_id(prop.id)
 

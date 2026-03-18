@@ -5,6 +5,7 @@ from property_management.application.ports.repositories.property_repository impo
 )
 from property_management.domain.models.property import Property
 from property_management.domain.models.property_owner import PropertyOwner
+from property_management.domain.models.property_price import PropertyPrice
 
 
 class InMemoryPropertyRepository(PropertyRepository):
@@ -23,5 +24,10 @@ class InMemoryPropertyRepository(PropertyRepository):
 
     async def save_owner(self, prop: Property, owner: PropertyOwner) -> Property:
         prop.add_owner(owner)
+        self._properties[prop.id] = prop
+        return prop
+
+    async def save_price(self, prop: Property, price: PropertyPrice) -> Property:
+        prop.add_price(price)
         self._properties[prop.id] = prop
         return prop

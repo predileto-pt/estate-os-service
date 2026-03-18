@@ -27,6 +27,7 @@ class TestCreateProperty:
         assert data["latitude"] is None
         assert data["longitude"] is None
         assert data["owners"] == []
+        assert data["prices"] == []
 
     async def test_create_property_without_description(self, client, auth_headers):
         response = await client.post(
@@ -137,6 +138,7 @@ class TestGetProperty:
         assert response.status_code == 200
         assert response.json()["id"] == property_id
         assert response.json()["owners"] == []
+        assert response.json()["prices"] == []
 
     async def test_get_property_not_found(self, client, auth_headers):
         response = await client.get(

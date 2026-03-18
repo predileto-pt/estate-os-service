@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import uuid4
 
 from customer_management.domain.models.organization import Organization
@@ -11,6 +12,7 @@ from property_management.domain.models.property import (
     Typology,
 )
 from property_management.domain.models.property_owner import PropertyOwner
+from property_management.domain.models.property_price import PropertyPrice
 
 
 def _make_organization(**overrides) -> Organization:
@@ -124,6 +126,37 @@ async def test_save_owner_and_get_with_property(organization_repo, user_repo, pr
     # Verify owners persist when fetched again
     fetched = await property_repo.get_by_id(prop.id)
     assert len(fetched.owners) == 1
+
+
+def _make_price(property_id, **overrides) -> PropertyPrice:
+    now = datetime.now(timezone.utc)
+    defaults = {
+        "id": uuid4(),
+        "property_id": property_id,
+        "amount": Decimal("250000.00"),
+        "listing_type": ListingType.SALE,
+        "created_at": now,
+        "updated_at": now,
+    }
+    return PropertyPrice(**(defaults | overrides))
+
+
+async def test_save_price_and_get_with_property(organization_repo, user_repo, property_repo):
+    org = await organization_repo.save(_make_organization())
+    await user_repo.save(_make_user(org.id))
+    prop = _make_property(org.id)
+    saved_prop = await property_repo.save(prop)
+
+    price = _make_price(saved_prop.id)
+    updated_prop = await property_repo.save_price(saved_prop, price)
+
+    assert len(updated_prop.prices) == 1
+    assert updated_prop.prices[0].amount == Decimal("250000.00")
+    assert updated_prop.prices[0].listing_type == ListingType.SALE
+
+    # Verify prices persist when fetched again
+    fetched = await property_repo.get_by_id(prop.id)
+    assert len(fetched.prices) == 1
 
 
 async def test_get_nonexistent_property(property_repo):

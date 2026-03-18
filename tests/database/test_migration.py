@@ -5,7 +5,7 @@ async def test_current_revision_is_head(session):
     result = await session.execute(text("SELECT version_num FROM alembic_version"))
     row = result.first()
     assert row is not None
-    assert row[0] == "c3d4e5f6a7b8"
+    assert row[0] == "d4e5f6a7b8c9"
 
 
 async def test_all_tables_exist(session):
@@ -28,6 +28,7 @@ async def test_all_tables_exist(session):
         "property_owners",
         "extraction_jobs",
         "document_contents",
+        "property_prices",
     }
     assert expected.issubset(tables), f"Missing tables: {expected - tables}"
 
@@ -46,3 +47,4 @@ async def test_updated_at_trigger_exists(session):
     assert ("trg_subscriptions_updated_at", "subscriptions") in triggers
     assert ("trg_properties_updated_at", "properties") in triggers
     assert ("trg_property_owners_updated_at", "property_owners") in triggers
+    assert ("trg_property_prices_updated_at", "property_prices") in triggers

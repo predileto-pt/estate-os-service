@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from supabase import AsyncClient
@@ -17,6 +18,7 @@ from property_management.domain.models.property_owner import (
     DocumentType,
     PropertyOwner,
 )
+from property_management.domain.models.property_price import PropertyPrice
 
 
 class SupabasePropertyRepository(PropertyRepository):
@@ -60,8 +62,32 @@ class SupabasePropertyRepository(PropertyRepository):
             "date_of_birth": owner.date_of_birth.isoformat() if owner.date_of_birth else None,
         }
 
-    def _to_domain(self, row: dict, owner_rows: list[dict] | None = None) -> Property:
+    def _price_to_domain(self, row: dict) -> PropertyPrice:
+        return PropertyPrice(
+            id=UUID(row["id"]),
+            property_id=UUID(row["property_id"]),
+            amount=Decimal(str(row["amount"])),
+            listing_type=ListingType(row["listing_type"]),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _price_to_row(self, price: PropertyPrice) -> dict:
+        return {
+            "id": str(price.id),
+            "property_id": str(price.property_id),
+            "amount": str(price.amount),
+            "listing_type": price.listing_type.value,
+        }
+
+    def _to_domain(
+        self,
+        row: dict,
+        owner_rows: list[dict] | None = None,
+        price_rows: list[dict] | None = None,
+    ) -> Property:
         owners = [self._owner_to_domain(o) for o in (owner_rows or [])]
+        prices = [self._price_to_domain(p) for p in (price_rows or [])]
         return Property(
             id=UUID(row["id"]),
             organization_id=UUID(row["organization_id"]),
@@ -75,6 +101,7 @@ class SupabasePropertyRepository(PropertyRepository):
             latitude=row.get("latitude"),
             longitude=row.get("longitude"),
             owners=owners,
+            prices=prices,
         )
 
     def _to_row(self, prop: Property) -> dict:
@@ -100,6 +127,16 @@ class SupabasePropertyRepository(PropertyRepository):
         )
         return result.data
 
+    async def _load_prices(self, property_id: str) -> list[dict]:
+        result = (
+            await self._client.table("property_prices")
+            .select("*")
+            .eq("property_id", property_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return result.data
+
     async def get_by_id(self, property_id: UUID) -> Property | None:
         result = (
             await self._client.table("properties").select("*").eq("id", str(property_id)).execute()
@@ -107,7 +144,8 @@ class SupabasePropertyRepository(PropertyRepository):
         if not result.data:
             return None
         owner_rows = await self._load_owners(str(property_id))
-        return self._to_domain(result.data[0], owner_rows)
+        price_rows = await self._load_prices(str(property_id))
+        return self._to_domain(result.data[0], owner_rows, price_rows)
 
     async def list_by_organization(self, organization_id: UUID) -> list[Property]:
         result = (
@@ -120,7 +158,8 @@ class SupabasePropertyRepository(PropertyRepository):
         props = []
         for row in result.data:
             owner_rows = await self._load_owners(row["id"])
-            props.append(self._to_domain(row, owner_rows))
+            price_rows = await self._load_prices(row["id"])
+            props.append(self._to_domain(row, owner_rows, price_rows))
         return props
 
     async def save(self, prop: Property) -> Property:
@@ -130,4 +169,9 @@ class SupabasePropertyRepository(PropertyRepository):
     async def save_owner(self, prop: Property, owner: PropertyOwner) -> Property:
         await self._client.table("property_owners").insert(self._owner_to_row(owner)).execute()
         prop.add_owner(owner)
+        return prop
+
+    async def save_price(self, prop: Property, price: PropertyPrice) -> Property:
+        await self._client.table("property_prices").insert(self._price_to_row(price)).execute()
+        prop.add_price(price)
         return prop
