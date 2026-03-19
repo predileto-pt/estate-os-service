@@ -60,6 +60,10 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
             date_of_birth=m.date_of_birth,
             created_at=m.created_at,
             updated_at=m.updated_at,
+            email=m.email,
+            phone_number=m.phone_number,
+            email_verified=m.email_verified,
+            phone_verified=m.phone_verified,
         )
 
     @staticmethod
@@ -169,8 +173,24 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
             issued_by=owner.issued_by,
             issuing_district=owner.issuing_district,
             date_of_birth=owner.date_of_birth,
+            email=owner.email,
+            phone_number=owner.phone_number,
+            email_verified=owner.email_verified,
+            phone_verified=owner.phone_verified,
         )
         self._session.add(owner_model)
+        await self._session.flush()
+        return await self.get_by_id(prop.id)
+
+    async def update_owner(self, prop: Property, owner: PropertyOwner) -> Property:
+        result = await self._session.execute(
+            select(PropertyOwnerModel).where(PropertyOwnerModel.id == str(owner.id))
+        )
+        model = result.scalar_one()
+        model.email = owner.email
+        model.phone_number = owner.phone_number
+        model.email_verified = owner.email_verified
+        model.phone_verified = owner.phone_verified
         await self._session.flush()
         return await self.get_by_id(prop.id)
 

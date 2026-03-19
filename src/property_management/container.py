@@ -40,6 +40,9 @@ from property_management.application.use_cases.retry_extraction_job import Retry
 from property_management.application.use_cases.submit_property_extraction import (
     SubmitPropertyExtraction,
 )
+from property_management.application.use_cases.update_property_owner_contact import (
+    UpdatePropertyOwnerContact,
+)
 
 
 class Container:
@@ -85,6 +88,9 @@ class Container:
             property_repo=property_repo,
         )
         self.get_property_owner = GetPropertyOwner(
+            property_repo=property_repo,
+        )
+        self.update_property_owner_contact = UpdatePropertyOwnerContact(
             property_repo=property_repo,
         )
         self.create_property_price = CreatePropertyPrice(

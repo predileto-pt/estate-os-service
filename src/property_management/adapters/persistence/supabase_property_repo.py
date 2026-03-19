@@ -45,6 +45,10 @@ class SupabasePropertyRepository(PropertyRepository):
             date_of_birth=dob,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            email=row.get("email"),
+            phone_number=row.get("phone_number"),
+            email_verified=row.get("email_verified", False),
+            phone_verified=row.get("phone_verified", False),
         )
 
     def _owner_to_row(self, owner: PropertyOwner) -> dict:
@@ -60,6 +64,10 @@ class SupabasePropertyRepository(PropertyRepository):
             "issued_by": owner.issued_by,
             "issuing_district": owner.issuing_district,
             "date_of_birth": owner.date_of_birth.isoformat() if owner.date_of_birth else None,
+            "email": owner.email,
+            "phone_number": owner.phone_number,
+            "email_verified": owner.email_verified,
+            "phone_verified": owner.phone_verified,
         }
 
     def _price_to_domain(self, row: dict) -> PropertyPrice:
@@ -169,6 +177,23 @@ class SupabasePropertyRepository(PropertyRepository):
     async def save_owner(self, prop: Property, owner: PropertyOwner) -> Property:
         await self._client.table("property_owners").insert(self._owner_to_row(owner)).execute()
         prop.add_owner(owner)
+        return prop
+
+    async def update_owner(self, prop: Property, owner: PropertyOwner) -> Property:
+        await (
+            self._client.table("property_owners")
+            .update(
+                {
+                    "email": owner.email,
+                    "phone_number": owner.phone_number,
+                    "email_verified": owner.email_verified,
+                    "phone_verified": owner.phone_verified,
+                }
+            )
+            .eq("id", str(owner.id))
+            .execute()
+        )
+        prop.owners = [owner if o.id == owner.id else o for o in prop.owners]
         return prop
 
     async def save_price(self, prop: Property, price: PropertyPrice) -> Property:

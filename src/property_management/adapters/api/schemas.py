@@ -61,6 +61,11 @@ class CreatePropertyOwnerRequest(BaseModel):
     date_of_birth: date
 
 
+class UpdatePropertyOwnerContactRequest(BaseModel):
+    email: str | None = None
+    phone_number: str | None = None
+
+
 class PropertyOwnerResponse(BaseModel):
     id: UUID
     property_id: UUID
@@ -73,6 +78,10 @@ class PropertyOwnerResponse(BaseModel):
     issued_by: str | None
     issuing_district: str | None
     date_of_birth: date | None
+    email: str | None = None
+    phone_number: str | None = None
+    email_verified: bool = False
+    phone_verified: bool = False
     created_at: datetime
     updated_at: datetime
 

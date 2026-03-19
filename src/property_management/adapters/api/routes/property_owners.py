@@ -8,6 +8,7 @@ from property_management.adapters.api.schemas import (
     CreatePropertyOwnerRequest,
     PropertyOwnerResponse,
     PropertyResponse,
+    UpdatePropertyOwnerContactRequest,
 )
 from property_management.domain.exceptions import (
     DocumentExtractionError,
@@ -32,6 +33,10 @@ def _owner_response(owner) -> dict:
         "issued_by": owner.issued_by,
         "issuing_district": owner.issuing_district,
         "date_of_birth": owner.date_of_birth,
+        "email": owner.email,
+        "phone_number": owner.phone_number,
+        "email_verified": owner.email_verified,
+        "phone_verified": owner.phone_verified,
         "created_at": owner.created_at,
         "updated_at": owner.updated_at,
     }
@@ -175,3 +180,39 @@ async def get_property_owner(
         raise HTTPException(status_code=404, detail="Property owner not found")
 
     return _owner_response(owner)
+
+
+@router.patch(
+    "/{owner_id}/contact",
+    response_model=PropertyResponse,
+    summary="Update property owner contact info",
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not authorized"},
+        404: {"description": "Property owner not found"},
+    },
+)
+async def update_property_owner_contact(
+    owner_id: UUID,
+    body: UpdatePropertyOwnerContactRequest,
+    property_id: UUID,
+    organization_id: UUID,
+    request: Request,
+    supabase_user_id: str = Depends(get_supabase_user_id),
+):
+    await _verify_property_ownership(request, property_id, organization_id)
+
+    update_uc = request.app.state.property_container.update_property_owner_contact
+    try:
+        prop = await update_uc.execute(
+            property_id=property_id,
+            owner_id=owner_id,
+            email=body.email,
+            phone_number=body.phone_number,
+        )
+    except PropertyOwnerNotFoundError:
+        raise HTTPException(status_code=404, detail="Property owner not found")
+    except PropertyNotFoundError:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    return _property_response(prop)

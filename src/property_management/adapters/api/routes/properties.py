@@ -59,6 +59,10 @@ def _owner_response(owner) -> dict:
         "issued_by": owner.issued_by,
         "issuing_district": owner.issuing_district,
         "date_of_birth": owner.date_of_birth,
+        "email": owner.email,
+        "phone_number": owner.phone_number,
+        "email_verified": owner.email_verified,
+        "phone_verified": owner.phone_verified,
         "created_at": owner.created_at,
         "updated_at": owner.updated_at,
     }
@@ -122,9 +126,7 @@ async def list_properties_summary(
             "address": p.address,
             "listing_type": p.listing_type,
             "typology": p.typology,
-            "price": max(p.prices, key=lambda pr: pr.created_at).amount
-            if p.prices
-            else None,
+            "price": max(p.prices, key=lambda pr: pr.created_at).amount if p.prices else None,
             "owners": [{"full_name": o.full_name} for o in p.owners],
         }
         for p in props

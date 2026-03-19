@@ -1,7 +1,7 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import Date, Enum, Float, ForeignKey, Index, Numeric, Text, func, text
+from sqlalchemy import Boolean, Date, Enum, Float, ForeignKey, Index, Numeric, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -125,6 +125,14 @@ class PropertyOwnerModel(Base):
     issued_by: Mapped[str | None] = mapped_column(Text)
     issuing_district: Mapped[str | None] = mapped_column(Text)
     date_of_birth: Mapped[date | None] = mapped_column(Date)
+    email: Mapped[str | None] = mapped_column(Text)
+    phone_number: Mapped[str | None] = mapped_column(Text)
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    phone_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 

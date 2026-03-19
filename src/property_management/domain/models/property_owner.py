@@ -37,6 +37,10 @@ class PropertyOwner:
     date_of_birth: date | None
     created_at: datetime
     updated_at: datetime
+    email: str | None = None
+    phone_number: str | None = None
+    email_verified: bool = False
+    phone_verified: bool = False
 
     def __post_init__(self) -> None:
         if not self.nif.isdigit() or len(self.nif) != 9:

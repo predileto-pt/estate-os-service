@@ -27,6 +27,11 @@ class InMemoryPropertyRepository(PropertyRepository):
         self._properties[prop.id] = prop
         return prop
 
+    async def update_owner(self, prop: Property, owner: PropertyOwner) -> Property:
+        prop.owners = [owner if o.id == owner.id else o for o in prop.owners]
+        self._properties[prop.id] = prop
+        return prop
+
     async def save_price(self, prop: Property, price: PropertyPrice) -> Property:
         prop.add_price(price)
         self._properties[prop.id] = prop
