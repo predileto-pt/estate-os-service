@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import structlog
 from langchain_openai import ChatOpenAI
-from langfuse.langchain import CallbackHandler as LangfuseCallbackHandler
 from pydantic import BaseModel
+
+from property_management.adapters.ai import get_langfuse_handler
 
 from property_management.application.ports.document_data_extractor import DocumentDataExtractor
 from property_management.domain.exceptions import DocumentExtractionError
@@ -121,9 +122,9 @@ class OpenAIIdDocumentExtractor(DocumentDataExtractor):
         prompt = prompt_template.format(document_text=parsed_text)
 
         log.info("id_extraction.text_based", document_subtype=document_subtype)
-        langfuse_handler = LangfuseCallbackHandler()
+        langfuse_handler = get_langfuse_handler()
         config = {
-            "callbacks": [langfuse_handler],
+            "callbacks": [langfuse_handler] if langfuse_handler else [],
             "run_name": f"id_extraction_{document_subtype}",
             "metadata": {"langfuse_tags": ["id-extraction", document_subtype]},
         }

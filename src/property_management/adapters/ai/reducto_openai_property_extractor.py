@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import structlog
 from langchain_openai import ChatOpenAI
-from langfuse.langchain import CallbackHandler as LangfuseCallbackHandler
 from pydantic import BaseModel
+
+from property_management.adapters.ai import get_langfuse_handler
 
 from property_management.application.ports.property_extractor import (
     GeoLocationResult,
@@ -92,9 +93,9 @@ class ReductoOpenAIPropertyExtractor(PropertyExtractorService):
         prompt = PROPERTY_EXTRACTION_PROMPT.format(documents_text=documents_text)
 
         log.info("extraction.property_extraction", num_documents=len(document_texts))
-        langfuse_handler = LangfuseCallbackHandler()
+        langfuse_handler = get_langfuse_handler()
         config = {
-            "callbacks": [langfuse_handler],
+            "callbacks": [langfuse_handler] if langfuse_handler else [],
             "run_name": "property_extraction",
             "metadata": {"langfuse_tags": ["property-extraction"]},
         }
@@ -118,9 +119,9 @@ class ReductoOpenAIPropertyExtractor(PropertyExtractorService):
         prompt = GEOLOCATION_EXTRACTION_PROMPT.format(address=address)
 
         log.info("extraction.geolocation", address=address)
-        langfuse_handler = LangfuseCallbackHandler()
+        langfuse_handler = get_langfuse_handler()
         config = {
-            "callbacks": [langfuse_handler],
+            "callbacks": [langfuse_handler] if langfuse_handler else [],
             "run_name": "geolocation_extraction",
             "metadata": {"langfuse_tags": ["geolocation-extraction"]},
         }

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import structlog
 from langchain_openai import ChatOpenAI
-from langfuse.langchain import CallbackHandler as LangfuseCallbackHandler
 from pydantic import BaseModel
+
+from property_management.adapters.ai import get_langfuse_handler
 
 from property_management.application.ports.document_classifier import (
     ClassifiedDocument,
@@ -62,9 +63,9 @@ class OpenAITextDocumentClassifier(DocumentClassifier):
         prompt = f"{CLASSIFICATION_PROMPT}\n\nDocuments:\n{combined}"
 
         log.info("classification.text_based", num_documents=len(document_texts))
-        langfuse_handler = LangfuseCallbackHandler()
+        langfuse_handler = get_langfuse_handler()
         config = {
-            "callbacks": [langfuse_handler],
+            "callbacks": [langfuse_handler] if langfuse_handler else [],
             "run_name": "document_classification",
             "metadata": {"langfuse_tags": ["classification"]},
         }
