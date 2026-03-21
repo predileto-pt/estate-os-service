@@ -13,10 +13,13 @@ from property_management.domain.exceptions import PropertyNotFoundError
 router = APIRouter(prefix="/properties", tags=["properties"])
 
 
-def _property_response(prop) -> dict:
+def _property_response(prop, image_download_urls: dict | None = None) -> dict:
     characteristics = None
     if prop.characteristics:
         characteristics = prop.characteristics.to_dict()
+    images = []
+    if prop.images and image_download_urls:
+        images = [_image_response(i, image_download_urls.get(str(i.id), "")) for i in prop.images]
     return {
         "id": prop.id,
         "organization_id": prop.organization_id,
@@ -32,6 +35,7 @@ def _property_response(prop) -> dict:
         "updated_at": prop.updated_at,
         "owners": [_owner_response(o) for o in prop.owners],
         "prices": [_price_response(p) for p in prop.prices],
+        "images": images,
     }
 
 
@@ -44,6 +48,32 @@ def _price_response(price) -> dict:
         "created_at": price.created_at,
         "updated_at": price.updated_at,
     }
+
+
+def _image_response(image, download_url: str) -> dict:
+    return {
+        "id": image.id,
+        "property_id": image.property_id,
+        "s3_key": image.s3_key,
+        "filename": image.filename,
+        "content_type": image.content_type,
+        "size_bytes": image.size_bytes,
+        "display_order": image.display_order,
+        "download_url": download_url,
+        "created_at": image.created_at,
+        "updated_at": image.updated_at,
+    }
+
+
+async def _generate_image_download_urls(request, prop) -> dict:
+    """Generate presigned download URLs for all images on a property."""
+    document_storage = getattr(request.app.state.property_container, "document_storage", None)
+    if not document_storage or not prop.images:
+        return {}
+    urls = {}
+    for image in prop.images:
+        urls[str(image.id)] = await document_storage.get_download_url(image.s3_key)
+    return urls
 
 
 def _owner_response(owner) -> dict:
@@ -104,7 +134,11 @@ async def list_properties(
 ):
     list_uc = request.app.state.property_container.list_properties
     props = await list_uc.execute(organization_id=str(organization_id))
-    return [_property_response(p) for p in props]
+    results = []
+    for p in props:
+        urls = await _generate_image_download_urls(request, p)
+        results.append(_property_response(p, urls))
+    return results
 
 
 @router.get(
@@ -158,4 +192,5 @@ async def get_property(
     if str(prop.organization_id) != str(organization_id):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    return _property_response(prop)
+    urls = await _generate_image_download_urls(request, prop)
+    return _property_response(prop, urls)

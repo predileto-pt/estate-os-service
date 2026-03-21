@@ -4,6 +4,7 @@ from property_management.application.ports.repositories.property_repository impo
     PropertyRepository,
 )
 from property_management.domain.models.property import Property
+from property_management.domain.models.property_image import PropertyImage
 from property_management.domain.models.property_owner import PropertyOwner
 from property_management.domain.models.property_price import PropertyPrice
 
@@ -34,5 +35,26 @@ class InMemoryPropertyRepository(PropertyRepository):
 
     async def save_price(self, prop: Property, price: PropertyPrice) -> Property:
         prop.add_price(price)
+        self._properties[prop.id] = prop
+        return prop
+
+    async def save_image(self, prop: Property, image: PropertyImage) -> Property:
+        prop.add_image(image)
+        self._properties[prop.id] = prop
+        return prop
+
+    async def delete_image(self, prop: Property, image_id: UUID) -> Property:
+        prop.remove_image(image_id)
+        self._properties[prop.id] = prop
+        return prop
+
+    async def update_image_orders(
+        self, prop: Property, image_orders: list[tuple[UUID, int]]
+    ) -> Property:
+        order_map = dict(image_orders)
+        for image in prop.images:
+            if image.id in order_map:
+                image.display_order = order_map[image.id]
+        prop.images.sort(key=lambda i: i.display_order)
         self._properties[prop.id] = prop
         return prop

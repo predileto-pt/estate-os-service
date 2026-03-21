@@ -40,6 +40,12 @@ from property_management.application.use_cases.retry_extraction_job import Retry
 from property_management.application.use_cases.submit_property_extraction import (
     SubmitPropertyExtraction,
 )
+from property_management.application.use_cases.delete_property_image import DeletePropertyImage
+from property_management.application.use_cases.generate_image_upload_urls import (
+    GenerateImageUploadUrls,
+)
+from property_management.application.use_cases.record_property_image import RecordPropertyImage
+from property_management.application.use_cases.reorder_property_images import ReorderPropertyImages
 from property_management.application.use_cases.update_property_owner_contact import (
     UpdatePropertyOwnerContact,
 )
@@ -99,6 +105,23 @@ class Container:
         self.list_property_prices = ListPropertyPrices(
             property_repo=property_repo,
         )
+        self.delete_property_image = DeletePropertyImage(
+            property_repo=property_repo,
+        )
+        self.reorder_property_images = ReorderPropertyImages(
+            property_repo=property_repo,
+        )
+
+        # Image use cases (require document_storage)
+        if document_storage:
+            self.generate_image_upload_urls = GenerateImageUploadUrls(
+                document_storage=document_storage,
+                property_repo=property_repo,
+            )
+            self.record_property_image = RecordPropertyImage(
+                property_repo=property_repo,
+                document_storage=document_storage,
+            )
 
         # Extraction use cases (require optional dependencies)
         if document_storage:

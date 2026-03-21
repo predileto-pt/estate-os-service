@@ -18,6 +18,7 @@ from property_management.domain.models.property_owner import (
     DocumentType,
     PropertyOwner,
 )
+from property_management.domain.models.property_image import PropertyImage
 from property_management.domain.models.property_price import PropertyPrice
 
 
@@ -88,14 +89,40 @@ class SupabasePropertyRepository(PropertyRepository):
             "listing_type": price.listing_type.value,
         }
 
+    def _image_to_domain(self, row: dict) -> PropertyImage:
+        return PropertyImage(
+            id=UUID(row["id"]),
+            property_id=UUID(row["property_id"]),
+            s3_key=row["s3_key"],
+            filename=row["filename"],
+            content_type=row["content_type"],
+            size_bytes=row["size_bytes"],
+            display_order=row["display_order"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _image_to_row(self, image: PropertyImage) -> dict:
+        return {
+            "id": str(image.id),
+            "property_id": str(image.property_id),
+            "s3_key": image.s3_key,
+            "filename": image.filename,
+            "content_type": image.content_type,
+            "size_bytes": image.size_bytes,
+            "display_order": image.display_order,
+        }
+
     def _to_domain(
         self,
         row: dict,
         owner_rows: list[dict] | None = None,
         price_rows: list[dict] | None = None,
+        image_rows: list[dict] | None = None,
     ) -> Property:
         owners = [self._owner_to_domain(o) for o in (owner_rows or [])]
         prices = [self._price_to_domain(p) for p in (price_rows or [])]
+        images = [self._image_to_domain(i) for i in (image_rows or [])]
         return Property(
             id=UUID(row["id"]),
             organization_id=UUID(row["organization_id"]),
@@ -110,6 +137,7 @@ class SupabasePropertyRepository(PropertyRepository):
             longitude=row.get("longitude"),
             owners=owners,
             prices=prices,
+            images=images,
         )
 
     def _to_row(self, prop: Property) -> dict:
@@ -135,6 +163,16 @@ class SupabasePropertyRepository(PropertyRepository):
         )
         return result.data
 
+    async def _load_images(self, property_id: str) -> list[dict]:
+        result = (
+            await self._client.table("property_images")
+            .select("*")
+            .eq("property_id", property_id)
+            .order("display_order", desc=False)
+            .execute()
+        )
+        return result.data
+
     async def _load_prices(self, property_id: str) -> list[dict]:
         result = (
             await self._client.table("property_prices")
@@ -153,7 +191,8 @@ class SupabasePropertyRepository(PropertyRepository):
             return None
         owner_rows = await self._load_owners(str(property_id))
         price_rows = await self._load_prices(str(property_id))
-        return self._to_domain(result.data[0], owner_rows, price_rows)
+        image_rows = await self._load_images(str(property_id))
+        return self._to_domain(result.data[0], owner_rows, price_rows, image_rows)
 
     async def list_by_organization(self, organization_id: UUID) -> list[Property]:
         result = (
@@ -167,7 +206,8 @@ class SupabasePropertyRepository(PropertyRepository):
         for row in result.data:
             owner_rows = await self._load_owners(row["id"])
             price_rows = await self._load_prices(row["id"])
-            props.append(self._to_domain(row, owner_rows, price_rows))
+            image_rows = await self._load_images(row["id"])
+            props.append(self._to_domain(row, owner_rows, price_rows, image_rows))
         return props
 
     async def save(self, prop: Property) -> Property:
@@ -199,4 +239,29 @@ class SupabasePropertyRepository(PropertyRepository):
     async def save_price(self, prop: Property, price: PropertyPrice) -> Property:
         await self._client.table("property_prices").insert(self._price_to_row(price)).execute()
         prop.add_price(price)
+        return prop
+
+    async def save_image(self, prop: Property, image: PropertyImage) -> Property:
+        await self._client.table("property_images").insert(self._image_to_row(image)).execute()
+        prop.add_image(image)
+        return prop
+
+    async def delete_image(self, prop: Property, image_id: UUID) -> Property:
+        await self._client.table("property_images").delete().eq("id", str(image_id)).execute()
+        prop.remove_image(image_id)
+        return prop
+
+    async def update_image_orders(
+        self, prop: Property, image_orders: list[tuple[UUID, int]]
+    ) -> Property:
+        for image_id, order in image_orders:
+            await (
+                self._client.table("property_images")
+                .update({"display_order": order})
+                .eq("id", str(image_id))
+                .execute()
+            )
+        # Reload images in correct order
+        image_rows = await self._load_images(str(prop.id))
+        prop.images = [self._image_to_domain(r) for r in image_rows]
         return prop

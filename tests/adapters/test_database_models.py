@@ -15,6 +15,7 @@ EXPECTED_TABLES = {
     "property_prices",
     "extraction_jobs",
     "document_contents",
+    "property_images",
 }
 
 

@@ -16,6 +16,13 @@ class PropertyOwnerNotFoundError(DomainError):
         )
 
 
+class PropertyImageNotFoundError(DomainError):
+    def __init__(self, identifier: str = "") -> None:
+        super().__init__(
+            f"Property image not found: {identifier}" if identifier else "Property image not found"
+        )
+
+
 class PropertyPriceNotFoundError(DomainError):
     def __init__(self, identifier: str = "") -> None:
         super().__init__(

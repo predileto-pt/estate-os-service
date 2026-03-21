@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from property_management.adapters.database.models import (
     DocumentContentModel,
     ExtractionJobModel,
+    PropertyImageModel,
     PropertyModel,
     PropertyOwnerModel,
     PropertyPriceModel,
@@ -29,6 +30,7 @@ from property_management.domain.models.property import (
     Typology,
 )
 from property_management.domain.models.property_characteristics import PropertyCharacteristics
+from property_management.domain.models.property_image import PropertyImage
 from property_management.domain.models.property_owner import (
     CivilStatus,
     DocumentType,
@@ -80,10 +82,25 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
         )
 
     @staticmethod
+    def _image_to_domain(m: PropertyImageModel) -> PropertyImage:
+        return PropertyImage(
+            id=UUID(m.id),
+            property_id=UUID(m.property_id),
+            s3_key=m.s3_key,
+            filename=m.filename,
+            content_type=m.content_type,
+            size_bytes=m.size_bytes,
+            display_order=m.display_order,
+            created_at=m.created_at,
+            updated_at=m.updated_at,
+        )
+
+    @staticmethod
     def _to_domain(
         m: PropertyModel,
         owners: list[PropertyOwnerModel],
         prices: list[PropertyPriceModel] | None = None,
+        images: list[PropertyImageModel] | None = None,
     ) -> Property:
         return Property(
             id=UUID(m.id),
@@ -102,11 +119,20 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
             longitude=m.longitude,
             owners=[SqlAlchemyPropertyRepository._owner_to_domain(o) for o in owners],
             prices=[SqlAlchemyPropertyRepository._price_to_domain(p) for p in (prices or [])],
+            images=[SqlAlchemyPropertyRepository._image_to_domain(i) for i in (images or [])],
         )
 
     async def _load_owners(self, property_id: str) -> list[PropertyOwnerModel]:
         result = await self._session.execute(
             select(PropertyOwnerModel).where(PropertyOwnerModel.property_id == property_id)
+        )
+        return list(result.scalars().all())
+
+    async def _load_images(self, property_id: str) -> list[PropertyImageModel]:
+        result = await self._session.execute(
+            select(PropertyImageModel)
+            .where(PropertyImageModel.property_id == property_id)
+            .order_by(PropertyImageModel.display_order.asc())
         )
         return list(result.scalars().all())
 
@@ -127,7 +153,8 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
             return None
         owners = await self._load_owners(row.id)
         prices = await self._load_prices(row.id)
-        return self._to_domain(row, owners, prices)
+        images = await self._load_images(row.id)
+        return self._to_domain(row, owners, prices, images)
 
     async def list_by_organization(self, organization_id: UUID) -> list[Property]:
         result = await self._session.execute(
@@ -139,7 +166,8 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
         for row in result.scalars().all():
             owners = await self._load_owners(row.id)
             prices = await self._load_prices(row.id)
-            properties.append(self._to_domain(row, owners, prices))
+            images = await self._load_images(row.id)
+            properties.append(self._to_domain(row, owners, prices, images))
         return properties
 
     async def save(self, prop: Property) -> Property:
@@ -202,6 +230,42 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
             listing_type=price.listing_type.value,
         )
         self._session.add(price_model)
+        await self._session.flush()
+        return await self.get_by_id(prop.id)
+
+    async def save_image(self, prop: Property, image: PropertyImage) -> Property:
+        image_model = PropertyImageModel(
+            id=str(image.id),
+            property_id=str(prop.id),
+            s3_key=image.s3_key,
+            filename=image.filename,
+            content_type=image.content_type,
+            size_bytes=image.size_bytes,
+            display_order=image.display_order,
+        )
+        self._session.add(image_model)
+        await self._session.flush()
+        return await self.get_by_id(prop.id)
+
+    async def delete_image(self, prop: Property, image_id: UUID) -> Property:
+        result = await self._session.execute(
+            select(PropertyImageModel).where(PropertyImageModel.id == str(image_id))
+        )
+        model = result.scalar_one_or_none()
+        if model:
+            await self._session.delete(model)
+            await self._session.flush()
+        return await self.get_by_id(prop.id)
+
+    async def update_image_orders(
+        self, prop: Property, image_orders: list[tuple[UUID, int]]
+    ) -> Property:
+        for image_id, order in image_orders:
+            result = await self._session.execute(
+                select(PropertyImageModel).where(PropertyImageModel.id == str(image_id))
+            )
+            model = result.scalar_one()
+            model.display_order = order
         await self._session.flush()
         return await self.get_by_id(prop.id)
 

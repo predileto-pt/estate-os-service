@@ -55,6 +55,19 @@ class S3DocumentStorage(DocumentStorage):
         log.info("s3.presign", key=key)
         return url
 
+    async def get_download_url(self, key: str, expires_in: int = 3600) -> str:
+        async with self._session.client("s3", **self._config) as s3:
+            url = await s3.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": self._bucket_name,
+                    "Key": key,
+                },
+                ExpiresIn=expires_in,
+            )
+        log.info("s3.presign_download", key=key)
+        return url
+
     async def verify_exists(self, key: str) -> bool:
         async with self._session.client("s3", **self._config) as s3:
             try:

@@ -86,6 +86,59 @@ class PropertyOwnerResponse(BaseModel):
     updated_at: datetime
 
 
+# --- Property Images ---
+
+
+class PresignImageFileSpec(BaseModel):
+    filename: str
+    content_type: str = "image/jpeg"
+
+
+class PresignImageRequest(BaseModel):
+    organization_id: UUID
+    property_id: UUID
+    files: list[PresignImageFileSpec] = Field(min_length=1, max_length=20)
+
+
+class PresignedImageFileResponse(BaseModel):
+    image_id: UUID
+    s3_key: str
+    upload_url: str
+
+
+class PresignImageResponse(BaseModel):
+    files: list[PresignedImageFileResponse]
+
+
+class RecordPropertyImageRequest(BaseModel):
+    organization_id: UUID
+    property_id: UUID
+    image_id: UUID
+    s3_key: str
+    filename: str
+    content_type: str
+    size_bytes: int = Field(gt=0)
+
+
+class ReorderPropertyImagesRequest(BaseModel):
+    organization_id: UUID
+    property_id: UUID
+    image_ids: list[UUID] = Field(min_length=1)
+
+
+class PropertyImageResponse(BaseModel):
+    id: UUID
+    property_id: UUID
+    s3_key: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    display_order: int
+    download_url: str
+    created_at: datetime
+    updated_at: datetime
+
+
 # --- Property ---
 
 
@@ -125,6 +178,7 @@ class PropertyResponse(BaseModel):
     updated_at: datetime
     owners: list[PropertyOwnerResponse]
     prices: list[PropertyPriceResponse]
+    images: list[PropertyImageResponse] = []
 
 
 # --- Extraction Jobs ---

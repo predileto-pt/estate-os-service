@@ -16,5 +16,8 @@ class InMemoryDocumentStorage(DocumentStorage):
     async def get_upload_url(self, key: str, content_type: str, expires_in: int = 300) -> str:
         return f"https://fake-presigned-url.test/{key}"
 
+    async def get_download_url(self, key: str, expires_in: int = 3600) -> str:
+        return f"https://fake-download-url.test/{key}"
+
     async def verify_exists(self, key: str) -> bool:
         return key in self._files
