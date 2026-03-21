@@ -157,6 +157,52 @@ All endpoints are prefixed with `/api/v1`. Authenticated endpoints require a Sup
 |--------|------|-------------|
 | `POST` | `/email/send` | Send email via Resend |
 
+### Properties
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/properties` | Create property (draft status) |
+| `GET` | `/properties` | List properties by organization |
+| `GET` | `/properties/summary` | Lightweight properties list |
+| `GET` | `/properties/{id}` | Get property with owners, prices, images |
+
+### Property Owners
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/property-owners` | Add owner to property |
+| `POST` | `/property-owners/extract-from-document` | Extract owner from ID document |
+| `GET` | `/property-owners` | List owners for property |
+| `GET` | `/property-owners/{id}` | Get single owner |
+| `PATCH` | `/property-owners/{id}/contact` | Update email/phone |
+
+### Property Prices
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/property-prices` | Add price to property |
+| `GET` | `/property-prices` | List prices for property |
+
+### Property Images
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/property-images/presign` | Generate presigned S3 upload URLs |
+| `POST` | `/property-images` | Record image metadata after upload |
+| `DELETE` | `/property-images/{id}` | Delete image |
+| `PUT` | `/property-images/reorder` | Reorder images by display order |
+
+### Extraction Jobs
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/extraction-jobs/presign` | Presign S3 URLs for documents |
+| `POST` | `/extraction-jobs` | Submit single extraction job |
+| `POST` | `/extraction-jobs/batch` | Submit batch extraction (1–5 docs) |
+| `POST` | `/extraction-jobs/{id}/retry` | Retry failed job |
+| `GET` | `/extraction-jobs` | List jobs by organization |
+| `GET` | `/extraction-jobs/{id}` | Get job status |
+
 ## Architecture
 
 ```
@@ -181,6 +227,69 @@ src/customer_management/
 ├── container.py      # Dependency injection wiring
 └── main.py           # FastAPI app factory
 ```
+
+### Two Bounded Contexts
+
+The service hosts two independent bounded contexts, each following the same hexagonal structure:
+
+| Context | Package | Entities |
+|---------|---------|----------|
+| **Customer Management** | `src/customer_management/` | User, Company, Subscription, Notification |
+| **Property Management** | `src/property_management/` | Property, PropertyOwner, PropertyImage, ExtractionJob, PropertyCharacteristics, DocumentContent |
+
+Both are wired in `shared/main.py` via `create_app(container, property_container)` and bootstrapped for production in `shared/entrypoints/bootstrap.py`. Neither context imports from the other.
+
+Shared infrastructure lives in `src/shared/` — config, middleware, database Base, app factory, bootstrap, and Lambda handler.
+
+### Property Management
+
+#### Domain Values
+
+- **ListingType**: `sale`, `purchase`
+- **Typology**: `house`, `apartment`, `land`, `ruin`
+- **PropertyStatus**: `draft`, `active`, `sold`, `rented`, `withdrawn`
+- **DocumentType** (owner ID docs): `cartao_cidadao`, `passport`, `visto_residencia`, `titulo_residencia`
+
+#### Property Extraction Flow
+
+Two async extraction flows, both following: presign → upload → submit → SQS → process.
+
+1. **Single extraction** (`POST /api/v1/extraction-jobs`): One property document → parse with Reducto → extract property + owners from text.
+2. **Batch extraction** (`POST /api/v1/extraction-jobs/batch`): 1–5 mixed documents → parse all with Reducto (single OCR pass) → persist parsed text in `document_contents` → classify from text → extract property data from property docs → extract owner data from ID docs with subtype-specific prompts → merge owners by NIF (ID extraction wins) → create Property + PropertyOwners.
+
+All document processing follows a **parse-first** approach: documents are OCR'd once via Reducto, and all downstream steps (classification, property extraction, ID extraction) operate on the parsed text — no re-OCR or vision API calls.
+
+`listing_type` and `typology` are **user inputs** provided at submission time, not extracted from documents. They are stored on the ExtractionJob and used when creating the Property.
+
+#### Property Image Flow
+
+Images are managed separately from property creation, following: presign → upload → record.
+
+1. **Presign** (`POST /api/v1/property-images/presign`): Generate presigned S3 upload URLs. S3 key: `properties/{property_id}/images/{image_id}.{ext}`.
+2. **Upload**: Frontend uploads directly to S3 using presigned URLs.
+3. **Record** (`POST /api/v1/property-images`): Record image metadata after upload. Verifies file exists in S3. Max 20 images per property.
+4. **Reorder** (`PUT /api/v1/property-images/reorder`): Update `display_order` for all images.
+5. **Delete** (`DELETE /api/v1/property-images/{image_id}`): Remove metadata only (S3 cleanup via lifecycle policy).
+
+Images with presigned download URLs are returned inline in `PropertyResponse`.
+
+#### Ports & Adapters
+
+| Port | Purpose | Production Adapter |
+|------|---------|-------------------|
+| `PropertyRepository` | CRUD for properties, owners, images | `SupabasePropertyRepository` |
+| `ExtractionJobRepository` | CRUD for extraction jobs | `SupabaseExtractionJobRepository` |
+| `DocumentContentRepository` | Persist parsed document text + classification | `SupabaseDocumentContentRepository` |
+| `DocumentParser` | OCR / document parsing | `ReductoDocumentParser` |
+| `PropertyExtractorService` | AI property extraction from text | `ReductoOpenAIPropertyExtractor` |
+| `DocumentDataExtractor` | AI owner data from ID doc text | `OpenAIIdDocumentExtractor` |
+| `DocumentClassifier` | AI document classification from text | `OpenAITextDocumentClassifier` |
+| `DocumentStorage` | S3 file upload/download/presigned URLs | `S3DocumentStorage` |
+| `EventBus` | SQS event publishing | `SQSEventBus` |
+
+### Dependency Injection
+
+Each bounded context has its own `container.py` that wires use cases with their port implementations. For tests, `conftest.py` builds both containers using in-memory adapters — no external services needed. Test HTTP client uses `httpx.AsyncClient` with `ASGITransport`.
 
 ### Auth Flow
 
