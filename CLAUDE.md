@@ -65,7 +65,7 @@ The service hosts two independent bounded contexts, each following the same hexa
 | Context | Package | Container | Entities |
 |---------|---------|-----------|----------|
 | **Customer Management** | `src/customer_management/` | `Container` on `app.state.container` | User, Company, Subscription, Notification |
-| **Property Management** | `src/property_management/` | `Container` on `app.state.property_container` | Property, PropertyOwner, ExtractionJob, PropertyCharacteristics, DocumentContent |
+| **Property Management** | `src/property_management/` | `Container` on `app.state.property_container` | Property, PropertyOwner, PropertyImage, ExtractionJob, PropertyCharacteristics, DocumentContent |
 
 Both are wired in `shared/main.py` via `create_app(container, property_container)` and bootstrapped for production in `shared/entrypoints/bootstrap.py`. Routes access use cases through `request.app.state.container.<use_case>` or `request.app.state.property_container.<use_case>`. Neither context imports from the other.
 
@@ -87,18 +87,30 @@ All document processing follows a **parse-first** approach: documents are OCR'd 
 
 `listing_type` and `typology` are **user inputs** provided at submission time, not extracted from documents. They are stored on the ExtractionJob and used when creating the Property.
 
+### Property Image Flow
+
+Images are managed separately from property creation, following: presign → upload → record.
+
+1. **Presign** (`POST /api/v1/property-images/presign`): Generate presigned S3 upload URLs. S3 key: `properties/{property_id}/images/{image_id}.{ext}`.
+2. **Upload**: Frontend uploads directly to S3 using presigned URLs.
+3. **Record** (`POST /api/v1/property-images`): Record image metadata after upload. Verifies file exists in S3. Max 20 images per property.
+4. **Reorder** (`PUT /api/v1/property-images/reorder`): Update `display_order` for all images.
+5. **Delete** (`DELETE /api/v1/property-images/{image_id}`): Remove metadata only (S3 cleanup via lifecycle policy).
+
+Images with presigned download URLs are returned inline in `PropertyResponse` (via `get_download_url` on `DocumentStorage`).
+
 ### Property Management Ports
 
 | Port | Purpose | Production Adapter |
 |------|---------|-------------------|
-| `PropertyRepository` | CRUD for properties + owners | `SupabasePropertyRepository` |
+| `PropertyRepository` | CRUD for properties, owners, images | `SupabasePropertyRepository` |
 | `ExtractionJobRepository` | CRUD for extraction jobs | `SupabaseExtractionJobRepository` |
 | `DocumentContentRepository` | Persist parsed document text + classification | `SupabaseDocumentContentRepository` |
 | `DocumentParser` | OCR / document parsing | `ReductoDocumentParser` |
 | `PropertyExtractorService` | AI property extraction from text | `ReductoOpenAIPropertyExtractor` |
 | `DocumentDataExtractor` | AI owner data from ID doc text | `OpenAIIdDocumentExtractor` |
 | `DocumentClassifier` | AI document classification from text | `OpenAITextDocumentClassifier` |
-| `DocumentStorage` | S3 file upload/download | `S3DocumentStorage` |
+| `DocumentStorage` | S3 file upload/download/presigned URLs | `S3DocumentStorage` |
 | `EventBus` | SQS event publishing | `SQSEventBus` |
 
 ## Dependency Injection
