@@ -87,7 +87,7 @@ docker compose up -d
 ### 5. Run the server
 
 ```bash
-uv run uvicorn customer_management.main:app --reload --port 8000
+uv run uvicorn shared.main:app --reload --port 8000
 ```
 
 The API is available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
@@ -310,7 +310,7 @@ uv run python -m applicant_screening.entrypoints.worker --queue screening
 
 # Terminal 4 — Core API server
 cd core-api
-uv run uvicorn customer_management.main:app --reload --port 8000
+uv run uvicorn shared.main:app --reload --port 8000
 
 # Terminal 5 — Core API events worker (consumes APPLICANT_SCREENED)
 cd core-api
