@@ -34,9 +34,13 @@ from property_management.adapters.persistence.supabase_document_content_repo imp
 from property_management.adapters.persistence.supabase_extraction_job_repo import (
     SupabaseExtractionJobRepository,
 )
+from property_management.adapters.persistence.supabase_property_amenity_repo import (
+    SupabasePropertyAmenityRepository,
+)
 from property_management.adapters.persistence.supabase_property_repo import (
     SupabasePropertyRepository,
 )
+from property_management.adapters.places.google_places_service import GooglePlacesService
 from property_management.adapters.queue.sqs_event_bus import SQSEventBus
 from property_management.adapters.storage.s3_document_storage import S3DocumentStorage
 from property_management.container import Container as PropertyContainer
@@ -101,6 +105,17 @@ async def get_property_container() -> PropertyContainer:
     document_classifier = OpenAITextDocumentClassifier(settings.openai_api_key)
     document_data_extractor = OpenAIIdDocumentExtractor(settings.openai_api_key)
 
+    discovery_event_bus = SQSEventBus(
+        queue_url=settings.sqs_property_discovery_queue_url,
+        region=settings.aws_region,
+        endpoint_url=settings.aws_endpoint_url,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+    )
+
+    places_service = GooglePlacesService(api_key=settings.google_maps_api_key)
+    amenity_repo = SupabasePropertyAmenityRepository(client)
+
     _property_container = PropertyContainer(
         property_repo=SupabasePropertyRepository(client),
         document_extractor=document_data_extractor,
@@ -111,5 +126,8 @@ async def get_property_container() -> PropertyContainer:
         document_classifier=document_classifier,
         document_parser=document_parser,
         document_content_repo=SupabaseDocumentContentRepository(client),
+        discovery_event_bus=discovery_event_bus,
+        places_service=places_service,
+        amenity_repo=amenity_repo,
     )
     return _property_container

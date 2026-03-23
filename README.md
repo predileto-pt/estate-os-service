@@ -43,6 +43,8 @@ Edit `.env` with your values:
 | `RESEND_API_KEY` | [Resend](https://resend.com) API key |
 | `AWS_ENDPOINT_URL` | LocalStack endpoint (default: `http://localhost:4566`) |
 | `SQS_QUEUE_URL` | SQS queue URL for domain events |
+| `SQS_PROPERTY_DISCOVERY_QUEUE_URL` | SQS queue for property discovery events |
+| `GOOGLE_MAPS_API_KEY` | Google Maps API key (Places API enabled) |
 | `CORS_ORIGINS` | Comma-separated allowed origins |
 
 ### 3. Run database migrations
@@ -192,6 +194,13 @@ All endpoints are prefixed with `/api/v1`. Authenticated endpoints require a Sup
 | `DELETE` | `/property-images/{id}` | Delete image |
 | `PUT` | `/property-images/reorder` | Reorder images by display order |
 
+### Property Amenities
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/property-amenities` | List discovered amenities for a property |
+| `POST` | `/property-amenities/discover` | Trigger amenity discovery (returns 202) |
+
 ### Extraction Jobs
 
 | Method | Path | Description |
@@ -235,7 +244,7 @@ The service hosts two independent bounded contexts, each following the same hexa
 | Context | Package | Entities |
 |---------|---------|----------|
 | **Customer Management** | `src/customer_management/` | User, Company, Subscription, Notification |
-| **Property Management** | `src/property_management/` | Property, PropertyOwner, PropertyImage, ExtractionJob, PropertyCharacteristics, DocumentContent |
+| **Property Management** | `src/property_management/` | Property, PropertyOwner, PropertyImage, PropertyAmenity, ExtractionJob, PropertyCharacteristics, DocumentContent |
 
 Both are wired in `shared/main.py` via `create_app(container, property_container)` and bootstrapped for production in `shared/entrypoints/bootstrap.py`. Neither context imports from the other.
 
@@ -249,6 +258,7 @@ Shared infrastructure lives in `src/shared/` — config, middleware, database Ba
 - **Typology**: `house`, `apartment`, `land`, `ruin`
 - **PropertyStatus**: `draft`, `active`, `sold`, `rented`, `withdrawn`
 - **DocumentType** (owner ID docs): `cartao_cidadao`, `passport`, `visto_residencia`, `titulo_residencia`
+- **AmenityCategory**: `hospital`, `bank`, `grocery`, `school`, `laundry`, `coffee_shop`, `pharmacy`, `gym`, `restaurant`
 
 #### Property Extraction Flow
 
@@ -286,6 +296,8 @@ Images with presigned download URLs are returned inline in `PropertyResponse`.
 | `DocumentClassifier` | AI document classification from text | `OpenAITextDocumentClassifier` |
 | `DocumentStorage` | S3 file upload/download/presigned URLs | `S3DocumentStorage` |
 | `EventBus` | SQS event publishing | `SQSEventBus` |
+| `PlacesService` | Nearby amenity discovery | `GooglePlacesService` |
+| `PropertyAmenityRepository` | CRUD for property amenities | `SupabasePropertyAmenityRepository` |
 
 ### Dependency Injection
 
@@ -402,7 +414,7 @@ uv run alembic upgrade head
 
 ### 4. Start all services
 
-You need five processes. Use separate terminals or a process manager like [overmind](https://github.com/DarthSim/overmind)/[foreman](https://github.com/ddollar/foreman):
+You need several processes. Use separate terminals or a process manager like [overmind](https://github.com/DarthSim/overmind)/[foreman](https://github.com/ddollar/foreman):
 
 ```bash
 # Terminal 1 — Screening API (receives form submissions)
@@ -425,11 +437,15 @@ uv run uvicorn shared.main:app --reload --port 8000
 cd core-api
 uv run python -m customer_management.entrypoints.worker --queue events
 
-# Terminal 6 — Agencies dashboard
+# Terminal 6 — Property discovery worker (discovers nearby amenities)
+cd core-api
+uv run python -m property_management.entrypoints.worker --queue discovery
+
+# Terminal 8 — Agencies dashboard
 cd agencies-dashboard
 npm run dev
 
-# Terminal 7 — Applicant intake form (Vite)
+# Terminal 9 — Applicant intake form (Vite)
 cd applicants-intake-form
 npm run dev
 ```
@@ -508,6 +524,56 @@ curl -X POST http://localhost:8000/api/v1/extraction-jobs/<job_id>/retry \
 ```
 
 Only jobs with `failed` status can be retried.
+
+## Property Discovery Worker
+
+The property discovery worker listens for `PROPERTY_CREATED` events on SQS and discovers nearby amenities using the Google Places API. It runs automatically when a property is created (via manual creation or document extraction), or can be triggered manually via the API.
+
+### What it discovers
+
+For each property with coordinates, the worker searches within a **5 km radius** for:
+
+- Hospitals, banks, schools, pharmacies, gyms, restaurants, laundries, coffee shops
+- **Groceries** — searches specifically for Portuguese chains (Continente, Lidl, Pingo Doce, Intermarché, Mercadona) plus generic supermarkets, deduplicates results
+
+For each category it stores the **nearest place** (name, distance, coordinates) and the **total count** of places found nearby.
+
+### Running the worker
+
+```bash
+uv run python -m property_management.entrypoints.worker --queue discovery
+```
+
+### Triggering discovery manually
+
+If a property already exists and you want to (re-)run discovery:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/property-amenities/discover?property_id=<uuid>&organization_id=<uuid>" \
+  -H "Authorization: Bearer <token>"
+```
+
+This publishes a `PROPERTY_CREATED` event to SQS. The running discovery worker picks it up and processes the property. Returns `202 Accepted`.
+
+### Querying amenities
+
+```bash
+curl "http://localhost:8000/api/v1/property-amenities?property_id=<uuid>&organization_id=<uuid>" \
+  -H "Authorization: Bearer <token>"
+```
+
+### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `SQS_PROPERTY_DISCOVERY_QUEUE_URL` | SQS queue URL for discovery events |
+| `GOOGLE_MAPS_API_KEY` | Google Maps API key (Places API must be enabled) |
+
+### Behavior
+
+- Properties **without coordinates** are skipped (logged, message acknowledged, no retry)
+- Google Places API failures are handled **per category** — if one category fails, others still succeed
+- Discovery is **idempotent** — re-running replaces previous results for the property
 
 ## Linting
 

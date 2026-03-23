@@ -1,6 +1,11 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
+import structlog
+
+from property_management.application.ports.event_bus import EventBus
 from property_management.application.ports.repositories.property_repository import (
     PropertyRepository,
 )
@@ -11,10 +16,17 @@ from property_management.domain.models.property import (
     Typology,
 )
 
+log = structlog.get_logger()
+
 
 class CreateProperty:
-    def __init__(self, property_repo: PropertyRepository) -> None:
+    def __init__(
+        self,
+        property_repo: PropertyRepository,
+        discovery_event_bus: EventBus | None = None,
+    ) -> None:
         self.property_repo = property_repo
+        self.discovery_event_bus = discovery_event_bus
 
     async def execute(
         self,
@@ -37,4 +49,20 @@ class CreateProperty:
             created_at=now,
             updated_at=now,
         )
-        return await self.property_repo.save(prop)
+        prop = await self.property_repo.save(prop)
+
+        if self.discovery_event_bus:
+            try:
+                await self.discovery_event_bus.publish(
+                    {
+                        "event_type": "PROPERTY_CREATED",
+                        "data": {"property_id": str(prop.id)},
+                    }
+                )
+            except Exception:
+                log.exception(
+                    "create_property.discovery_event_failed",
+                    property_id=str(prop.id),
+                )
+
+        return prop

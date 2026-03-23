@@ -8,25 +8,33 @@ from uuid import UUID
 import aioboto3
 import structlog
 
-from property_management.adapters.workers.extraction_processor import process_event
+from property_management.adapters.workers import discovery_processor, extraction_processor
 from shared.config import Settings, setup_logging
 from shared.entrypoints.bootstrap import get_property_container
 
 log = structlog.get_logger()
 
 
-class ExtractionWorker:
+class SQSWorker:
     def __init__(
-        self, session: aioboto3.Session, queue_url: str, container, endpoint_url: str | None = None
+        self,
+        session: aioboto3.Session,
+        queue_url: str,
+        container,
+        processor,
+        endpoint_url: str | None = None,
+        worker_name: str = "sqs_worker",
     ) -> None:
         self._session = session
         self._queue_url = queue_url
         self._container = container
+        self._processor = processor
         self._endpoint_url = endpoint_url
+        self._worker_name = worker_name
         self._running = True
 
     async def run(self) -> None:
-        log.info("extraction_worker_started", queue_url=self._queue_url)
+        log.info(f"{self._worker_name}_started", queue_url=self._queue_url)
 
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
@@ -36,13 +44,14 @@ class ExtractionWorker:
             try:
                 messages = await self._poll()
                 for msg in messages:
-                    await process_event(msg["body"], self._container)
+                    await self._processor.process_event(msg["body"], self._container)
                     await self._delete_message(msg["receipt_handle"])
                     log.info(
-                        "extraction_message_processed", event_type=msg["body"].get("event_type")
+                        f"{self._worker_name}_message_processed",
+                        event_type=msg["body"].get("event_type"),
                     )
             except Exception:
-                log.exception("extraction_worker_error")
+                log.exception(f"{self._worker_name}_error")
                 await asyncio.sleep(5)
 
     async def _poll(self) -> list[dict[str, Any]]:
@@ -74,7 +83,7 @@ class ExtractionWorker:
             await sqs.delete_message(QueueUrl=self._queue_url, ReceiptHandle=receipt_handle)
 
     def _shutdown(self) -> None:
-        log.info("extraction_worker_shutting_down")
+        log.info(f"{self._worker_name}_shutting_down")
         self._running = False
 
 
@@ -94,11 +103,33 @@ async def _run_extraction_worker() -> None:
         region_name=settings.aws_region,
     )
     container = await get_property_container()
-    worker = ExtractionWorker(
+    worker = SQSWorker(
         session,
         settings.sqs_property_extraction_queue_url,
         container,
+        processor=extraction_processor,
         endpoint_url=settings.aws_endpoint_url,
+        worker_name="extraction_worker",
+    )
+    await worker.run()
+
+
+async def _run_discovery_worker() -> None:
+    settings = Settings()
+    setup_logging(settings.log_level)
+    session = aioboto3.Session(
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+        region_name=settings.aws_region,
+    )
+    container = await get_property_container()
+    worker = SQSWorker(
+        session,
+        settings.sqs_property_discovery_queue_url,
+        container,
+        processor=discovery_processor,
+        endpoint_url=settings.aws_endpoint_url,
+        worker_name="discovery_worker",
     )
     await worker.run()
 
@@ -106,7 +137,7 @@ async def _run_extraction_worker() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Property Management SQS Worker")
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--queue", choices=["extraction"])
+    group.add_argument("--queue", choices=["extraction", "discovery"])
     group.add_argument("--retry-job", metavar="JOB_ID", help="Retry a failed extraction job")
     args = parser.parse_args()
 
@@ -114,6 +145,8 @@ def main() -> None:
         asyncio.run(_retry_extraction_job(args.retry_job))
     elif args.queue == "extraction":
         asyncio.run(_run_extraction_worker())
+    elif args.queue == "discovery":
+        asyncio.run(_run_discovery_worker())
 
 
 if __name__ == "__main__":

@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     sqs_queue_url: str = ""
     sqs_events_queue_url: str = ""
     sqs_property_extraction_queue_url: str = ""
+    sqs_property_discovery_queue_url: str = ""
+
+    # Google Maps
+    google_maps_api_key: str = ""
 
     # S3
     s3_bucket_name: str = "property-documents"

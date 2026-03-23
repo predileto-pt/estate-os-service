@@ -35,6 +35,10 @@ from property_management.adapters.inmemory.inmemory_document_extractor import (
     InMemoryDocumentExtractor,
 )
 from property_management.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
+from property_management.adapters.inmemory.inmemory_places_service import InMemoryPlacesService
+from property_management.adapters.inmemory.inmemory_property_amenity_repo import (
+    InMemoryPropertyAmenityRepository,
+)
 from property_management.adapters.inmemory.inmemory_property_extractor import (
     InMemoryPropertyExtractor,
 )
@@ -207,6 +211,13 @@ def e2e_property_container(session, localstack_url, s3_bucket, sqs_queue_url):
         aws_access_key_id="test",
         aws_secret_access_key="test",
     )
+    discovery_event_bus = SQSEventBus(
+        queue_url=sqs_queue_url,
+        region="us-east-1",
+        endpoint_url=localstack_url,
+        aws_access_key_id="test",
+        aws_secret_access_key="test",
+    )
     return PropertyContainer(
         property_repo=SqlAlchemyPropertyRepository(session),
         document_extractor=InMemoryDocumentExtractor(),
@@ -217,6 +228,9 @@ def e2e_property_container(session, localstack_url, s3_bucket, sqs_queue_url):
         document_classifier=InMemoryDocumentClassifier(),
         document_parser=InMemoryDocumentParser(),
         document_content_repo=SqlAlchemyDocumentContentRepository(session),
+        discovery_event_bus=discovery_event_bus,
+        places_service=InMemoryPlacesService(),
+        amenity_repo=InMemoryPropertyAmenityRepository(),
     )
 
 

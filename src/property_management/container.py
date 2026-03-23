@@ -3,12 +3,16 @@ from property_management.application.ports.document_data_extractor import Docume
 from property_management.application.ports.document_parser import DocumentParser
 from property_management.application.ports.document_storage import DocumentStorage
 from property_management.application.ports.event_bus import EventBus
+from property_management.application.ports.places_service import PlacesService
 from property_management.application.ports.property_extractor import PropertyExtractorService
 from property_management.application.ports.repositories.document_content_repository import (
     DocumentContentRepository,
 )
 from property_management.application.ports.repositories.extraction_job_repository import (
     ExtractionJobRepository,
+)
+from property_management.application.ports.repositories.property_amenity_repository import (
+    PropertyAmenityRepository,
 )
 from property_management.application.ports.repositories.property_repository import (
     PropertyRepository,
@@ -49,6 +53,12 @@ from property_management.application.use_cases.reorder_property_images import Re
 from property_management.application.use_cases.update_property_owner_contact import (
     UpdatePropertyOwnerContact,
 )
+from property_management.application.use_cases.discover_property_amenities import (
+    DiscoverPropertyAmenities,
+)
+from property_management.application.use_cases.get_property_amenities import (
+    GetPropertyAmenities,
+)
 
 
 class Container:
@@ -63,6 +73,9 @@ class Container:
         document_classifier: DocumentClassifier | None = None,
         document_parser: DocumentParser | None = None,
         document_content_repo: DocumentContentRepository | None = None,
+        discovery_event_bus: EventBus | None = None,
+        places_service: PlacesService | None = None,
+        amenity_repo: PropertyAmenityRepository | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.document_extractor = document_extractor
@@ -73,9 +86,15 @@ class Container:
         self.document_classifier = document_classifier
         self.document_parser = document_parser
         self.document_content_repo = document_content_repo
+        self.discovery_event_bus = discovery_event_bus
+        self.places_service = places_service
+        self.amenity_repo = amenity_repo
 
         # Existing use cases
-        self.create_property = CreateProperty(property_repo=property_repo)
+        self.create_property = CreateProperty(
+            property_repo=property_repo,
+            discovery_event_bus=discovery_event_bus,
+        )
         self.list_properties = ListProperties(property_repo=property_repo)
         self.get_property = GetProperty(property_repo=property_repo)
         self.create_property_owner = CreatePropertyOwner(
@@ -149,6 +168,7 @@ class Container:
                 document_parser=document_parser,
                 property_extractor=property_extractor,
                 property_repo=property_repo,
+                discovery_event_bus=discovery_event_bus,
             )
 
         if document_storage and extraction_job_repo and event_bus:
@@ -190,4 +210,18 @@ class Container:
             self.retry_extraction_job = RetryExtractionJob(
                 extraction_job_repo=extraction_job_repo,
                 event_bus=event_bus,
+            )
+
+        # Discovery use cases
+        if amenity_repo:
+            self.get_property_amenities = GetPropertyAmenities(
+                property_repo=property_repo,
+                amenity_repo=amenity_repo,
+            )
+
+        if places_service and amenity_repo:
+            self.discover_property_amenities = DiscoverPropertyAmenities(
+                property_repo=property_repo,
+                places_service=places_service,
+                amenity_repo=amenity_repo,
             )

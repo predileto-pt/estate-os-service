@@ -55,3 +55,12 @@ class PropertyExtractionError(DomainError):
 class TooManyDocumentsError(DomainError):
     def __init__(self, count: int = 0, max_count: int = 5) -> None:
         super().__init__(f"Too many documents: {count} (max {max_count})")
+
+
+class PropertyMissingCoordinatesError(DomainError):
+    def __init__(self, identifier: str = "") -> None:
+        super().__init__(
+            f"Property missing coordinates: {identifier}"
+            if identifier
+            else "Property missing coordinates"
+        )
