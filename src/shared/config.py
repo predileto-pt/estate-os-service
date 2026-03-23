@@ -76,7 +76,7 @@ def setup_logging(log_level: str = "info") -> None:
     if settings.logfire_token:
         logfire.configure(
             token=settings.logfire_token,
-            service_name="customers-dashboard-service",
+            service_name="estate-os",
             environment=settings.app_env,
             console=False,
         )
