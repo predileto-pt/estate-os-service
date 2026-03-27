@@ -29,6 +29,7 @@ from property_management.application.use_cases.get_extraction_job import GetExtr
 from property_management.application.use_cases.get_property import GetProperty
 from property_management.application.use_cases.get_property_owner import GetPropertyOwner
 from property_management.application.use_cases.list_extraction_jobs import ListExtractionJobs
+from property_management.application.use_cases.list_active_properties import ListActiveProperties
 from property_management.application.use_cases.list_properties import ListProperties
 from property_management.application.use_cases.list_property_owners import ListPropertyOwners
 from property_management.application.use_cases.process_batch_property_extraction import (
@@ -96,6 +97,7 @@ class Container:
             discovery_event_bus=discovery_event_bus,
         )
         self.list_properties = ListProperties(property_repo=property_repo)
+        self.list_active_properties = ListActiveProperties(property_repo=property_repo)
         self.get_property = GetProperty(property_repo=property_repo)
         self.create_property_owner = CreatePropertyOwner(
             property_repo=property_repo,

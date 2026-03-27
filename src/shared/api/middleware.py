@@ -8,7 +8,13 @@ from shared.config import settings
 
 log = structlog.get_logger()
 
-PUBLIC_PATHS = {"/api/v1/health", "/api/v1/subscriptions/plans", "/docs", "/openapi.json"}
+PUBLIC_PATHS = {
+    "/api/v1/health",
+    "/api/v1/subscriptions/plans",
+    "/api/v1/properties/active",
+    "/docs",
+    "/openapi.json",
+}
 
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):

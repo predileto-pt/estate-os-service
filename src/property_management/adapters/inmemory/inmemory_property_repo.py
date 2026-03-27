@@ -3,7 +3,7 @@ from uuid import UUID
 from property_management.application.ports.repositories.property_repository import (
     PropertyRepository,
 )
-from property_management.domain.models.property import Property
+from property_management.domain.models.property import Property, PropertyStatus
 from property_management.domain.models.property_image import PropertyImage
 from property_management.domain.models.property_owner import PropertyOwner
 from property_management.domain.models.property_price import PropertyPrice
@@ -18,6 +18,9 @@ class InMemoryPropertyRepository(PropertyRepository):
 
     async def list_by_organization(self, organization_id: UUID) -> list[Property]:
         return [p for p in self._properties.values() if p.organization_id == organization_id]
+
+    async def list_active(self) -> list[Property]:
+        return [p for p in self._properties.values() if p.status == PropertyStatus.ACTIVE]
 
     async def save(self, prop: Property) -> Property:
         self._properties[prop.id] = prop

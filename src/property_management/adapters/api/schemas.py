@@ -182,6 +182,23 @@ class PropertyResponse(BaseModel):
     images: list[PropertyImageResponse] = []
 
 
+class PublicPropertyResponse(BaseModel):
+    id: UUID
+    organization_id: UUID
+    address: str
+    listing_type: ListingType
+    typology: Typology
+    status: PropertyStatus
+    description: str | None
+    characteristics: PropertyCharacteristicsResponse | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    created_at: datetime
+    updated_at: datetime
+    prices: list[PropertyPriceResponse]
+    images: list[PropertyImageResponse] = []
+
+
 # --- Property Amenities ---
 
 

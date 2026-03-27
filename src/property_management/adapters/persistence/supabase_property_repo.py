@@ -210,6 +210,22 @@ class SupabasePropertyRepository(PropertyRepository):
             props.append(self._to_domain(row, owner_rows, price_rows, image_rows))
         return props
 
+    async def list_active(self) -> list[Property]:
+        result = (
+            await self._client.table("properties")
+            .select("*")
+            .eq("status", PropertyStatus.ACTIVE.value)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        props = []
+        for row in result.data:
+            owner_rows = await self._load_owners(row["id"])
+            price_rows = await self._load_prices(row["id"])
+            image_rows = await self._load_images(row["id"])
+            props.append(self._to_domain(row, owner_rows, price_rows, image_rows))
+        return props
+
     async def save(self, prop: Property) -> Property:
         result = await self._client.table("properties").insert(self._to_row(prop)).execute()
         return self._to_domain(result.data[0], [])

@@ -170,6 +170,20 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
             properties.append(self._to_domain(row, owners, prices, images))
         return properties
 
+    async def list_active(self) -> list[Property]:
+        result = await self._session.execute(
+            select(PropertyModel)
+            .where(PropertyModel.status == PropertyStatus.ACTIVE)
+            .order_by(PropertyModel.created_at.desc())
+        )
+        properties = []
+        for row in result.scalars().all():
+            owners = await self._load_owners(row.id)
+            prices = await self._load_prices(row.id)
+            images = await self._load_images(row.id)
+            properties.append(self._to_domain(row, owners, prices, images))
+        return properties
+
     async def save(self, prop: Property) -> Property:
         model = PropertyModel(
             id=str(prop.id),

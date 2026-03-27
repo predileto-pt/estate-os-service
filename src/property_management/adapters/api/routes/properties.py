@@ -7,6 +7,7 @@ from property_management.adapters.api.schemas import (
     CreatePropertyRequest,
     PropertyResponse,
     PropertySummaryResponse,
+    PublicPropertyResponse,
 )
 from property_management.domain.exceptions import PropertyNotFoundError
 
@@ -96,6 +97,21 @@ def _owner_response(owner) -> dict:
         "created_at": owner.created_at,
         "updated_at": owner.updated_at,
     }
+
+
+@router.get(
+    "/active",
+    response_model=list[PublicPropertyResponse],
+    summary="List active properties (public)",
+)
+async def list_active_properties(request: Request):
+    uc = request.app.state.property_container.list_active_properties
+    props = await uc.execute()
+    results = []
+    for p in props:
+        urls = await _generate_image_download_urls(request, p)
+        results.append(_property_response(p, urls))
+    return results
 
 
 @router.post(

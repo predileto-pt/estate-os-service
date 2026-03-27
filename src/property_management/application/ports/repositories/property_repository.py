@@ -33,6 +33,9 @@ class PropertyRepository(ABC):
     async def delete_image(self, prop: Property, image_id: UUID) -> Property: ...
 
     @abstractmethod
+    async def list_active(self) -> list[Property]: ...
+
+    @abstractmethod
     async def update_image_orders(
         self, prop: Property, image_orders: list[tuple[UUID, int]]
     ) -> Property: ...

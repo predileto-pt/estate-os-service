@@ -1,4 +1,12 @@
+from uuid import UUID
+
 from tests.conftest import TEST_ORGANIZATION_ID
+from property_management.domain.models.property import (
+    ListingType,
+    Property,
+    PropertyStatus,
+    Typology,
+)
 
 OTHER_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000099"
 
@@ -302,3 +310,54 @@ class TestGetProperty:
         data = response.json()
         assert len(data["owners"]) == 1
         assert data["owners"][0]["full_name"] == "Maria Silva"
+
+
+def _make_property(
+    *, status: PropertyStatus = PropertyStatus.ACTIVE, address: str = "Addr"
+) -> Property:
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    return Property(
+        id=UUID("00000000-0000-0000-0000-" + f"{id(address):012d}"[-12:]),
+        organization_id=UUID(TEST_ORGANIZATION_ID),
+        address=address,
+        listing_type=ListingType.SALE,
+        typology=Typology.APARTMENT,
+        status=status,
+        description=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+class TestListActiveProperties:
+    async def test_list_active_properties(self, client, property_repo):
+        active = _make_property(status=PropertyStatus.ACTIVE, address="Active 1")
+        draft = _make_property(status=PropertyStatus.DRAFT, address="Draft 1")
+        sold = _make_property(status=PropertyStatus.SOLD, address="Sold 1")
+        await property_repo.save(active)
+        await property_repo.save(draft)
+        await property_repo.save(sold)
+
+        response = await client.get("/api/v1/properties/active")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["address"] == "Active 1"
+        assert data[0]["status"] == "active"
+        assert "owners" not in data[0]
+
+    async def test_list_active_properties_empty(self, client):
+        response = await client.get("/api/v1/properties/active")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    async def test_list_active_properties_no_auth_required(self, client, property_repo):
+        active = _make_property(status=PropertyStatus.ACTIVE, address="Public 1")
+        await property_repo.save(active)
+
+        # No auth headers — should still succeed
+        response = await client.get("/api/v1/properties/active")
+        assert response.status_code == 200
+        assert len(response.json()) == 1
