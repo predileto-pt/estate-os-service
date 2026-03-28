@@ -17,6 +17,7 @@ EXPECTED_TABLES = {
     "document_contents",
     "property_images",
     "property_amenities",
+    "portal_users",
 }
 
 

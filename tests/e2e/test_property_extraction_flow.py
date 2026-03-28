@@ -5,7 +5,7 @@ import pytest
 
 async def _register_user(client, auth_headers):
     response = await client.post(
-        "/api/v1/auth/register",
+        "/api/v1/admin/auth/register",
         json={
             "name": "Property Owner",
             "email": "property@e2e-test.pt",
@@ -26,7 +26,7 @@ async def test_presign_upload_and_submit_extraction(
 
     # Generate presigned upload URL
     presign_resp = await client.post(
-        "/api/v1/extraction-jobs/presign",
+        "/api/v1/admin/extraction-jobs/presign",
         json={
             "files": [
                 {"filename": "escritura.pdf", "content_type": "application/pdf"},
@@ -55,7 +55,7 @@ async def test_presign_upload_and_submit_extraction(
 
     # Submit extraction job
     submit_resp = await client.post(
-        "/api/v1/extraction-jobs/",
+        "/api/v1/admin/extraction-jobs/",
         json={
             "job_id": job_id,
             "organization_id": org_id,
@@ -89,7 +89,7 @@ async def test_list_extraction_jobs(client, auth_headers):
     org_id = user_data.get("organization_id", "")
 
     list_resp = await client.get(
-        f"/api/v1/extraction-jobs/?organization_id={org_id}", headers=auth_headers
+        f"/api/v1/admin/extraction-jobs/?organization_id={org_id}", headers=auth_headers
     )
     assert list_resp.status_code == 200
     assert isinstance(list_resp.json(), list)

@@ -14,7 +14,7 @@ OTHER_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000099"
 class TestCreateProperty:
     async def test_create_property(self, client, auth_headers):
         response = await client.post(
-            "/api/v1/properties/",
+            "/api/v1/admin/properties/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "address": "Rua das Flores 123, Porto",
@@ -39,7 +39,7 @@ class TestCreateProperty:
 
     async def test_create_property_without_description(self, client, auth_headers):
         response = await client.post(
-            "/api/v1/properties/",
+            "/api/v1/admin/properties/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "address": "Rua do Exemplo, Lisboa",
@@ -53,7 +53,7 @@ class TestCreateProperty:
 
     async def test_create_property_unauthenticated(self, client):
         response = await client.post(
-            "/api/v1/properties/",
+            "/api/v1/admin/properties/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "address": "Rua das Flores 123",
@@ -68,7 +68,7 @@ class TestListProperties:
     async def test_list_properties(self, client, auth_headers):
         # Create two properties
         await client.post(
-            "/api/v1/properties/",
+            "/api/v1/admin/properties/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "address": "Addr 1",
@@ -78,7 +78,7 @@ class TestListProperties:
             headers=auth_headers,
         )
         await client.post(
-            "/api/v1/properties/",
+            "/api/v1/admin/properties/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "address": "Addr 2",
@@ -89,7 +89,7 @@ class TestListProperties:
         )
 
         response = await client.get(
-            f"/api/v1/properties/?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/properties/?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -97,7 +97,7 @@ class TestListProperties:
 
     async def test_list_properties_empty(self, client, auth_headers):
         response = await client.get(
-            f"/api/v1/properties/?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/properties/?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -106,7 +106,7 @@ class TestListProperties:
     async def test_list_properties_only_own_org(self, client, auth_headers):
         # Create property for default org
         await client.post(
-            "/api/v1/properties/",
+            "/api/v1/admin/properties/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "address": "Addr 1",
@@ -118,7 +118,7 @@ class TestListProperties:
 
         # List for different org
         response = await client.get(
-            f"/api/v1/properties/?organization_id={OTHER_ORGANIZATION_ID}",
+            f"/api/v1/admin/properties/?organization_id={OTHER_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -129,7 +129,7 @@ class TestListPropertiesSummary:
     async def test_list_properties_summary(self, client, auth_headers):
         # Create a property
         create_resp = await client.post(
-            "/api/v1/properties/",
+            "/api/v1/admin/properties/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "address": "Rua das Flores 123, Porto",
@@ -142,7 +142,7 @@ class TestListPropertiesSummary:
 
         # Add an owner
         await client.post(
-            "/api/v1/property-owners/",
+            "/api/v1/admin/property-owners/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "property_id": property_id,
@@ -160,7 +160,7 @@ class TestListPropertiesSummary:
 
         # Add a price
         await client.post(
-            "/api/v1/property-prices/",
+            "/api/v1/admin/property-prices/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "property_id": property_id,
@@ -171,7 +171,7 @@ class TestListPropertiesSummary:
         )
 
         response = await client.get(
-            f"/api/v1/properties/summary?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/properties/summary?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -190,7 +190,7 @@ class TestListPropertiesSummary:
     async def test_list_properties_summary_no_price(self, client, auth_headers):
         # Property with no prices should return price as None
         await client.post(
-            "/api/v1/properties/",
+            "/api/v1/admin/properties/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "address": "Rua Sem Preço 1",
@@ -201,7 +201,7 @@ class TestListPropertiesSummary:
         )
 
         response = await client.get(
-            f"/api/v1/properties/summary?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/properties/summary?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -214,7 +214,7 @@ class TestListPropertiesSummary:
 
     async def test_list_properties_summary_empty(self, client, auth_headers):
         response = await client.get(
-            f"/api/v1/properties/summary?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/properties/summary?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -224,7 +224,7 @@ class TestListPropertiesSummary:
 class TestGetProperty:
     async def test_get_property(self, client, auth_headers):
         create_resp = await client.post(
-            "/api/v1/properties/",
+            "/api/v1/admin/properties/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "address": "Addr 1",
@@ -236,7 +236,7 @@ class TestGetProperty:
         property_id = create_resp.json()["id"]
 
         response = await client.get(
-            f"/api/v1/properties/{property_id}?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/properties/{property_id}?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -246,14 +246,14 @@ class TestGetProperty:
 
     async def test_get_property_not_found(self, client, auth_headers):
         response = await client.get(
-            f"/api/v1/properties/00000000-0000-0000-0000-000000000099?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/properties/00000000-0000-0000-0000-000000000099?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 404
 
     async def test_get_property_not_authorized(self, client, auth_headers):
         create_resp = await client.post(
-            "/api/v1/properties/",
+            "/api/v1/admin/properties/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "address": "Addr 1",
@@ -266,14 +266,14 @@ class TestGetProperty:
 
         # Try to get with wrong organization
         response = await client.get(
-            f"/api/v1/properties/{property_id}?organization_id={OTHER_ORGANIZATION_ID}",
+            f"/api/v1/admin/properties/{property_id}?organization_id={OTHER_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 403
 
     async def test_get_property_with_owners(self, client, auth_headers):
         create_resp = await client.post(
-            "/api/v1/properties/",
+            "/api/v1/admin/properties/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "address": "Addr 1",
@@ -286,7 +286,7 @@ class TestGetProperty:
 
         # Add an owner
         await client.post(
-            "/api/v1/property-owners/",
+            "/api/v1/admin/property-owners/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "property_id": property_id,
@@ -303,7 +303,7 @@ class TestGetProperty:
         )
 
         response = await client.get(
-            f"/api/v1/properties/{property_id}?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/properties/{property_id}?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -340,7 +340,7 @@ class TestListActiveProperties:
         await property_repo.save(draft)
         await property_repo.save(sold)
 
-        response = await client.get("/api/v1/properties/active")
+        response = await client.get("/api/v1/admin/properties/active")
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 1
@@ -349,7 +349,7 @@ class TestListActiveProperties:
         assert "owners" not in data[0]
 
     async def test_list_active_properties_empty(self, client):
-        response = await client.get("/api/v1/properties/active")
+        response = await client.get("/api/v1/admin/properties/active")
         assert response.status_code == 200
         assert response.json() == []
 
@@ -358,6 +358,6 @@ class TestListActiveProperties:
         await property_repo.save(active)
 
         # No auth headers — should still succeed
-        response = await client.get("/api/v1/properties/active")
+        response = await client.get("/api/v1/admin/properties/active")
         assert response.status_code == 200
         assert len(response.json()) == 1

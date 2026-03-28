@@ -3,7 +3,7 @@ import pytest
 
 async def _register_user(client, auth_headers):
     response = await client.post(
-        "/api/v1/auth/register",
+        "/api/v1/admin/auth/register",
         json={
             "name": "João Silva",
             "email": "joao@agency.pt",
@@ -17,7 +17,7 @@ async def _register_user(client, auth_headers):
 @pytest.mark.asyncio
 async def test_list_notifications_empty(client, auth_headers):
     await _register_user(client, auth_headers)
-    response = await client.get("/api/v1/notifications", headers=auth_headers)
+    response = await client.get("/api/v1/admin/notifications", headers=auth_headers)
     assert response.status_code == 200
     assert response.json() == []
 
@@ -29,7 +29,7 @@ async def test_create_and_list_notification(client, auth_headers):
 
     # Create notification
     create_resp = await client.post(
-        "/api/v1/notifications",
+        "/api/v1/admin/notifications",
         json={
             "user_id": user_id,
             "title": "Welcome!",
@@ -44,7 +44,7 @@ async def test_create_and_list_notification(client, auth_headers):
     assert notif["status"] == "unread"
 
     # List
-    list_resp = await client.get("/api/v1/notifications", headers=auth_headers)
+    list_resp = await client.get("/api/v1/admin/notifications", headers=auth_headers)
     assert list_resp.status_code == 200
     assert len(list_resp.json()) == 1
 
@@ -56,7 +56,7 @@ async def test_mark_notifications_read(client, auth_headers):
 
     # Create notification
     create_resp = await client.post(
-        "/api/v1/notifications",
+        "/api/v1/admin/notifications",
         json={
             "user_id": user_id,
             "title": "Test",
@@ -68,7 +68,7 @@ async def test_mark_notifications_read(client, auth_headers):
 
     # Mark as read
     read_resp = await client.patch(
-        "/api/v1/notifications/read",
+        "/api/v1/admin/notifications/read",
         json={"notification_ids": [notif_id]},
         headers=auth_headers,
     )
@@ -76,6 +76,6 @@ async def test_mark_notifications_read(client, auth_headers):
     assert read_resp.json()["marked_read"] == 1
 
     # Verify it's read
-    list_resp = await client.get("/api/v1/notifications", headers=auth_headers)
+    list_resp = await client.get("/api/v1/admin/notifications", headers=auth_headers)
     assert list_resp.json()[0]["status"] == "read"
     assert list_resp.json()[0]["read_at"] is not None

@@ -26,6 +26,20 @@ class UserAlreadyExistsError(DomainError):
         super().__init__(f"User already exists: {email}" if email else "User already exists")
 
 
+class PortalUserNotFoundError(DomainError):
+    def __init__(self, identifier: str = "") -> None:
+        super().__init__(
+            f"Portal user not found: {identifier}" if identifier else "Portal user not found"
+        )
+
+
+class PortalUserAlreadyExistsError(DomainError):
+    def __init__(self, email: str = "") -> None:
+        super().__init__(
+            f"Portal user already exists: {email}" if email else "Portal user already exists"
+        )
+
+
 class AuthorizationError(DomainError):
     def __init__(self, message: str = "Not authorized") -> None:
         super().__init__(message)

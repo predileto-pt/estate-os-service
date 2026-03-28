@@ -5,7 +5,7 @@ OTHER_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000099"
 
 async def _create_property(client, auth_headers) -> str:
     resp = await client.post(
-        "/api/v1/properties/",
+        "/api/v1/admin/properties/",
         json={
             "organization_id": TEST_ORGANIZATION_ID,
             "address": "Rua das Flores 123",
@@ -27,7 +27,7 @@ class TestCreatePropertyPrice:
             "listing_type": "sale",
         }
 
-        response = await client.post("/api/v1/property-prices/", json=payload, headers=auth_headers)
+        response = await client.post("/api/v1/admin/property-prices/", json=payload, headers=auth_headers)
         assert response.status_code == 201
         data = response.json()
         assert data["id"] == property_id
@@ -44,7 +44,7 @@ class TestCreatePropertyPrice:
             "listing_type": "sale",
         }
 
-        response = await client.post("/api/v1/property-prices/", json=payload, headers=auth_headers)
+        response = await client.post("/api/v1/admin/property-prices/", json=payload, headers=auth_headers)
         assert response.status_code == 422
 
     async def test_create_property_price_zero_amount(self, client, auth_headers):
@@ -56,7 +56,7 @@ class TestCreatePropertyPrice:
             "listing_type": "sale",
         }
 
-        response = await client.post("/api/v1/property-prices/", json=payload, headers=auth_headers)
+        response = await client.post("/api/v1/admin/property-prices/", json=payload, headers=auth_headers)
         assert response.status_code == 422
 
     async def test_create_property_price_property_not_found(self, client, auth_headers):
@@ -66,7 +66,7 @@ class TestCreatePropertyPrice:
             "amount": "250000.00",
             "listing_type": "sale",
         }
-        response = await client.post("/api/v1/property-prices/", json=payload, headers=auth_headers)
+        response = await client.post("/api/v1/admin/property-prices/", json=payload, headers=auth_headers)
         assert response.status_code == 404
 
     async def test_create_property_price_not_authorized(self, client, auth_headers):
@@ -78,7 +78,7 @@ class TestCreatePropertyPrice:
             "listing_type": "sale",
         }
 
-        response = await client.post("/api/v1/property-prices/", json=payload, headers=auth_headers)
+        response = await client.post("/api/v1/admin/property-prices/", json=payload, headers=auth_headers)
         assert response.status_code == 403
 
 
@@ -94,10 +94,10 @@ class TestListPropertyPrices:
                 "amount": amount,
                 "listing_type": "sale",
             }
-            await client.post("/api/v1/property-prices/", json=payload, headers=auth_headers)
+            await client.post("/api/v1/admin/property-prices/", json=payload, headers=auth_headers)
 
         response = await client.get(
-            f"/api/v1/property-prices/?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-prices/?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -107,7 +107,7 @@ class TestListPropertyPrices:
         property_id = await _create_property(client, auth_headers)
 
         response = await client.get(
-            f"/api/v1/property-prices/?property_id={property_id}&organization_id={OTHER_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-prices/?property_id={property_id}&organization_id={OTHER_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 403
@@ -117,7 +117,7 @@ class TestListPropertyPrices:
 
         # Create a price
         await client.post(
-            "/api/v1/property-prices/",
+            "/api/v1/admin/property-prices/",
             json={
                 "organization_id": TEST_ORGANIZATION_ID,
                 "property_id": property_id,
@@ -129,7 +129,7 @@ class TestListPropertyPrices:
 
         # Get property and verify prices are included
         response = await client.get(
-            f"/api/v1/properties/{property_id}?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/properties/{property_id}?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200

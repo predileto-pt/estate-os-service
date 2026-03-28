@@ -19,6 +19,9 @@ from customer_management.adapters.inmemory.inmemory_organization_repo import (
 from customer_management.adapters.inmemory.inmemory_subscription_repo import (
     InMemorySubscriptionRepository,
 )
+from customer_management.adapters.inmemory.inmemory_portal_user_repo import (
+    InMemoryPortalUserRepository,
+)
 from customer_management.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
 from customer_management.container import Container
 from shared.main import create_app
@@ -105,6 +108,11 @@ def document_extractor():
 
 
 @pytest.fixture
+def portal_user_repo():
+    return InMemoryPortalUserRepository()
+
+
+@pytest.fixture
 def container(
     user_repo,
     organization_repo,
@@ -112,6 +120,7 @@ def container(
     notification_repo,
     membership_repo,
     invitation_repo,
+    portal_user_repo,
     email_service,
     event_bus,
 ):
@@ -122,6 +131,7 @@ def container(
         notification_repo=notification_repo,
         membership_repo=membership_repo,
         invitation_repo=invitation_repo,
+        portal_user_repo=portal_user_repo,
         email_service=email_service,
         event_bus=event_bus,
     )

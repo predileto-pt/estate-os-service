@@ -30,6 +30,18 @@ class Settings(BaseSettings):
     sqs_property_extraction_queue_url: str = ""
     sqs_property_discovery_queue_url: str = ""
 
+    # Applicant Screening SQS
+    sqs_applicant_extraction_queue_url: str = ""
+    sqs_applicant_screening_queue_url: str = ""
+
+    # Applicant Screening Encryption (RSA + HMAC for NIF)
+    encryption_public_key: str = ""
+    encryption_private_key: str = ""
+    encryption_hmac_key: str = ""
+
+    # Applicant Screening
+    max_applicant_documents: int = 5
+
     # Google Maps
     google_maps_api_key: str = ""
 

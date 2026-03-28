@@ -90,7 +90,7 @@ def openai_auth_headers():
 
 async def _create_property(client, headers) -> str:
     resp = await client.post(
-        "/api/v1/properties/",
+        "/api/v1/admin/properties/",
         json={
             "organization_id": TEST_ORGANIZATION_ID,
             "address": "Av. da Liberdade 10, Lisboa",
@@ -122,7 +122,7 @@ class TestExtractFromDocumentWithOpenAI:
             mock_cls.return_value = _mock_structured_llm(EXTRACTED_OWNER)
 
             response = await openai_client.post(
-                "/api/v1/property-owners/extract-from-document",
+                "/api/v1/admin/property-owners/extract-from-document",
                 data={"property_id": property_id, "organization_id": TEST_ORGANIZATION_ID},
                 files={"file": ("cidadao.jpg", b"fake-image-bytes", "image/jpeg")},
                 headers=openai_auth_headers,
@@ -167,7 +167,7 @@ class TestExtractFromDocumentWithOpenAI:
             mock_cls.return_value = _mock_structured_llm(extracted)
 
             response = await openai_client.post(
-                "/api/v1/property-owners/extract-from-document",
+                "/api/v1/admin/property-owners/extract-from-document",
                 data={"property_id": property_id, "organization_id": TEST_ORGANIZATION_ID},
                 files={"file": ("passport.jpg", b"fake-data", "image/jpeg")},
                 headers=openai_auth_headers,
@@ -191,7 +191,7 @@ class TestExtractFromDocumentWithOpenAI:
             mock_cls.return_value = mock_llm
 
             response = await openai_client.post(
-                "/api/v1/property-owners/extract-from-document",
+                "/api/v1/admin/property-owners/extract-from-document",
                 data={"property_id": property_id, "organization_id": TEST_ORGANIZATION_ID},
                 files={"file": ("doc.jpg", b"fake", "image/jpeg")},
                 headers=openai_auth_headers,
@@ -224,7 +224,7 @@ class TestExtractFromDocumentWithOpenAI:
             mock_cls.return_value = _mock_structured_llm(extracted)
 
             response = await openai_client.post(
-                "/api/v1/property-owners/extract-from-document",
+                "/api/v1/admin/property-owners/extract-from-document",
                 data={"property_id": property_id, "organization_id": TEST_ORGANIZATION_ID},
                 files={"file": ("doc.jpg", b"fake", "image/jpeg")},
                 headers=openai_auth_headers,
@@ -237,7 +237,7 @@ class TestExtractFromDocumentWithOpenAI:
         self, openai_client, openai_auth_headers, id_extractor
     ):
         response = await openai_client.post(
-            "/api/v1/property-owners/extract-from-document",
+            "/api/v1/admin/property-owners/extract-from-document",
             data={
                 "property_id": "00000000-0000-0000-0000-000000000099",
                 "organization_id": TEST_ORGANIZATION_ID,
@@ -254,7 +254,7 @@ class TestExtractFromDocumentWithOpenAI:
         property_id = await _create_property(openai_client, openai_auth_headers)
 
         response = await openai_client.post(
-            "/api/v1/property-owners/extract-from-document",
+            "/api/v1/admin/property-owners/extract-from-document",
             data={
                 "property_id": property_id,
                 "organization_id": "00000000-0000-0000-0000-000000000099",

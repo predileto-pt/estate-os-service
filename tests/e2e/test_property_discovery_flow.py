@@ -3,7 +3,7 @@ import pytest
 
 async def _register_user(client, auth_headers):
     response = await client.post(
-        "/api/v1/auth/register",
+        "/api/v1/admin/auth/register",
         json={
             "name": "Discovery Owner",
             "email": "discovery@e2e-test.pt",
@@ -17,7 +17,7 @@ async def _register_user(client, auth_headers):
 
 async def _create_property(client, auth_headers, org_id):
     response = await client.post(
-        "/api/v1/properties/",
+        "/api/v1/admin/properties/",
         json={
             "organization_id": org_id,
             "address": "Rua Augusta 100, 1100-053 Lisboa",
@@ -37,7 +37,7 @@ async def test_get_amenities_empty(client, auth_headers):
     prop = await _create_property(client, auth_headers, org_id)
 
     resp = await client.get(
-        f"/api/v1/property-amenities/?property_id={prop['id']}&organization_id={org_id}",
+        f"/api/v1/admin/property-amenities/?property_id={prop['id']}&organization_id={org_id}",
         headers=auth_headers,
     )
     assert resp.status_code == 200
@@ -52,7 +52,7 @@ async def test_get_amenities_not_authorized(client, auth_headers):
 
     other_org_id = "00000000-0000-0000-0000-000000000099"
     resp = await client.get(
-        f"/api/v1/property-amenities/?property_id={prop['id']}&organization_id={other_org_id}",
+        f"/api/v1/admin/property-amenities/?property_id={prop['id']}&organization_id={other_org_id}",
         headers=auth_headers,
     )
     assert resp.status_code == 403
@@ -65,7 +65,7 @@ async def test_discover_amenities_missing_coordinates(client, auth_headers):
     prop = await _create_property(client, auth_headers, org_id)
 
     resp = await client.post(
-        f"/api/v1/property-amenities/discover?property_id={prop['id']}&organization_id={org_id}",
+        f"/api/v1/admin/property-amenities/discover?property_id={prop['id']}&organization_id={org_id}",
         headers=auth_headers,
     )
     # Property created without coordinates should return 422
@@ -76,6 +76,6 @@ async def test_discover_amenities_missing_coordinates(client, auth_headers):
 @pytest.mark.e2e
 async def test_discover_amenities_requires_auth(client):
     resp = await client.post(
-        "/api/v1/property-amenities/discover?property_id=00000000-0000-0000-0000-000000000001&organization_id=00000000-0000-0000-0000-000000000001",
+        "/api/v1/admin/property-amenities/discover?property_id=00000000-0000-0000-0000-000000000001&organization_id=00000000-0000-0000-0000-000000000001",
     )
     assert resp.status_code == 401

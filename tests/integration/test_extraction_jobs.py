@@ -4,7 +4,7 @@ from tests.conftest import TEST_ORGANIZATION_ID
 class TestPresignEndpoint:
     async def test_presign_returns_urls(self, client, auth_headers):
         response = await client.post(
-            "/api/v1/extraction-jobs/presign",
+            "/api/v1/admin/extraction-jobs/presign",
             json={
                 "files": [
                     {"filename": "escritura.pdf", "content_type": "application/pdf"},
@@ -22,14 +22,14 @@ class TestPresignEndpoint:
 
     async def test_presign_requires_auth(self, client):
         response = await client.post(
-            "/api/v1/extraction-jobs/presign",
+            "/api/v1/admin/extraction-jobs/presign",
             json={"files": [{"filename": "test.pdf"}]},
         )
         assert response.status_code == 401
 
     async def test_presign_empty_files(self, client, auth_headers):
         response = await client.post(
-            "/api/v1/extraction-jobs/presign",
+            "/api/v1/admin/extraction-jobs/presign",
             json={"files": []},
             headers=auth_headers,
         )
@@ -38,7 +38,7 @@ class TestPresignEndpoint:
     async def test_presign_too_many_files(self, client, auth_headers):
         files = [{"filename": f"doc{i}.pdf"} for i in range(6)]
         response = await client.post(
-            "/api/v1/extraction-jobs/presign",
+            "/api/v1/admin/extraction-jobs/presign",
             json={"files": files},
             headers=auth_headers,
         )
@@ -49,7 +49,7 @@ class TestSubmitExtractionEndpoint:
     async def test_submit_returns_202(self, client, auth_headers, document_storage):
         # First get presigned URLs
         presign_resp = await client.post(
-            "/api/v1/extraction-jobs/presign",
+            "/api/v1/admin/extraction-jobs/presign",
             json={"files": [{"filename": "test.pdf"}]},
             headers=auth_headers,
         )
@@ -62,7 +62,7 @@ class TestSubmitExtractionEndpoint:
 
         # Submit
         response = await client.post(
-            "/api/v1/extraction-jobs/",
+            "/api/v1/admin/extraction-jobs/",
             json={
                 "job_id": job_id,
                 "organization_id": TEST_ORGANIZATION_ID,
@@ -83,7 +83,7 @@ class TestSubmitExtractionEndpoint:
     async def test_submit_missing_document(self, client, auth_headers):
         job_id = "11111111-1111-1111-1111-111111111111"
         response = await client.post(
-            "/api/v1/extraction-jobs/",
+            "/api/v1/admin/extraction-jobs/",
             json={
                 "job_id": job_id,
                 "organization_id": TEST_ORGANIZATION_ID,
@@ -97,7 +97,7 @@ class TestSubmitExtractionEndpoint:
 
     async def test_submit_requires_auth(self, client):
         response = await client.post(
-            "/api/v1/extraction-jobs/",
+            "/api/v1/admin/extraction-jobs/",
             json={
                 "job_id": "test",
                 "organization_id": TEST_ORGANIZATION_ID,
@@ -112,7 +112,7 @@ class TestSubmitExtractionEndpoint:
 class TestListExtractionJobs:
     async def test_list_empty(self, client, auth_headers):
         response = await client.get(
-            f"/api/v1/extraction-jobs/?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/extraction-jobs/?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -121,7 +121,7 @@ class TestListExtractionJobs:
     async def test_list_after_submit(self, client, auth_headers, document_storage):
         # Presign + upload + submit
         presign_resp = await client.post(
-            "/api/v1/extraction-jobs/presign",
+            "/api/v1/admin/extraction-jobs/presign",
             json={"files": [{"filename": "test.pdf"}]},
             headers=auth_headers,
         )
@@ -130,7 +130,7 @@ class TestListExtractionJobs:
         await document_storage.upload(s3_key, b"fake-pdf", "application/pdf")
 
         await client.post(
-            "/api/v1/extraction-jobs/",
+            "/api/v1/admin/extraction-jobs/",
             json={
                 "job_id": data["job_id"],
                 "organization_id": TEST_ORGANIZATION_ID,
@@ -142,7 +142,7 @@ class TestListExtractionJobs:
         )
 
         response = await client.get(
-            f"/api/v1/extraction-jobs/?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/extraction-jobs/?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -152,7 +152,7 @@ class TestListExtractionJobs:
 class TestGetExtractionJob:
     async def test_get_job(self, client, auth_headers, document_storage):
         presign_resp = await client.post(
-            "/api/v1/extraction-jobs/presign",
+            "/api/v1/admin/extraction-jobs/presign",
             json={"files": [{"filename": "test.pdf"}]},
             headers=auth_headers,
         )
@@ -162,7 +162,7 @@ class TestGetExtractionJob:
         await document_storage.upload(s3_key, b"fake-pdf", "application/pdf")
 
         await client.post(
-            "/api/v1/extraction-jobs/",
+            "/api/v1/admin/extraction-jobs/",
             json={
                 "job_id": job_id,
                 "organization_id": TEST_ORGANIZATION_ID,
@@ -174,7 +174,7 @@ class TestGetExtractionJob:
         )
 
         response = await client.get(
-            f"/api/v1/extraction-jobs/{job_id}?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/extraction-jobs/{job_id}?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -182,13 +182,13 @@ class TestGetExtractionJob:
 
     async def test_get_nonexistent_job(self, client, auth_headers):
         response = await client.get(
-            f"/api/v1/extraction-jobs/11111111-1111-1111-1111-111111111111?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/extraction-jobs/11111111-1111-1111-1111-111111111111?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 404
 
     async def test_get_job_requires_auth(self, client):
         response = await client.get(
-            f"/api/v1/extraction-jobs/11111111-1111-1111-1111-111111111111?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/extraction-jobs/11111111-1111-1111-1111-111111111111?organization_id={TEST_ORGANIZATION_ID}",
         )
         assert response.status_code == 401

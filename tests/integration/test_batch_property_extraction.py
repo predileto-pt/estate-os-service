@@ -5,7 +5,7 @@ class TestSubmitBatchExtractionEndpoint:
     async def test_submit_batch_returns_202(self, client, auth_headers, document_storage):
         # First get presigned URLs
         presign_resp = await client.post(
-            "/api/v1/extraction-jobs/presign",
+            "/api/v1/admin/extraction-jobs/presign",
             json={
                 "files": [
                     {"filename": "escritura.pdf", "content_type": "application/pdf"},
@@ -24,7 +24,7 @@ class TestSubmitBatchExtractionEndpoint:
 
         # Submit batch
         response = await client.post(
-            "/api/v1/extraction-jobs/batch",
+            "/api/v1/admin/extraction-jobs/batch",
             json={
                 "job_id": job_id,
                 "organization_id": TEST_ORGANIZATION_ID,
@@ -45,7 +45,7 @@ class TestSubmitBatchExtractionEndpoint:
     async def test_submit_batch_missing_document(self, client, auth_headers):
         job_id = "11111111-1111-1111-1111-111111111111"
         response = await client.post(
-            "/api/v1/extraction-jobs/batch",
+            "/api/v1/admin/extraction-jobs/batch",
             json={
                 "job_id": job_id,
                 "organization_id": TEST_ORGANIZATION_ID,
@@ -59,7 +59,7 @@ class TestSubmitBatchExtractionEndpoint:
 
     async def test_submit_batch_requires_auth(self, client):
         response = await client.post(
-            "/api/v1/extraction-jobs/batch",
+            "/api/v1/admin/extraction-jobs/batch",
             json={
                 "job_id": "test",
                 "organization_id": TEST_ORGANIZATION_ID,
@@ -73,7 +73,7 @@ class TestSubmitBatchExtractionEndpoint:
     async def test_batch_job_appears_in_list(self, client, auth_headers, document_storage):
         # Presign + upload + submit batch
         presign_resp = await client.post(
-            "/api/v1/extraction-jobs/presign",
+            "/api/v1/admin/extraction-jobs/presign",
             json={"files": [{"filename": "test.pdf"}]},
             headers=auth_headers,
         )
@@ -82,7 +82,7 @@ class TestSubmitBatchExtractionEndpoint:
         await document_storage.upload(s3_key, b"fake-pdf", "application/pdf")
 
         await client.post(
-            "/api/v1/extraction-jobs/batch",
+            "/api/v1/admin/extraction-jobs/batch",
             json={
                 "job_id": data["job_id"],
                 "organization_id": TEST_ORGANIZATION_ID,
@@ -95,7 +95,7 @@ class TestSubmitBatchExtractionEndpoint:
 
         # Should appear in list
         response = await client.get(
-            f"/api/v1/extraction-jobs/?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/extraction-jobs/?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -103,7 +103,7 @@ class TestSubmitBatchExtractionEndpoint:
 
     async def test_batch_job_retrievable_by_id(self, client, auth_headers, document_storage):
         presign_resp = await client.post(
-            "/api/v1/extraction-jobs/presign",
+            "/api/v1/admin/extraction-jobs/presign",
             json={"files": [{"filename": "test.pdf"}]},
             headers=auth_headers,
         )
@@ -113,7 +113,7 @@ class TestSubmitBatchExtractionEndpoint:
         await document_storage.upload(s3_key, b"fake-pdf", "application/pdf")
 
         await client.post(
-            "/api/v1/extraction-jobs/batch",
+            "/api/v1/admin/extraction-jobs/batch",
             json={
                 "job_id": job_id,
                 "organization_id": TEST_ORGANIZATION_ID,
@@ -125,7 +125,7 @@ class TestSubmitBatchExtractionEndpoint:
         )
 
         response = await client.get(
-            f"/api/v1/extraction-jobs/{job_id}?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/extraction-jobs/{job_id}?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200

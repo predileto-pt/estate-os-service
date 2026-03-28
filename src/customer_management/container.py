@@ -15,8 +15,12 @@ from customer_management.application.ports.repositories.organization_repository 
 from customer_management.application.ports.repositories.subscription_repository import (
     SubscriptionRepository,
 )
+from customer_management.application.ports.repositories.portal_user_repository import (
+    PortalUserRepository,
+)
 from customer_management.application.ports.repositories.user_repository import UserRepository
 from customer_management.application.use_cases.get_organization import GetOrganization
+from customer_management.application.use_cases.get_portal_user import GetPortalUser
 from customer_management.application.use_cases.get_user_profile import GetUserProfile
 from customer_management.application.use_cases.invite_member import InviteMember
 from customer_management.application.use_cases.list_invitations import ListInvitations
@@ -27,6 +31,7 @@ from customer_management.application.use_cases.manage_subscription import (
     UpdateSubscription,
 )
 from customer_management.application.use_cases.mark_notifications_read import MarkNotificationsRead
+from customer_management.application.use_cases.register_portal_user import RegisterPortalUser
 from customer_management.application.use_cases.register_user import RegisterUser
 from customer_management.application.use_cases.remove_member import RemoveMember
 from customer_management.application.use_cases.revoke_invitation import RevokeInvitation
@@ -45,6 +50,7 @@ class Container:
         notification_repo: NotificationRepository,
         membership_repo: MembershipRepository,
         invitation_repo: InvitationRepository,
+        portal_user_repo: PortalUserRepository,
         email_service: EmailService,
         event_bus: EventBus,
     ) -> None:
@@ -54,6 +60,7 @@ class Container:
         self.notification_repo = notification_repo
         self.membership_repo = membership_repo
         self.invitation_repo = invitation_repo
+        self.portal_user_repo = portal_user_repo
         self.email_service = email_service
         self.event_bus = event_bus
 
@@ -125,4 +132,12 @@ class Container:
             invitation_repo=invitation_repo,
             membership_repo=membership_repo,
             user_repo=user_repo,
+        )
+
+        # Portal user use cases
+        self.register_portal_user = RegisterPortalUser(
+            portal_user_repo=portal_user_repo,
+        )
+        self.get_portal_user = GetPortalUser(
+            portal_user_repo=portal_user_repo,
         )

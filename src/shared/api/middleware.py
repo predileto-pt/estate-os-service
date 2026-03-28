@@ -10,8 +10,8 @@ log = structlog.get_logger()
 
 PUBLIC_PATHS = {
     "/api/v1/health",
-    "/api/v1/subscriptions/plans",
-    "/api/v1/properties/active",
+    "/api/v1/admin/subscriptions/plans",
+    "/api/v1/admin/properties/active",
     "/docs",
     "/openapi.json",
 }

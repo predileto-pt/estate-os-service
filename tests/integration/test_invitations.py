@@ -3,7 +3,7 @@ import pytest
 
 async def _register_user(client, auth_headers):
     response = await client.post(
-        "/api/v1/auth/register",
+        "/api/v1/admin/auth/register",
         json={
             "name": "João Silva",
             "email": "joao@agency.pt",
@@ -19,7 +19,7 @@ async def test_invite_member(client, auth_headers):
     user = await _register_user(client, auth_headers)
     org_id = user["organization_id"]
     response = await client.post(
-        f"/api/v1/invitations?organization_id={org_id}",
+        f"/api/v1/admin/invitations?organization_id={org_id}",
         json={"email": "invited@agency.pt", "role": "member"},
         headers=auth_headers,
     )
@@ -37,13 +37,13 @@ async def test_list_invitations(client, auth_headers):
 
     # Invite someone
     await client.post(
-        f"/api/v1/invitations?organization_id={org_id}",
+        f"/api/v1/admin/invitations?organization_id={org_id}",
         json={"email": "invited@agency.pt", "role": "member"},
         headers=auth_headers,
     )
 
     response = await client.get(
-        f"/api/v1/invitations?organization_id={org_id}",
+        f"/api/v1/admin/invitations?organization_id={org_id}",
         headers=auth_headers,
     )
     assert response.status_code == 200
@@ -59,7 +59,7 @@ async def test_revoke_invitation(client, auth_headers):
 
     # Invite someone
     invite_resp = await client.post(
-        f"/api/v1/invitations?organization_id={org_id}",
+        f"/api/v1/admin/invitations?organization_id={org_id}",
         json={"email": "invited@agency.pt", "role": "admin"},
         headers=auth_headers,
     )
@@ -67,7 +67,7 @@ async def test_revoke_invitation(client, auth_headers):
 
     # Revoke
     response = await client.delete(
-        f"/api/v1/invitations/{invitation_id}",
+        f"/api/v1/admin/invitations/{invitation_id}",
         headers=auth_headers,
     )
     assert response.status_code == 204

@@ -5,7 +5,7 @@ OTHER_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000099"
 
 async def _create_property(client, auth_headers) -> str:
     resp = await client.post(
-        "/api/v1/properties/",
+        "/api/v1/admin/properties/",
         json={
             "organization_id": TEST_ORGANIZATION_ID,
             "address": "Rua das Flores 123",
@@ -39,7 +39,7 @@ class TestCreatePropertyOwner:
             "property_id": property_id,
         }
 
-        response = await client.post("/api/v1/property-owners/", json=payload, headers=auth_headers)
+        response = await client.post("/api/v1/admin/property-owners/", json=payload, headers=auth_headers)
         assert response.status_code == 201
         data = response.json()
         # Response is now the full property with owners
@@ -57,7 +57,7 @@ class TestCreatePropertyOwner:
             "nif": "12345",
         }
 
-        response = await client.post("/api/v1/property-owners/", json=payload, headers=auth_headers)
+        response = await client.post("/api/v1/admin/property-owners/", json=payload, headers=auth_headers)
         assert response.status_code == 422
 
     async def test_create_property_owner_property_not_found(self, client, auth_headers):
@@ -66,7 +66,7 @@ class TestCreatePropertyOwner:
             "organization_id": TEST_ORGANIZATION_ID,
             "property_id": "00000000-0000-0000-0000-000000000099",
         }
-        response = await client.post("/api/v1/property-owners/", json=payload, headers=auth_headers)
+        response = await client.post("/api/v1/admin/property-owners/", json=payload, headers=auth_headers)
         assert response.status_code == 404
 
     async def test_create_property_owner_not_authorized(self, client, auth_headers):
@@ -77,7 +77,7 @@ class TestCreatePropertyOwner:
             "property_id": property_id,
         }
 
-        response = await client.post("/api/v1/property-owners/", json=payload, headers=auth_headers)
+        response = await client.post("/api/v1/admin/property-owners/", json=payload, headers=auth_headers)
         assert response.status_code == 403
 
     async def test_create_multiple_owners(self, client, auth_headers):
@@ -91,13 +91,13 @@ class TestCreatePropertyOwner:
                 "full_name": name,
             }
             response = await client.post(
-                "/api/v1/property-owners/", json=payload, headers=auth_headers
+                "/api/v1/admin/property-owners/", json=payload, headers=auth_headers
             )
             assert response.status_code == 201
 
         # Verify both owners are on the property
         prop_resp = await client.get(
-            f"/api/v1/properties/{property_id}?organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/properties/{property_id}?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert len(prop_resp.json()["owners"]) == 2
@@ -108,7 +108,7 @@ class TestExtractFromDocument:
         property_id = await _create_property(client, auth_headers)
 
         response = await client.post(
-            "/api/v1/property-owners/extract-from-document",
+            "/api/v1/admin/property-owners/extract-from-document",
             data={"property_id": property_id, "organization_id": TEST_ORGANIZATION_ID},
             files={"file": ("doc.jpg", b"fake-image-data", "image/jpeg")},
             headers=auth_headers,
@@ -125,7 +125,7 @@ class TestExtractFromDocument:
         property_id = await _create_property(client, auth_headers)
 
         response = await client.post(
-            "/api/v1/property-owners/extract-from-document",
+            "/api/v1/admin/property-owners/extract-from-document",
             data={"property_id": property_id, "organization_id": OTHER_ORGANIZATION_ID},
             files={"file": ("doc.jpg", b"fake-image-data", "image/jpeg")},
             headers=auth_headers,
@@ -145,10 +145,10 @@ class TestListPropertyOwners:
                 "property_id": property_id,
                 "full_name": name,
             }
-            await client.post("/api/v1/property-owners/", json=payload, headers=auth_headers)
+            await client.post("/api/v1/admin/property-owners/", json=payload, headers=auth_headers)
 
         response = await client.get(
-            f"/api/v1/property-owners/?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -158,7 +158,7 @@ class TestListPropertyOwners:
         property_id = await _create_property(client, auth_headers)
 
         response = await client.get(
-            f"/api/v1/property-owners/?property_id={property_id}&organization_id={OTHER_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/?property_id={property_id}&organization_id={OTHER_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 403
@@ -173,12 +173,12 @@ class TestGetPropertyOwner:
             "property_id": property_id,
         }
         create_resp = await client.post(
-            "/api/v1/property-owners/", json=payload, headers=auth_headers
+            "/api/v1/admin/property-owners/", json=payload, headers=auth_headers
         )
         owner_id = create_resp.json()["owners"][0]["id"]
 
         response = await client.get(
-            f"/api/v1/property-owners/{owner_id}?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/{owner_id}?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -187,7 +187,7 @@ class TestGetPropertyOwner:
     async def test_get_property_owner_not_found(self, client, auth_headers):
         property_id = await _create_property(client, auth_headers)
         response = await client.get(
-            f"/api/v1/property-owners/00000000-0000-0000-0000-000000000099?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/00000000-0000-0000-0000-000000000099?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 404
@@ -200,12 +200,12 @@ class TestGetPropertyOwner:
             "property_id": property_id,
         }
         create_resp = await client.post(
-            "/api/v1/property-owners/", json=payload, headers=auth_headers
+            "/api/v1/admin/property-owners/", json=payload, headers=auth_headers
         )
         owner_id = create_resp.json()["owners"][0]["id"]
 
         response = await client.get(
-            f"/api/v1/property-owners/{owner_id}?property_id={property_id}&organization_id={OTHER_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/{owner_id}?property_id={property_id}&organization_id={OTHER_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 403
@@ -219,7 +219,7 @@ class TestUpdatePropertyOwnerContact:
             "organization_id": TEST_ORGANIZATION_ID,
             "property_id": property_id,
         }
-        resp = await client.post("/api/v1/property-owners/", json=payload, headers=auth_headers)
+        resp = await client.post("/api/v1/admin/property-owners/", json=payload, headers=auth_headers)
         owner_id = resp.json()["owners"][0]["id"]
         return property_id, owner_id
 
@@ -227,7 +227,7 @@ class TestUpdatePropertyOwnerContact:
         property_id, owner_id = await self._create_owner(client, auth_headers)
 
         response = await client.patch(
-            f"/api/v1/property-owners/{owner_id}/contact?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/{owner_id}/contact?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
             json={"email": "maria@example.com", "phone_number": "+351912345678"},
             headers=auth_headers,
         )
@@ -243,7 +243,7 @@ class TestUpdatePropertyOwnerContact:
         property_id, owner_id = await self._create_owner(client, auth_headers)
 
         response = await client.get(
-            f"/api/v1/property-owners/{owner_id}?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/{owner_id}?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
@@ -258,14 +258,14 @@ class TestUpdatePropertyOwnerContact:
 
         # Set initial email
         await client.patch(
-            f"/api/v1/property-owners/{owner_id}/contact?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/{owner_id}/contact?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
             json={"email": "old@example.com"},
             headers=auth_headers,
         )
 
         # Change email — email_verified should reset to False
         response = await client.patch(
-            f"/api/v1/property-owners/{owner_id}/contact?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/{owner_id}/contact?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
             json={"email": "new@example.com"},
             headers=auth_headers,
         )
@@ -278,7 +278,7 @@ class TestUpdatePropertyOwnerContact:
         property_id, owner_id = await self._create_owner(client, auth_headers)
 
         response = await client.patch(
-            f"/api/v1/property-owners/{owner_id}/contact?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/{owner_id}/contact?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
             json={"email": "only@example.com"},
             headers=auth_headers,
         )
@@ -291,7 +291,7 @@ class TestUpdatePropertyOwnerContact:
         property_id, owner_id = await self._create_owner(client, auth_headers)
 
         response = await client.patch(
-            f"/api/v1/property-owners/{owner_id}/contact?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/{owner_id}/contact?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
             json={"phone_number": "+351999888777"},
             headers=auth_headers,
         )
@@ -304,7 +304,7 @@ class TestUpdatePropertyOwnerContact:
         property_id, owner_id = await self._create_owner(client, auth_headers)
 
         response = await client.patch(
-            f"/api/v1/property-owners/{owner_id}/contact?property_id={property_id}&organization_id={OTHER_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/{owner_id}/contact?property_id={property_id}&organization_id={OTHER_ORGANIZATION_ID}",
             json={"email": "x@y.com"},
             headers=auth_headers,
         )
@@ -314,7 +314,7 @@ class TestUpdatePropertyOwnerContact:
         property_id = await _create_property(client, auth_headers)
 
         response = await client.patch(
-            f"/api/v1/property-owners/00000000-0000-0000-0000-000000000099/contact?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
+            f"/api/v1/admin/property-owners/00000000-0000-0000-0000-000000000099/contact?property_id={property_id}&organization_id={TEST_ORGANIZATION_ID}",
             json={"email": "x@y.com"},
             headers=auth_headers,
         )

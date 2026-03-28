@@ -1,18 +1,3 @@
-from abc import ABC, abstractmethod
+from shared.ports.document_storage import DocumentStorage
 
-
-class DocumentStorage(ABC):
-    @abstractmethod
-    async def upload(self, key: str, data: bytes, content_type: str) -> None: ...
-
-    @abstractmethod
-    async def download(self, key: str) -> bytes: ...
-
-    @abstractmethod
-    async def get_upload_url(self, key: str, content_type: str, expires_in: int = 300) -> str: ...
-
-    @abstractmethod
-    async def get_download_url(self, key: str, expires_in: int = 3600) -> str: ...
-
-    @abstractmethod
-    async def verify_exists(self, key: str) -> bool: ...
+__all__ = ["DocumentStorage"]

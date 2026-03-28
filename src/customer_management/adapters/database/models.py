@@ -237,3 +237,23 @@ class InvitationModel(Base):
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
     __table_args__ = (Index("idx_invitations_email_status", "email", "status"),)
+
+
+class PortalUserModel(Base):
+    __tablename__ = "portal_users"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    supabase_user_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    email: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    phone_country_code: Mapped[str | None] = mapped_column(Text)
+    phone_number: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("supabase_user_id", name="uq_portal_users_supabase_user_id"),
+        UniqueConstraint("email", name="uq_portal_users_email"),
+    )
