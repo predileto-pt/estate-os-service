@@ -9,6 +9,7 @@ from property_management.application.ports.event_bus import EventBus
 from property_management.application.ports.repositories.property_repository import (
     PropertyRepository,
 )
+from property_management.domain.events import PropertyCreated
 from property_management.domain.models.property import (
     ListingType,
     Property,
@@ -53,12 +54,7 @@ class CreateProperty:
 
         if self.discovery_event_bus:
             try:
-                await self.discovery_event_bus.publish(
-                    {
-                        "event_type": "PROPERTY_CREATED",
-                        "data": {"property_id": str(prop.id)},
-                    }
-                )
+                await self.discovery_event_bus.publish(PropertyCreated(property_id=str(prop.id)))
             except Exception:
                 log.exception(
                     "create_property.discovery_event_failed",

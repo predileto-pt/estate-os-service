@@ -9,6 +9,7 @@ from property_management.application.ports.event_bus import EventBus
 from property_management.application.ports.repositories.extraction_job_repository import (
     ExtractionJobRepository,
 )
+from property_management.domain.events import PropertyExtractionRequested
 from property_management.domain.models.extraction_job import (
     ExtractionJob,
     ExtractionJobStatus,
@@ -57,12 +58,7 @@ class SubmitPropertyExtraction:
         )
         await self.extraction_job_repo.save(job)
 
-        await self.event_bus.publish(
-            {
-                "event_type": "PROPERTY_EXTRACTION_REQUESTED",
-                "data": {"job_id": job_id},
-            }
-        )
+        await self.event_bus.publish(PropertyExtractionRequested(job_id=job_id))
 
         log.info(
             "extraction.submitted",

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from shared.api.dependencies import get_supabase_user_id
 from property_management.adapters.api.schemas import PropertyAmenityResponse
+from property_management.domain.events import PropertyCreated
 from property_management.domain.exceptions import PropertyNotFoundError
 
 router = APIRouter(prefix="/property-amenities", tags=["property-amenities"])
@@ -98,11 +99,6 @@ async def discover_property_amenities(
     if prop.latitude is None or prop.longitude is None:
         raise HTTPException(status_code=422, detail="Property missing coordinates")
 
-    await discovery_event_bus.publish(
-        {
-            "event_type": "PROPERTY_CREATED",
-            "data": {"property_id": str(property_id)},
-        }
-    )
+    await discovery_event_bus.publish(PropertyCreated(property_id=str(property_id)))
 
     return {"status": "discovery_triggered", "property_id": str(property_id)}

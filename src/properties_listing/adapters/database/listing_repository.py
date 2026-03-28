@@ -4,7 +4,16 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from properties_listing.application.ports.listing_repository import ListingRepository, PropertyFilters
+from properties_listing.adapters.database.models import (
+    PropertyStatus,
+    ReadPropertyImageModel,
+    ReadPropertyModel,
+    ReadPropertyPriceModel,
+)
+from properties_listing.application.ports.listing_repository import (
+    ListingRepository,
+    PropertyFilters,
+)
 from properties_listing.domain.models import (
     ListedProperty,
     ListingType,
@@ -14,14 +23,6 @@ from properties_listing.domain.models import (
     Typology,
 )
 
-# Import the existing property_management ORM models (read-only, same tables)
-from property_management.adapters.database.models import (
-    PropertyImageModel,
-    PropertyModel,
-    PropertyPriceModel,
-)
-from property_management.domain.models.property import PropertyStatus
-
 
 class SqlAlchemyListingRepository(ListingRepository):
     def __init__(self, session: AsyncSession) -> None:
@@ -29,7 +30,7 @@ class SqlAlchemyListingRepository(ListingRepository):
 
     async def list_active(self, filters: PropertyFilters) -> list[ListedProperty]:
         query = self._build_query(filters)
-        query = query.order_by(PropertyModel.created_at.desc())
+        query = query.order_by(ReadPropertyModel.created_at.desc())
         query = query.limit(filters.limit).offset(filters.offset)
 
         result = await self._session.execute(query)
@@ -48,9 +49,9 @@ class SqlAlchemyListingRepository(ListingRepository):
 
     async def get_by_id(self, property_id: UUID) -> ListedProperty | None:
         result = await self._session.execute(
-            select(PropertyModel).where(
-                PropertyModel.id == str(property_id),
-                PropertyModel.status == PropertyStatus.ACTIVE,
+            select(ReadPropertyModel).where(
+                ReadPropertyModel.id == str(property_id),
+                ReadPropertyModel.status == PropertyStatus.ACTIVE,
             )
         )
         row = result.scalar_one_or_none()
@@ -67,20 +68,20 @@ class SqlAlchemyListingRepository(ListingRepository):
         return result.scalar_one()
 
     def _build_query(self, filters: PropertyFilters):
-        query = select(PropertyModel).where(PropertyModel.status == PropertyStatus.ACTIVE)
+        query = select(ReadPropertyModel).where(ReadPropertyModel.status == PropertyStatus.ACTIVE)
 
         if filters.listing_type is not None:
-            query = query.where(PropertyModel.listing_type == filters.listing_type.value)
+            query = query.where(ReadPropertyModel.listing_type == filters.listing_type.value)
         if filters.typology is not None:
-            query = query.where(PropertyModel.typology == filters.typology.value)
+            query = query.where(ReadPropertyModel.typology == filters.typology.value)
         if filters.district is not None:
-            query = query.where(PropertyModel.address.ilike(f"%{filters.district}%"))
+            query = query.where(ReadPropertyModel.address.ilike(f"%{filters.district}%"))
 
         return query
 
     @staticmethod
     def _matches_price_filter(
-        prices: list[PropertyPriceModel],
+        prices: list[ReadPropertyPriceModel],
         min_price: Decimal | None,
         max_price: Decimal | None,
     ) -> bool:
@@ -93,27 +94,27 @@ class SqlAlchemyListingRepository(ListingRepository):
             return False
         return True
 
-    async def _load_prices(self, property_id: str) -> list[PropertyPriceModel]:
+    async def _load_prices(self, property_id: str) -> list[ReadPropertyPriceModel]:
         result = await self._session.execute(
-            select(PropertyPriceModel)
-            .where(PropertyPriceModel.property_id == property_id)
-            .order_by(PropertyPriceModel.created_at.desc())
+            select(ReadPropertyPriceModel)
+            .where(ReadPropertyPriceModel.property_id == property_id)
+            .order_by(ReadPropertyPriceModel.created_at.desc())
         )
         return list(result.scalars().all())
 
-    async def _load_images(self, property_id: str) -> list[PropertyImageModel]:
+    async def _load_images(self, property_id: str) -> list[ReadPropertyImageModel]:
         result = await self._session.execute(
-            select(PropertyImageModel)
-            .where(PropertyImageModel.property_id == property_id)
-            .order_by(PropertyImageModel.display_order.asc())
+            select(ReadPropertyImageModel)
+            .where(ReadPropertyImageModel.property_id == property_id)
+            .order_by(ReadPropertyImageModel.display_order.asc())
         )
         return list(result.scalars().all())
 
     @staticmethod
     def _to_domain(
-        m: PropertyModel,
-        prices: list[PropertyPriceModel],
-        images: list[PropertyImageModel],
+        m: ReadPropertyModel,
+        prices: list[ReadPropertyPriceModel],
+        images: list[ReadPropertyImageModel],
     ) -> ListedProperty:
         return ListedProperty(
             id=UUID(m.id),
@@ -134,7 +135,9 @@ class SqlAlchemyListingRepository(ListingRepository):
                     id=UUID(p.id),
                     property_id=UUID(p.property_id),
                     amount=Decimal(str(p.amount)),
-                    listing_type=ListingType(p.listing_type.value if hasattr(p.listing_type, "value") else p.listing_type),
+                    listing_type=ListingType(
+                        p.listing_type.value if hasattr(p.listing_type, "value") else p.listing_type
+                    ),
                     created_at=p.created_at,
                     updated_at=p.updated_at,
                 )

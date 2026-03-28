@@ -4,6 +4,7 @@ import boto3
 import structlog
 
 from property_management.application.ports.event_bus import EventBus
+from property_management.domain.events import DomainEvent
 
 log = structlog.get_logger()
 
@@ -26,7 +27,8 @@ class SQSEventBus(EventBus):
             aws_secret_access_key=aws_secret_access_key,
         )
 
-    async def publish(self, message: dict) -> None:
+    async def publish(self, event: DomainEvent) -> None:
+        message = event.to_dict()
         self._client.send_message(
             QueueUrl=self._queue_url,
             MessageBody=json.dumps(message, default=str),

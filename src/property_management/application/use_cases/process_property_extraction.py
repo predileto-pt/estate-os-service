@@ -9,6 +9,7 @@ import structlog
 from property_management.application.ports.document_parser import DocumentParser
 from property_management.application.ports.document_storage import DocumentStorage
 from property_management.application.ports.event_bus import EventBus
+from property_management.domain.events import PropertyCreated
 from property_management.application.ports.property_extractor import (
     PropertyExtractorService,
 )
@@ -111,10 +112,7 @@ class ProcessPropertyExtraction:
             if self.discovery_event_bus:
                 try:
                     await self.discovery_event_bus.publish(
-                        {
-                            "event_type": "PROPERTY_CREATED",
-                            "data": {"property_id": str(prop.id)},
-                        }
+                        PropertyCreated(property_id=str(prop.id))
                     )
                 except Exception:
                     log.exception(
