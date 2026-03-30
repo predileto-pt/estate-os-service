@@ -6,32 +6,32 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from customer_management.adapters.inmemory.inmemory_email_service import InMemoryEmailService
-from customer_management.adapters.inmemory.inmemory_invitation_repo import (
+from customers.adapters.inmemory.inmemory_email_service import InMemoryEmailService
+from customers.adapters.inmemory.inmemory_invitation_repo import (
     InMemoryInvitationRepository,
 )
-from customer_management.adapters.inmemory.inmemory_membership_repo import (
+from customers.adapters.inmemory.inmemory_membership_repo import (
     InMemoryMembershipRepository,
 )
-from customer_management.adapters.inmemory.inmemory_notification_repo import (
+from customers.adapters.inmemory.inmemory_notification_repo import (
     InMemoryNotificationRepository,
 )
-from customer_management.adapters.inmemory.inmemory_organization_repo import (
+from customers.adapters.inmemory.inmemory_organization_repo import (
     InMemoryOrganizationRepository,
 )
-from customer_management.adapters.inmemory.inmemory_subscription_repo import (
+from customers.adapters.inmemory.inmemory_subscription_repo import (
     InMemorySubscriptionRepository,
 )
-from customer_management.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
-from customer_management.container import Container
+from customers.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
+from customers.container import Container
 from shared.main import create_app
-from property_management.adapters.ai.openai_id_document_extractor import (
+from properties.adapters.ai.openai_id_document_extractor import (
     IdOwnerSchema,
     OpenAIIdDocumentExtractor,
 )
-from property_management.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
-from property_management.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
-from property_management.container import Container as PropertyContainer
+from properties.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
+from properties.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
+from properties.container import Container as PropertyContainer
 from tests.conftest import TEST_JWT_SECRET, TEST_ORGANIZATION_ID, make_test_token
 
 EXTRACTED_OWNER = IdOwnerSchema(
@@ -115,7 +115,7 @@ class TestExtractFromDocumentWithOpenAI:
         property_id = await _create_property(openai_client, openai_auth_headers)
 
         with patch(
-            "property_management.adapters.ai.openai_id_document_extractor.ChatOpenAI"
+            "properties.adapters.ai.openai_id_document_extractor.ChatOpenAI"
         ) as mock_cls:
             mock_cls.return_value = _mock_structured_llm(EXTRACTED_OWNER)
 
@@ -160,7 +160,7 @@ class TestExtractFromDocumentWithOpenAI:
         )
 
         with patch(
-            "property_management.adapters.ai.openai_id_document_extractor.ChatOpenAI"
+            "properties.adapters.ai.openai_id_document_extractor.ChatOpenAI"
         ) as mock_cls:
             mock_cls.return_value = _mock_structured_llm(extracted)
 
@@ -180,7 +180,7 @@ class TestExtractFromDocumentWithOpenAI:
         property_id = await _create_property(openai_client, openai_auth_headers)
 
         with patch(
-            "property_management.adapters.ai.openai_id_document_extractor.ChatOpenAI"
+            "properties.adapters.ai.openai_id_document_extractor.ChatOpenAI"
         ) as mock_cls:
             structured = AsyncMock()
             structured.ainvoke = AsyncMock(side_effect=Exception("API rate limit exceeded"))
@@ -217,7 +217,7 @@ class TestExtractFromDocumentWithOpenAI:
         )
 
         with patch(
-            "property_management.adapters.ai.openai_id_document_extractor.ChatOpenAI"
+            "properties.adapters.ai.openai_id_document_extractor.ChatOpenAI"
         ) as mock_cls:
             mock_cls.return_value = _mock_structured_llm(extracted)
 

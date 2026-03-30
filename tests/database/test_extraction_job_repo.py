@@ -1,11 +1,11 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from customer_management.domain.models.organization import Organization
-from customer_management.domain.models.user import User
-from customer_management.domain.models.value_objects import PhoneNumber
-from property_management.domain.models.extraction_job import ExtractionJob, ExtractionJobStatus
-from property_management.domain.models.property import (
+from customers.domain.models.organization import Organization
+from customers.domain.models.user import User
+from customers.domain.models.value_objects import PhoneNumber
+from properties.domain.models.extraction_job import ExtractionJob, ExtractionJobStatus
+from properties.domain.models.property import (
     ListingType,
     Property,
     PropertyStatus,

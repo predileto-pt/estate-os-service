@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # Internal pipeline commands (context-specific)
     sqs_property_extraction_queue_url: str = ""
     sqs_applicant_extraction_queue_url: str = ""
-    sqs_applicant_screening_queue_url: str = ""
+    sqs_screening_queue_url: str = ""
 
     # Applicant Screening Encryption (RSA + HMAC for NIF)
     encryption_public_key: str = ""

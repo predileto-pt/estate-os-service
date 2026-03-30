@@ -2,29 +2,29 @@ import pytest
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from property_management.adapters.inmemory.inmemory_places_service import (
+from properties.adapters.inmemory.inmemory_places_service import (
     InMemoryPlacesService,
 )
-from property_management.adapters.inmemory.inmemory_property_amenity_repo import (
+from properties.adapters.inmemory.inmemory_property_amenity_repo import (
     InMemoryPropertyAmenityRepository,
 )
-from property_management.adapters.inmemory.inmemory_property_repo import (
+from properties.adapters.inmemory.inmemory_property_repo import (
     InMemoryPropertyRepository,
 )
-from property_management.application.use_cases.discover_property_amenities import (
+from properties.application.use_cases.discover_property_amenities import (
     DiscoverPropertyAmenities,
 )
-from property_management.domain.exceptions import (
+from properties.domain.exceptions import (
     PropertyMissingCoordinatesError,
     PropertyNotFoundError,
 )
-from property_management.domain.models.property import (
+from properties.domain.models.property import (
     ListingType,
     Property,
     PropertyStatus,
     Typology,
 )
-from property_management.domain.models.property_amenity import (
+from properties.domain.models.property_amenity import (
     AmenityCategory,
     NearbyPlace,
 )

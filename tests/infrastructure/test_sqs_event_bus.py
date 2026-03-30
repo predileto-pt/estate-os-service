@@ -1,7 +1,7 @@
 import json
 
-from property_management.adapters.queue.sqs_event_bus import SQSEventBus
-from property_management.domain.events import PropertyExtractionRequested
+from properties.adapters.queue.sqs_event_bus import SQSEventBus
+from properties.domain.events import PropertyExtractionRequested
 
 
 async def test_publish_and_receive(localstack_url, sqs_queue_url, sqs_client):

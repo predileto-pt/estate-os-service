@@ -3,8 +3,8 @@ from uuid import uuid4
 
 import pytest
 
-from property_management.domain.exceptions import InvalidNIFError
-from property_management.domain.models.property_owner import (
+from properties.domain.exceptions import InvalidNIFError
+from properties.domain.models.property_owner import (
     CivilStatus,
     DocumentType,
     PropertyOwner,

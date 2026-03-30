@@ -1,8 +1,8 @@
-from property_management.domain.models.property_amenity import (
+from properties.domain.models.property_amenity import (
     AmenityCategory,
     NearbyPlace,
 )
-from property_management.domain.services.amenity_ranker import rank_places, rank_top_places
+from properties.domain.services.amenity_ranker import rank_places, rank_top_places
 
 
 def _place(name: str, distance: float) -> NearbyPlace:

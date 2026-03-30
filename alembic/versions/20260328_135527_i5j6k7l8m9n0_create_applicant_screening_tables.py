@@ -63,7 +63,7 @@ def upgrade() -> None:
 
     # Screening Reports
     op.create_table(
-        "applicant_screening_reports",
+        "screening_reports",
         sa.Column("id", sa.Uuid(), primary_key=True),
         sa.Column("applicant_id", sa.Uuid(), sa.ForeignKey("applicant_applicants.id"), nullable=False),
         sa.Column("risk_level", sa.String(10), nullable=False),
@@ -123,7 +123,7 @@ def downgrade() -> None:
     op.drop_table("applicant_submissions")
     op.drop_table("applicant_intake_form_requests")
     op.drop_table("applicant_events")
-    op.drop_table("applicant_screening_reports")
+    op.drop_table("screening_reports")
     op.drop_table("applicant_extracted_data")
     op.drop_table("applicant_documents")
     op.drop_table("applicant_applicants")

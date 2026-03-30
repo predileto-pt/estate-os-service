@@ -42,6 +42,9 @@ class SourceDocumentRepository(ABC):
     async def list_all(self) -> list[SourceDocument]: ...
 
     @abstractmethod
+    async def list_by_organization(self, organization_id: UUID) -> list[SourceDocument]: ...
+
+    @abstractmethod
     async def update_page_count(self, document_id: UUID, page_count: int) -> None: ...
 
     @abstractmethod

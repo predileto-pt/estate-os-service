@@ -49,8 +49,8 @@ Hexagonal (ports & adapters) architecture with three layers:
 
 | Context | Package | Container |
 |---------|---------|-----------|
-| **Customer Management** | `src/customer_management/` | `Container` on `app.state.container` |
-| **Property Management** | `src/property_management/` | `Container` on `app.state.property_container` |
+| **Customer Management** | `src/customers/` | `Container` on `app.state.container` |
+| **Property Management** | `src/properties/` | `Container` on `app.state.property_container` |
 
 Routes access use cases through `request.app.state.container.<use_case>` or `request.app.state.property_container.<use_case>`. Neither context imports from the other. Shared infrastructure lives in `src/shared/`.
 

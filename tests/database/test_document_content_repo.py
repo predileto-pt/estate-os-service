@@ -1,9 +1,9 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from customer_management.domain.models.organization import Organization
-from property_management.domain.models.document_content import DocumentContent
-from property_management.domain.models.extraction_job import ExtractionJob, ExtractionJobStatus
+from customers.domain.models.organization import Organization
+from properties.domain.models.document_content import DocumentContent
+from properties.domain.models.extraction_job import ExtractionJob, ExtractionJobStatus
 
 
 def _make_organization(**overrides) -> Organization:

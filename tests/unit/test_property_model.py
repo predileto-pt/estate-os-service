@@ -1,13 +1,13 @@
 from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from property_management.domain.models.property import (
+from properties.domain.models.property import (
     ListingType,
     Property,
     PropertyStatus,
     Typology,
 )
-from property_management.domain.models.property_owner import (
+from properties.domain.models.property_owner import (
     CivilStatus,
     DocumentType,
     PropertyOwner,

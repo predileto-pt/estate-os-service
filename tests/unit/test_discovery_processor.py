@@ -2,8 +2,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-from property_management.adapters.workers.discovery_processor import process_event
-from property_management.domain.exceptions import (
+from properties.adapters.workers.discovery_processor import process_event
+from properties.domain.exceptions import (
     PropertyMissingCoordinatesError,
     PropertyNotFoundError,
 )

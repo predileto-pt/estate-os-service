@@ -1,15 +1,15 @@
 import pytest
 
-from property_management.adapters.inmemory.inmemory_document_storage import InMemoryDocumentStorage
-from property_management.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
-from property_management.adapters.inmemory.inmemory_extraction_job_repo import (
+from properties.adapters.inmemory.inmemory_document_storage import InMemoryDocumentStorage
+from properties.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
+from properties.adapters.inmemory.inmemory_extraction_job_repo import (
     InMemoryExtractionJobRepository,
 )
-from property_management.application.use_cases.submit_property_extraction import (
+from properties.application.use_cases.submit_property_extraction import (
     SubmitPropertyExtraction,
 )
-from property_management.domain.events import PropertyExtractionRequested
-from property_management.domain.models.extraction_job import ExtractionJobStatus
+from properties.domain.events import PropertyExtractionRequested
+from properties.domain.models.extraction_job import ExtractionJobStatus
 
 TEST_USER_ID = "00000000-0000-0000-0000-000000000001"
 TEST_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000010"

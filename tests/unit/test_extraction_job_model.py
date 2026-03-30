@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from property_management.domain.models.extraction_job import (
+from properties.domain.models.extraction_job import (
     ExtractionJob,
     ExtractionJobStatus,
 )

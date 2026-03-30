@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from customer_management.domain.models.organization import Organization
-from customer_management.domain.models.subscription import (
+from customers.domain.models.organization import Organization
+from customers.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
     SubscriptionStatus,

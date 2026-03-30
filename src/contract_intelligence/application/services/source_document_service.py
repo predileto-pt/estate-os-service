@@ -105,8 +105,13 @@ class SourceDocumentService:
     def _storage_key_from_url(self, storage_url: str) -> str:
         return storage_url.replace(f"s3://{self._s3_bucket_name}/", "")
 
-    async def list_source_documents(self) -> list[SourceDocumentListItem]:
-        documents = await self._repo.list_all()
+    async def list_source_documents(
+        self, organization_id: uuid.UUID | None = None
+    ) -> list[SourceDocumentListItem]:
+        if organization_id:
+            documents = await self._repo.list_by_organization(organization_id)
+        else:
+            documents = await self._repo.list_all()
         items = []
         for doc in documents:
             key = self._storage_key_from_url(doc.storage_url)

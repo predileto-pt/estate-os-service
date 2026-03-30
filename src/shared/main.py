@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from shared.api.middleware import JWTAuthMiddleware, RequestLoggingMiddleware
 from shared.config import settings, setup_logging
-from customer_management.adapters.api.routes import (
+from customers.adapters.api.routes import (
     auth,
     email,
     health,
@@ -18,7 +18,7 @@ from customer_management.adapters.api.routes import (
     subscriptions,
     users,
 )
-from property_management.adapters.api.routes import (
+from properties.adapters.api.routes import (
     extraction_jobs,
     properties,
     property_amenities,
@@ -26,13 +26,13 @@ from property_management.adapters.api.routes import (
     property_owners,
     property_prices,
 )
-from applicant_screening.adapters.api.routes import (
+from screening.adapters.api.routes import (
     applicants as screening_applicants,
     intake_forms,
     submissions,
 )
-from properties_listing.adapters.api.routes import listings
-from booking_management.adapters.api.routes import (
+from listings.adapters.api.routes import listings
+from bookings.adapters.api.routes import (
     bookings as booking_admin,
     portal_bookings,
     slots,
@@ -48,7 +48,7 @@ from contract_intelligence.adapters.api.routes import (
 def create_app(
     container=None,
     property_container=None,
-    applicant_screening_container=None,
+    screening_container=None,
     listing_container=None,
     booking_container=None,
     contract_intelligence_container=None,
@@ -59,7 +59,7 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if not hasattr(app.state, "container") or app.state.container is None:
             from shared.entrypoints.bootstrap import (
-                get_applicant_screening_container,
+                get_screening_container,
                 get_booking_container,
                 get_container,
                 get_contract_intelligence_container,
@@ -69,7 +69,7 @@ def create_app(
 
             app.state.container = await get_container()
             app.state.property_container = await get_property_container()
-            app.state.applicant_screening_container = await get_applicant_screening_container()
+            app.state.screening_container = await get_screening_container()
             listing_cont = await get_listing_container()
             app.state.listing_container = listing_cont
             app.state.booking_container = await get_booking_container()
@@ -186,8 +186,8 @@ def create_app(
         app.state.container = container
     if property_container:
         app.state.property_container = property_container
-    if applicant_screening_container:
-        app.state.applicant_screening_container = applicant_screening_container
+    if screening_container:
+        app.state.screening_container = screening_container
     if listing_container:
         app.state.listing_container = listing_container
     if booking_container:

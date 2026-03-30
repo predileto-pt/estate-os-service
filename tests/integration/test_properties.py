@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from tests.conftest import TEST_ORGANIZATION_ID
-from property_management.domain.models.property import (
+from properties.domain.models.property import (
     ListingType,
     Property,
     PropertyStatus,

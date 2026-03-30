@@ -243,6 +243,25 @@ class SqlAlchemySourceDocumentRepository:
         rows = (await self._session.execute(stmt)).scalars().all()
         return [self._to_domain(r) for r in rows]
 
+    async def list_by_organization(self, organization_id: UUID) -> list[SourceDocument]:
+        stmt = (
+            select(orm.ContractSourceDocumentModel)
+            .where(orm.ContractSourceDocumentModel.organization_id == str(organization_id))
+            .options(
+                selectinload(orm.ContractSourceDocumentModel.parse_runs),
+                selectinload(orm.ContractSourceDocumentModel.sections).selectinload(
+                    orm.SourceSectionModel.field_evidence
+                ),
+                selectinload(orm.ContractSourceDocumentModel.extraction_runs).selectinload(
+                    orm.SourceExtractionRunModel.field_evidence
+                ),
+                selectinload(orm.ContractSourceDocumentModel.analysis_runs),
+            )
+            .order_by(orm.ContractSourceDocumentModel.created_at.desc())
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [self._to_domain(r) for r in rows]
+
     async def update_page_count(self, document_id: UUID, page_count: int) -> None:
         row = await self._session.get(orm.ContractSourceDocumentModel, document_id)
         if row:

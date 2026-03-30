@@ -24,11 +24,11 @@ log = structlog.get_logger()
 
 def _build_router() -> EventRouter:
     """Register all cross-context event handlers."""
-    from booking_management.adapters.events.handlers import handle_applicant_screened
-    from customer_management.adapters.workers.event_processor import (
+    from bookings.adapters.events.handlers import handle_applicant_screened
+    from customers.adapters.workers.event_processor import (
         _handle_applicant_screened as cm_handle_applicant_screened,
     )
-    from property_management.adapters.workers.discovery_processor import (
+    from properties.adapters.workers.discovery_processor import (
         handle_property_created,
     )
 

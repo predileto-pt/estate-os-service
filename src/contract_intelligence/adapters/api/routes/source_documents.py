@@ -53,10 +53,11 @@ async def upload(
 )
 async def list_documents(
     request: Request,
+    organization_id: UUID | None = None,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ) -> list[SourceDocumentListItem]:
     container = request.app.state.contract_intelligence_container
-    return await container.source_document_service.list_source_documents()
+    return await container.source_document_service.list_source_documents(organization_id)
 
 
 @router.get(

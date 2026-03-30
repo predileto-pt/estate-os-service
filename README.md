@@ -74,7 +74,7 @@ uv run alembic downgrade -1
 uv run alembic stamp head
 ```
 
-Schema is defined in SQLAlchemy models across bounded contexts: `src/customer_management/adapters/database/models.py`, `src/property_management/adapters/database/models.py`, `src/applicant_screening/adapters/database/models.py`, and `src/booking_management/adapters/database/models.py`.
+Schema is defined in SQLAlchemy models across bounded contexts: `src/customers/adapters/database/models.py`, `src/properties/adapters/database/models.py`, `src/screening/adapters/database/models.py`, and `src/bookings/adapters/database/models.py`.
 
 **Adopting on an existing database:** If the database already has the schema (e.g. production), stamp it as current without executing any DDL:
 
@@ -265,7 +265,7 @@ Query parameters for listing: `listing_type`, `typology`, `min_price`, `max_pric
 ## Architecture
 
 ```
-src/customer_management/
+src/customers/
 ├── domain/           # Entities, value objects, events, exceptions (no dependencies)
 ├── application/
 │   ├── ports/        # Abstract interfaces (repository ABCs, services)
@@ -281,7 +281,7 @@ src/customer_management/
 ├── entrypoints/
 │   ├── bootstrap.py  # DI wiring for workers/lambdas (Supabase client + repos)
 │   ├── lambda_events.py  # AWS Lambda handler for SQS events
-│   └── worker.py     # CLI entrypoint: python -m customer_management.entrypoints.worker
+│   └── worker.py     # CLI entrypoint: python -m customers.entrypoints.worker
 ├── config.py         # Pydantic Settings + structlog setup
 ├── container.py      # Dependency injection wiring
 └── main.py           # FastAPI app factory
@@ -293,11 +293,11 @@ The service hosts five independent bounded contexts, each following the same hex
 
 | Context | Package | Entities | Persistence |
 |---------|---------|----------|-------------|
-| **Customer Management** | `src/customer_management/` | User, Organization, Subscription, Notification, Membership, Invitation, PortalUser | Supabase client |
-| **Property Management** | `src/property_management/` | Property, PropertyOwner, PropertyImage, PropertyAmenity, ExtractionJob, DocumentContent | Supabase client |
-| **Applicant Screening** | `src/applicant_screening/` | Applicant, Document, ExtractedData, ScreeningReport, Submission, IntakeFormRequest | SQLAlchemy + Alembic |
-| **Properties Listing** | `src/properties_listing/` | ListedProperty (read-only view of property_management data) | SQLAlchemy (read-only) |
-| **Booking Management** | `src/booking_management/` | Slot, Booking, BookingApplicant | SQLAlchemy + Alembic |
+| **Customer Management** | `src/customers/` | User, Organization, Subscription, Notification, Membership, Invitation, PortalUser | Supabase client |
+| **Property Management** | `src/properties/` | Property, PropertyOwner, PropertyImage, PropertyAmenity, ExtractionJob, DocumentContent | Supabase client |
+| **Applicant Screening** | `src/screening/` | Applicant, Document, ExtractedData, ScreeningReport, Submission, IntakeFormRequest | SQLAlchemy + Alembic |
+| **Properties Listing** | `src/listings/` | ListedProperty (read-only view of properties data) | SQLAlchemy (read-only) |
+| **Booking Management** | `src/bookings/` | Slot, Booking, BookingApplicant | SQLAlchemy + Alembic |
 
 All are wired in `shared/main.py` via `create_app()` and bootstrapped in `shared/entrypoints/bootstrap.py`. Contexts do not import from each other (cross-context access happens at the route level via `app.state`).
 
@@ -437,13 +437,13 @@ uv run uvicorn shared.main:app --reload --port 8000
 uv run python -m shared.entrypoints.events_worker
 
 # Terminal 3 — Property extraction worker
-uv run python -m property_management.entrypoints.worker --queue extraction
+uv run python -m properties.entrypoints.worker --queue extraction
 
 # Terminal 4 — Applicant extraction worker
-uv run python -m applicant_screening.entrypoints.worker --queue extraction
+uv run python -m screening.entrypoints.worker --queue extraction
 
 # Terminal 5 — Applicant screening worker
-uv run python -m applicant_screening.entrypoints.worker --queue screening
+uv run python -m screening.entrypoints.worker --queue screening
 
 # Terminal 6 — Agencies dashboard
 cd ../estate-os && npm run dev
@@ -460,8 +460,8 @@ cd ../applicants-intake-form && npm run dev
 4. Submit the intake form with documents
 5. Watch the extraction → screening pipeline process the documents
 6. The domain events worker picks up `APPLICANT_SCREENED` and:
-   - Sends a notification email (customer_management handler)
-   - Creates a booking-context applicant (booking_management handler)
+   - Sends a notification email (customers handler)
+   - Creates a booking-context applicant (bookings handler)
 7. Refresh the dashboard — the new applicant appears in the **Applicants** list
 
 ### Manually publishing a test event
@@ -514,8 +514,8 @@ uv run python -m shared.entrypoints.events_worker
 
 | Event | Handlers |
 |-------|----------|
-| `APPLICANT_SCREENED` | customer_management (send notification email), booking_management (create booking applicant) |
-| `PROPERTY_CREATED` | property_management (discover nearby amenities via Google Places API) |
+| `APPLICANT_SCREENED` | customers (send notification email), bookings (create booking applicant) |
+| `PROPERTY_CREATED` | properties (discover nearby amenities via Google Places API) |
 
 In production, deploy as a Lambda function: `shared.entrypoints.lambda_events.handler`.
 
@@ -539,14 +539,14 @@ Event types are defined in `src/shared/events/types.py`. Handlers are registered
 Processes property document extraction jobs from the `property-extraction-queue` task queue.
 
 ```bash
-uv run python -m property_management.entrypoints.worker --queue extraction
+uv run python -m properties.entrypoints.worker --queue extraction
 ```
 
 Retry a failed job:
 
 ```bash
 # CLI
-uv run python -m property_management.entrypoints.worker --retry-job <job_id>
+uv run python -m properties.entrypoints.worker --retry-job <job_id>
 
 # API
 curl -X POST http://localhost:8000/api/v1/extraction-jobs/<job_id>/retry \
@@ -559,13 +559,13 @@ Process applicant document extraction and LLM screening from their respective ta
 
 ```bash
 # Extraction (Reducto OCR)
-uv run python -m applicant_screening.entrypoints.worker --queue extraction
+uv run python -m screening.entrypoints.worker --queue extraction
 
 # Screening (LangGraph 4-node pipeline)
-uv run python -m applicant_screening.entrypoints.worker --queue screening
+uv run python -m screening.entrypoints.worker --queue screening
 ```
 
-In production, deploy as Lambda functions: `applicant_screening.entrypoints.lambda_extraction.handler` and `applicant_screening.entrypoints.lambda_screening.handler`.
+In production, deploy as Lambda functions: `screening.entrypoints.lambda_extraction.handler` and `screening.entrypoints.lambda_screening.handler`.
 
 ### Property Discovery (via Domain Events)
 
@@ -592,7 +592,7 @@ The applicant screening context handles the full document-based screening pipeli
 2. **Submission** — applicant uploads documents via presigned S3 URLs, system creates applicant record and publishes extraction messages to SQS
 3. **Extraction** (SQS worker/Lambda) — calls Reducto API to extract text from documents
 4. **Screening** (SQS worker/Lambda) — runs a 4-node LangGraph pipeline: verify identity → verify income → assess affordability → generate report
-5. **Event** — publishes `APPLICANT_SCREENED` domain event to the unified domain events queue, where the events worker routes it to booking_management (create applicant) and customer_management (send notification)
+5. **Event** — publishes `APPLICANT_SCREENED` domain event to the unified domain events queue, where the events worker routes it to bookings (create applicant) and customers (send notification)
 
 ### NIF Encryption
 
@@ -681,7 +681,7 @@ Agency (admin)                     Applicant (portal)
 
 ### Event Handling
 
-The `APPLICANT_SCREENED` domain event is handled by the unified domain events worker (not a booking-specific consumer). The handler at `booking_management.adapters.events.handlers.handle_applicant_screened` creates booking-context applicant records from the screening pipeline output.
+The `APPLICANT_SCREENED` domain event is handled by the unified domain events worker (not a booking-specific consumer). The handler at `bookings.adapters.events.handlers.handle_applicant_screened` creates booking-context applicant records from the screening pipeline output.
 
 ### Environment Variables
 

@@ -1,6 +1,6 @@
 import uuid
 
-from property_management.adapters.storage.s3_document_storage import S3DocumentStorage
+from properties.adapters.storage.s3_document_storage import S3DocumentStorage
 
 
 def _make_storage(localstack_url, s3_bucket) -> S3DocumentStorage:

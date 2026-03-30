@@ -1,6 +1,6 @@
 import pytest
 
-from property_management.domain.models.property_characteristics import PropertyCharacteristics
+from properties.domain.models.property_characteristics import PropertyCharacteristics
 
 
 class TestPropertyCharacteristics:

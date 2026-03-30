@@ -2,50 +2,50 @@ import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from customer_management.adapters.inmemory.inmemory_email_service import InMemoryEmailService
-from customer_management.adapters.inmemory.inmemory_invitation_repo import (
+from customers.adapters.inmemory.inmemory_email_service import InMemoryEmailService
+from customers.adapters.inmemory.inmemory_invitation_repo import (
     InMemoryInvitationRepository,
 )
-from customer_management.adapters.inmemory.inmemory_membership_repo import (
+from customers.adapters.inmemory.inmemory_membership_repo import (
     InMemoryMembershipRepository,
 )
-from customer_management.adapters.inmemory.inmemory_notification_repo import (
+from customers.adapters.inmemory.inmemory_notification_repo import (
     InMemoryNotificationRepository,
 )
-from customer_management.adapters.inmemory.inmemory_organization_repo import (
+from customers.adapters.inmemory.inmemory_organization_repo import (
     InMemoryOrganizationRepository,
 )
-from customer_management.adapters.inmemory.inmemory_subscription_repo import (
+from customers.adapters.inmemory.inmemory_subscription_repo import (
     InMemorySubscriptionRepository,
 )
-from customer_management.adapters.inmemory.inmemory_portal_user_repo import (
+from customers.adapters.inmemory.inmemory_portal_user_repo import (
     InMemoryPortalUserRepository,
 )
-from customer_management.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
-from customer_management.container import Container
+from customers.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
+from customers.container import Container
 from shared.main import create_app
-from property_management.adapters.inmemory.inmemory_document_extractor import (
+from properties.adapters.inmemory.inmemory_document_extractor import (
     InMemoryDocumentExtractor,
 )
-from property_management.adapters.inmemory.inmemory_document_storage import InMemoryDocumentStorage
-from property_management.adapters.inmemory.inmemory_event_bus import (
+from properties.adapters.inmemory.inmemory_document_storage import InMemoryDocumentStorage
+from properties.adapters.inmemory.inmemory_event_bus import (
     InMemoryEventBus as PropertyInMemoryEventBus,
 )
-from property_management.adapters.inmemory.inmemory_extraction_job_repo import (
+from properties.adapters.inmemory.inmemory_extraction_job_repo import (
     InMemoryExtractionJobRepository,
 )
-from property_management.adapters.inmemory.inmemory_property_extractor import (
+from properties.adapters.inmemory.inmemory_property_extractor import (
     InMemoryPropertyExtractor,
 )
-from property_management.adapters.inmemory.inmemory_document_classifier import (
+from properties.adapters.inmemory.inmemory_document_classifier import (
     InMemoryDocumentClassifier,
 )
-from property_management.adapters.inmemory.inmemory_document_content_repo import (
+from properties.adapters.inmemory.inmemory_document_content_repo import (
     InMemoryDocumentContentRepository,
 )
-from property_management.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
-from property_management.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
-from property_management.container import Container as PropertyContainer
+from properties.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
+from properties.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
+from properties.container import Container as PropertyContainer
 
 TEST_JWT_SECRET = "test-jwt-secret-for-testing-only"
 TEST_SUPABASE_USER_ID = "00000000-0000-0000-0000-000000000001"

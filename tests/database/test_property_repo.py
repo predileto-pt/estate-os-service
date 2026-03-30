@@ -2,17 +2,17 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
-from customer_management.domain.models.organization import Organization
-from customer_management.domain.models.user import User
-from customer_management.domain.models.value_objects import PhoneNumber
-from property_management.domain.models.property import (
+from customers.domain.models.organization import Organization
+from customers.domain.models.user import User
+from customers.domain.models.value_objects import PhoneNumber
+from properties.domain.models.property import (
     ListingType,
     Property,
     PropertyStatus,
     Typology,
 )
-from property_management.domain.models.property_owner import PropertyOwner
-from property_management.domain.models.property_price import PropertyPrice
+from properties.domain.models.property_owner import PropertyOwner
+from properties.domain.models.property_price import PropertyPrice
 
 
 def _make_organization(**overrides) -> Organization:

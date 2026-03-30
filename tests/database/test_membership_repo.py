@@ -4,10 +4,10 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from customer_management.domain.models.membership import Membership, MembershipRole
-from customer_management.domain.models.organization import Organization
-from customer_management.domain.models.user import User
-from customer_management.domain.models.value_objects import PhoneNumber
+from customers.domain.models.membership import Membership, MembershipRole
+from customers.domain.models.organization import Organization
+from customers.domain.models.user import User
+from customers.domain.models.value_objects import PhoneNumber
 
 
 def _make_organization(**overrides) -> Organization:

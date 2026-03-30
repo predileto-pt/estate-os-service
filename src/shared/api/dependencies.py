@@ -1,7 +1,7 @@
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from customer_management.domain.models.user import User
+from customers.domain.models.user import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
 

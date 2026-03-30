@@ -1,61 +1,61 @@
 import aioboto3
 from supabase import acreate_client
 
-from customer_management.adapters.email.resend_email_service import ResendEmailService
-from customer_management.adapters.persistence.supabase_invitation_repo import (
+from customers.adapters.email.resend_email_service import ResendEmailService
+from customers.adapters.persistence.supabase_invitation_repo import (
     SupabaseInvitationRepository,
 )
-from customer_management.adapters.persistence.supabase_membership_repo import (
+from customers.adapters.persistence.supabase_membership_repo import (
     SupabaseMembershipRepository,
 )
-from customer_management.adapters.persistence.supabase_notification_repo import (
+from customers.adapters.persistence.supabase_notification_repo import (
     SupabaseNotificationRepository,
 )
-from customer_management.adapters.persistence.supabase_organization_repo import (
+from customers.adapters.persistence.supabase_organization_repo import (
     SupabaseOrganizationRepository,
 )
-from customer_management.adapters.persistence.supabase_subscription_repo import (
+from customers.adapters.persistence.supabase_subscription_repo import (
     SupabaseSubscriptionRepository,
 )
-from customer_management.adapters.persistence.supabase_portal_user_repo import (
+from customers.adapters.persistence.supabase_portal_user_repo import (
     SupabasePortalUserRepository,
 )
-from customer_management.adapters.persistence.supabase_user_repo import SupabaseUserRepository
+from customers.adapters.persistence.supabase_user_repo import SupabaseUserRepository
 from shared.config import Settings
-from customer_management.container import Container
-from property_management.adapters.ai.openai_id_document_extractor import OpenAIIdDocumentExtractor
-from property_management.adapters.ai.openai_text_document_classifier import (
+from customers.container import Container
+from properties.adapters.ai.openai_id_document_extractor import OpenAIIdDocumentExtractor
+from properties.adapters.ai.openai_text_document_classifier import (
     OpenAITextDocumentClassifier,
 )
-from property_management.adapters.ai.reducto_document_parser import ReductoDocumentParser
-from property_management.adapters.ai.reducto_openai_property_extractor import (
+from properties.adapters.ai.reducto_document_parser import ReductoDocumentParser
+from properties.adapters.ai.reducto_openai_property_extractor import (
     ReductoOpenAIPropertyExtractor,
 )
-from property_management.adapters.persistence.supabase_document_content_repo import (
+from properties.adapters.persistence.supabase_document_content_repo import (
     SupabaseDocumentContentRepository,
 )
-from property_management.adapters.persistence.supabase_extraction_job_repo import (
+from properties.adapters.persistence.supabase_extraction_job_repo import (
     SupabaseExtractionJobRepository,
 )
-from property_management.adapters.persistence.supabase_property_amenity_repo import (
+from properties.adapters.persistence.supabase_property_amenity_repo import (
     SupabasePropertyAmenityRepository,
 )
-from property_management.adapters.persistence.supabase_property_repo import (
+from properties.adapters.persistence.supabase_property_repo import (
     SupabasePropertyRepository,
 )
-from property_management.adapters.places.google_places_service import GooglePlacesService
-from property_management.adapters.queue.sqs_event_bus import SQSEventBus
-from property_management.adapters.storage.s3_document_storage import S3DocumentStorage
-from property_management.container import Container as PropertyContainer
+from properties.adapters.places.google_places_service import GooglePlacesService
+from properties.adapters.queue.sqs_event_bus import SQSEventBus
+from properties.adapters.storage.s3_document_storage import S3DocumentStorage
+from properties.container import Container as PropertyContainer
 from shared.adapters.sqs_event_publisher import SQSDomainEventPublisher
 
-from properties_listing.adapters.database.listing_repository import SqlAlchemyListingRepository
-from properties_listing.container import Container as ListingContainer
+from listings.adapters.database.listing_repository import SqlAlchemyListingRepository
+from listings.container import Container as ListingContainer
 
-from applicant_screening.adapters.ai.langchain_screening import LangChainScreeningAssessor
-from applicant_screening.adapters.ai.langchain_translator import LangChainTranslator
-from applicant_screening.adapters.ai.reducto_extractor import ReductoDocumentExtractor
-from applicant_screening.adapters.database.repositories import (
+from screening.adapters.ai.langchain_screening import LangChainScreeningAssessor
+from screening.adapters.ai.langchain_translator import LangChainTranslator
+from screening.adapters.ai.reducto_extractor import ReductoDocumentExtractor
+from screening.adapters.database.repositories import (
     SqlAlchemyApplicantRepository,
     SqlAlchemyDocumentRepository,
     SqlAlchemyEventRepository,
@@ -64,20 +64,20 @@ from applicant_screening.adapters.database.repositories import (
     SqlAlchemyScreeningReportRepository,
     SqlAlchemySubmissionRepository,
 )
-from applicant_screening.adapters.queue.sqs_publisher import SQSMessageConsumer, SQSMessagePublisher
-from applicant_screening.application.crypto import (
+from screening.adapters.queue.sqs_publisher import SQSMessageConsumer, SQSMessagePublisher
+from screening.application.crypto import (
     load_private_key_from_env,
     load_public_key_from_env,
 )
-from applicant_screening.container import Container as ApplicantScreeningContainer
+from screening.container import Container as ApplicantScreeningContainer
 
-from booking_management.adapters.database.repositories import (
+from bookings.adapters.database.repositories import (
     SqlAlchemyBookingApplicantRepository,
     SqlAlchemyBookingRepository,
     SqlAlchemySlotRepository,
 )
-from booking_management.adapters.notification.log_notifier import LogNotifier
-from booking_management.container import Container as BookingContainer
+from bookings.adapters.notification.log_notifier import LogNotifier
+from bookings.container import Container as BookingContainer
 
 from contract_intelligence.adapters.ai.reducto_client import ReductoClient
 from contract_intelligence.adapters.ai.section_analysis_client import SectionAnalysisLLMClient
@@ -97,7 +97,7 @@ from contract_intelligence.container import Container as ContractIntelligenceCon
 
 _container: Container | None = None
 _property_container: PropertyContainer | None = None
-_applicant_screening_container: ApplicantScreeningContainer | None = None
+_screening_container: ApplicantScreeningContainer | None = None
 _listing_container: ListingContainer | None = None
 _booking_container: BookingContainer | None = None
 _contract_intelligence_container: ContractIntelligenceContainer | None = None
@@ -208,10 +208,10 @@ async def get_listing_container() -> ListingContainer:
     return _listing_container
 
 
-async def get_applicant_screening_container() -> ApplicantScreeningContainer:
-    global _applicant_screening_container
-    if _applicant_screening_container is not None:
-        return _applicant_screening_container
+async def get_screening_container() -> ApplicantScreeningContainer:
+    global _screening_container
+    if _screening_container is not None:
+        return _screening_container
 
     import base64
 
@@ -256,7 +256,7 @@ async def get_applicant_screening_container() -> ApplicantScreeningContainer:
     assessor = LangChainScreeningAssessor(openai_api_key=settings.openai_api_key)
     translator = LangChainTranslator(openai_api_key=settings.openai_api_key)
 
-    _applicant_screening_container = ApplicantScreeningContainer(
+    _screening_container = ApplicantScreeningContainer(
         applicant_repo=SqlAlchemyApplicantRepository(session, public_key, private_key, hmac_key),
         document_repo=SqlAlchemyDocumentRepository(session),
         extracted_data_repo=SqlAlchemyExtractedDataRepository(session),
@@ -272,10 +272,10 @@ async def get_applicant_screening_container() -> ApplicantScreeningContainer:
         translator=translator,
         domain_event_publisher=domain_event_publisher,
         extraction_queue_url=settings.sqs_applicant_extraction_queue_url,
-        screening_queue_url=settings.sqs_applicant_screening_queue_url,
+        screening_queue_url=settings.sqs_screening_queue_url,
         max_documents=settings.max_applicant_documents,
     )
-    return _applicant_screening_container
+    return _screening_container
 
 
 async def get_booking_container() -> BookingContainer:

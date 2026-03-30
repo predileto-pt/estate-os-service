@@ -1,39 +1,39 @@
 import pytest
 from uuid import UUID, uuid4
 
-from property_management.adapters.inmemory.inmemory_document_classifier import (
+from properties.adapters.inmemory.inmemory_document_classifier import (
     InMemoryDocumentClassifier,
 )
-from property_management.adapters.inmemory.inmemory_document_content_repo import (
+from properties.adapters.inmemory.inmemory_document_content_repo import (
     InMemoryDocumentContentRepository,
 )
-from property_management.adapters.inmemory.inmemory_document_extractor import (
+from properties.adapters.inmemory.inmemory_document_extractor import (
     InMemoryDocumentExtractor,
 )
-from property_management.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
-from property_management.adapters.inmemory.inmemory_document_storage import InMemoryDocumentStorage
-from property_management.adapters.inmemory.inmemory_extraction_job_repo import (
+from properties.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
+from properties.adapters.inmemory.inmemory_document_storage import InMemoryDocumentStorage
+from properties.adapters.inmemory.inmemory_extraction_job_repo import (
     InMemoryExtractionJobRepository,
 )
-from property_management.adapters.inmemory.inmemory_property_extractor import (
+from properties.adapters.inmemory.inmemory_property_extractor import (
     InMemoryPropertyExtractor,
 )
-from property_management.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
-from property_management.application.ports.document_classifier import (
+from properties.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
+from properties.application.ports.document_classifier import (
     ClassifiedDocument,
     DocumentClassifier,
 )
-from property_management.application.ports.document_data_extractor import DocumentDataExtractor
-from property_management.application.ports.property_extractor import (
+from properties.application.ports.document_data_extractor import DocumentDataExtractor
+from properties.application.ports.property_extractor import (
     GeoLocationResult,
     PropertyExtractorService,
 )
-from property_management.application.use_cases.process_batch_property_extraction import (
+from properties.application.use_cases.process_batch_property_extraction import (
     ProcessBatchPropertyExtraction,
 )
-from property_management.domain.exceptions import ExtractionJobNotFoundError
-from property_management.domain.models.document_content import DocumentContent
-from property_management.domain.models.extraction_job import (
+from properties.domain.exceptions import ExtractionJobNotFoundError
+from properties.domain.models.document_content import DocumentContent
+from properties.domain.models.extraction_job import (
     ExtractionJob,
     ExtractionJobStatus,
 )

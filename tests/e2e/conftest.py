@@ -12,7 +12,7 @@ from sqlalchemy.pool import NullPool
 from testcontainers.localstack import LocalStackContainer
 from testcontainers.postgres import PostgresContainer
 
-from customer_management.adapters.database.repositories import (
+from customers.adapters.database.repositories import (
     SqlAlchemyInvitationRepository,
     SqlAlchemyMembershipRepository,
     SqlAlchemyNotificationRepository,
@@ -20,30 +20,30 @@ from customer_management.adapters.database.repositories import (
     SqlAlchemySubscriptionRepository,
     SqlAlchemyUserRepository,
 )
-from customer_management.adapters.inmemory.inmemory_email_service import InMemoryEmailService
-from customer_management.container import Container
-from property_management.adapters.database.repositories import (
+from customers.adapters.inmemory.inmemory_email_service import InMemoryEmailService
+from customers.container import Container
+from properties.adapters.database.repositories import (
     SqlAlchemyDocumentContentRepository,
     SqlAlchemyExtractionJobRepository,
     SqlAlchemyPropertyRepository,
 )
-from property_management.adapters.inmemory.inmemory_document_classifier import (
+from properties.adapters.inmemory.inmemory_document_classifier import (
     InMemoryDocumentClassifier,
 )
-from property_management.adapters.inmemory.inmemory_document_extractor import (
+from properties.adapters.inmemory.inmemory_document_extractor import (
     InMemoryDocumentExtractor,
 )
-from property_management.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
-from property_management.adapters.inmemory.inmemory_places_service import InMemoryPlacesService
-from property_management.adapters.inmemory.inmemory_property_amenity_repo import (
+from properties.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
+from properties.adapters.inmemory.inmemory_places_service import InMemoryPlacesService
+from properties.adapters.inmemory.inmemory_property_amenity_repo import (
     InMemoryPropertyAmenityRepository,
 )
-from property_management.adapters.inmemory.inmemory_property_extractor import (
+from properties.adapters.inmemory.inmemory_property_extractor import (
     InMemoryPropertyExtractor,
 )
-from property_management.adapters.queue.sqs_event_bus import SQSEventBus
-from property_management.adapters.storage.s3_document_storage import S3DocumentStorage
-from property_management.container import Container as PropertyContainer
+from properties.adapters.queue.sqs_event_bus import SQSEventBus
+from properties.adapters.storage.s3_document_storage import S3DocumentStorage
+from properties.container import Container as PropertyContainer
 from shared.main import create_app
 
 TEST_JWT_SECRET = "e2e-test-jwt-secret"
