@@ -8,7 +8,8 @@ log = structlog.get_logger()
 type EventHandler = Callable[[dict, Any], Coroutine[Any, Any, None]]
 
 
-async def _handle_applicant_screened(data: dict, container: Any) -> None:
+async def _handle_applicant_screened(data: dict, context: Any) -> None:
+    container = context["customer"]
     await container.email_service.send(
         to=data.get("owner_email", ""),
         subject="Screening Complete - " + data.get("name", "Applicant"),

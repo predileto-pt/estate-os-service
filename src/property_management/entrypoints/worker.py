@@ -8,7 +8,7 @@ from uuid import UUID
 import aioboto3
 import structlog
 
-from property_management.adapters.workers import discovery_processor, extraction_processor
+from property_management.adapters.workers import extraction_processor
 from shared.config import Settings, setup_logging
 from shared.entrypoints.bootstrap import get_property_container
 
@@ -114,30 +114,10 @@ async def _run_extraction_worker() -> None:
     await worker.run()
 
 
-async def _run_discovery_worker() -> None:
-    settings = Settings()
-    setup_logging(settings.log_level)
-    session = aioboto3.Session(
-        aws_access_key_id=settings.aws_access_key_id,
-        aws_secret_access_key=settings.aws_secret_access_key,
-        region_name=settings.aws_region,
-    )
-    container = await get_property_container()
-    worker = SQSWorker(
-        session,
-        settings.sqs_property_discovery_queue_url,
-        container,
-        processor=discovery_processor,
-        endpoint_url=settings.aws_endpoint_url,
-        worker_name="discovery_worker",
-    )
-    await worker.run()
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Property Management SQS Worker")
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--queue", choices=["extraction", "discovery"])
+    group.add_argument("--queue", choices=["extraction"])
     group.add_argument("--retry-job", metavar="JOB_ID", help="Retry a failed extraction job")
     args = parser.parse_args()
 
@@ -145,8 +125,6 @@ def main() -> None:
         asyncio.run(_retry_extraction_job(args.retry_job))
     elif args.queue == "extraction":
         asyncio.run(_run_extraction_worker())
-    elif args.queue == "discovery":
-        asyncio.run(_run_discovery_worker())
 
 
 if __name__ == "__main__":

@@ -30,8 +30,3 @@ class PropertyExtractionRequested(DomainEvent):
 @dataclass(frozen=True)
 class BatchPropertyExtractionRequested(DomainEvent):
     job_id: str = ""
-
-
-@dataclass(frozen=True)
-class PropertyCreated(DomainEvent):
-    property_id: str = ""

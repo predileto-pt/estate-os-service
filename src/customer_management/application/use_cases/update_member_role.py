@@ -2,12 +2,10 @@ from uuid import UUID
 
 import structlog
 
-from customer_management.application.ports.event_bus import EventBus
 from customer_management.application.ports.repositories.membership_repository import (
     MembershipRepository,
 )
 from customer_management.application.ports.repositories.user_repository import UserRepository
-from customer_management.domain.events import MemberRoleChanged
 from customer_management.domain.exceptions import (
     InsufficientPermissionError,
     LastOwnerError,
@@ -25,11 +23,9 @@ class UpdateMemberRole:
         self,
         membership_repo: MembershipRepository,
         user_repo: UserRepository,
-        event_bus: EventBus,
     ) -> None:
         self.membership_repo = membership_repo
         self.user_repo = user_repo
-        self.event_bus = event_bus
 
     async def execute(
         self,
@@ -65,16 +61,6 @@ class UpdateMemberRole:
         target.role = new_role
 
         updated = await self.membership_repo.update(target)
-
-        await self.event_bus.publish(
-            MemberRoleChanged(
-                membership_id=updated.id,
-                user_id=updated.user_id,
-                organization_id=updated.organization_id,
-                old_role=old_role.value,
-                new_role=new_role.value,
-            )
-        )
 
         log.info(
             "member_role_updated",

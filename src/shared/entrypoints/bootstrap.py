@@ -1,7 +1,7 @@
+import aioboto3
 from supabase import acreate_client
 
 from customer_management.adapters.email.resend_email_service import ResendEmailService
-from customer_management.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
 from customer_management.adapters.persistence.supabase_invitation_repo import (
     SupabaseInvitationRepository,
 )
@@ -47,6 +47,7 @@ from property_management.adapters.places.google_places_service import GooglePlac
 from property_management.adapters.queue.sqs_event_bus import SQSEventBus
 from property_management.adapters.storage.s3_document_storage import S3DocumentStorage
 from property_management.container import Container as PropertyContainer
+from shared.adapters.sqs_event_publisher import SQSDomainEventPublisher
 
 from properties_listing.adapters.database.listing_repository import SqlAlchemyListingRepository
 from properties_listing.container import Container as ListingContainer
@@ -64,13 +65,42 @@ from applicant_screening.adapters.database.repositories import (
     SqlAlchemySubmissionRepository,
 )
 from applicant_screening.adapters.queue.sqs_publisher import SQSMessageConsumer, SQSMessagePublisher
-from applicant_screening.application.crypto import load_private_key_from_env, load_public_key_from_env
+from applicant_screening.application.crypto import (
+    load_private_key_from_env,
+    load_public_key_from_env,
+)
 from applicant_screening.container import Container as ApplicantScreeningContainer
+
+from booking_management.adapters.database.repositories import (
+    SqlAlchemyBookingApplicantRepository,
+    SqlAlchemyBookingRepository,
+    SqlAlchemySlotRepository,
+)
+from booking_management.adapters.notification.log_notifier import LogNotifier
+from booking_management.container import Container as BookingContainer
+
+from contract_intelligence.adapters.ai.reducto_client import ReductoClient
+from contract_intelligence.adapters.ai.section_analysis_client import SectionAnalysisLLMClient
+from contract_intelligence.adapters.database.repositories import (
+    SqlAlchemyGeneratedContractRepository,
+    SqlAlchemySourceDocumentRepository,
+    SqlAlchemySourceSectionRepository,
+    SqlAlchemyTemplateRepository,
+)
+from contract_intelligence.adapters.queue.sqs_publisher import (
+    SQSMessagePublisher as ContractSQSPublisher,
+)
+from contract_intelligence.adapters.storage.s3_file_storage import (
+    S3FileStorage as ContractS3FileStorage,
+)
+from contract_intelligence.container import Container as ContractIntelligenceContainer
 
 _container: Container | None = None
 _property_container: PropertyContainer | None = None
 _applicant_screening_container: ApplicantScreeningContainer | None = None
 _listing_container: ListingContainer | None = None
+_booking_container: BookingContainer | None = None
+_contract_intelligence_container: ContractIntelligenceContainer | None = None
 
 
 async def get_container() -> Container:
@@ -90,7 +120,6 @@ async def get_container() -> Container:
         invitation_repo=SupabaseInvitationRepository(client),
         portal_user_repo=SupabasePortalUserRepository(client),
         email_service=ResendEmailService(settings.resend_api_key),
-        event_bus=InMemoryEventBus(),
     )
     return _container
 
@@ -130,12 +159,15 @@ async def get_property_container() -> PropertyContainer:
     document_classifier = OpenAITextDocumentClassifier(settings.openai_api_key)
     document_data_extractor = OpenAIIdDocumentExtractor(settings.openai_api_key)
 
-    discovery_event_bus = SQSEventBus(
-        queue_url=settings.sqs_property_discovery_queue_url,
-        region=settings.aws_region,
-        endpoint_url=settings.aws_endpoint_url,
+    session = aioboto3.Session(
         aws_access_key_id=settings.aws_access_key_id,
         aws_secret_access_key=settings.aws_secret_access_key,
+        region_name=settings.aws_region,
+    )
+    domain_event_publisher = SQSDomainEventPublisher(
+        session=session,
+        queue_url=settings.sqs_domain_events_queue_url,
+        endpoint_url=settings.aws_endpoint_url,
     )
 
     places_service = GooglePlacesService(api_key=settings.google_maps_api_key)
@@ -151,7 +183,7 @@ async def get_property_container() -> PropertyContainer:
         document_classifier=document_classifier,
         document_parser=document_parser,
         document_content_repo=SupabaseDocumentContentRepository(client),
-        discovery_event_bus=discovery_event_bus,
+        domain_event_publisher=domain_event_publisher,
         places_service=places_service,
         amenity_repo=amenity_repo,
     )
@@ -212,6 +244,13 @@ async def get_applicant_screening_container() -> ApplicantScreeningContainer:
     publisher = SQSMessagePublisher(boto_session, endpoint_url=settings.aws_endpoint_url)
     consumer = SQSMessageConsumer(boto_session, endpoint_url=settings.aws_endpoint_url)
 
+    # Domain event publisher (shared cross-context queue)
+    domain_event_publisher = SQSDomainEventPublisher(
+        session=boto_session,
+        queue_url=settings.sqs_domain_events_queue_url,
+        endpoint_url=settings.aws_endpoint_url,
+    )
+
     # AI adapters
     extractor = ReductoDocumentExtractor(api_key=settings.reducto_api_key)
     assessor = LangChainScreeningAssessor(openai_api_key=settings.openai_api_key)
@@ -231,9 +270,106 @@ async def get_applicant_screening_container() -> ApplicantScreeningContainer:
         extractor=extractor,
         assessor=assessor,
         translator=translator,
+        domain_event_publisher=domain_event_publisher,
         extraction_queue_url=settings.sqs_applicant_extraction_queue_url,
         screening_queue_url=settings.sqs_applicant_screening_queue_url,
-        events_queue_url=settings.sqs_events_queue_url,
         max_documents=settings.max_applicant_documents,
     )
     return _applicant_screening_container
+
+
+async def get_booking_container() -> BookingContainer:
+    global _booking_container
+    if _booking_container is not None:
+        return _booking_container
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    settings = Settings()
+
+    engine = create_async_engine(settings.database_url, echo=False)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    session = session_factory()
+
+    _booking_container = BookingContainer(
+        slot_repo=SqlAlchemySlotRepository(session),
+        booking_repo=SqlAlchemyBookingRepository(session),
+        applicant_repo=SqlAlchemyBookingApplicantRepository(session),
+        notifier=LogNotifier(),
+        booking_secret=settings.booking_token_secret,
+        booking_link_url=settings.booking_link_url,
+    )
+    return _booking_container
+
+
+async def get_contract_intelligence_container() -> ContractIntelligenceContainer:
+    global _contract_intelligence_container
+    if _contract_intelligence_container is not None:
+        return _contract_intelligence_container
+
+    import aioboto3
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    settings = Settings()
+
+    # SQLAlchemy async engine + session
+    engine = create_async_engine(settings.database_url, echo=False)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    session = session_factory()
+
+    # AWS / S3 / SQS
+    boto_session = aioboto3.Session(
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+        region_name=settings.aws_region,
+    )
+
+    storage = ContractS3FileStorage(
+        session=boto_session,
+        bucket_name=settings.contract_s3_bucket_name,
+        endpoint_url=settings.aws_endpoint_url,
+    )
+
+    publisher = ContractSQSPublisher(
+        session=boto_session,
+        endpoint_url=settings.aws_endpoint_url,
+    )
+
+    # Domain event publisher (shared cross-context queue)
+    domain_event_publisher = SQSDomainEventPublisher(
+        session=boto_session,
+        queue_url=settings.sqs_domain_events_queue_url,
+        endpoint_url=settings.aws_endpoint_url,
+    )
+
+    # AI adapters
+    reducto = ReductoClient(api_key=settings.reducto_api_key)
+    llm = SectionAnalysisLLMClient(openai_api_key=settings.openai_api_key)
+
+    # Repositories
+    source_document_repo = SqlAlchemySourceDocumentRepository(session)
+    source_section_repo = SqlAlchemySourceSectionRepository(session)
+    template_repo = SqlAlchemyTemplateRepository(session)
+    generated_contract_repo = SqlAlchemyGeneratedContractRepository(session)
+
+    _contract_intelligence_container = ContractIntelligenceContainer(
+        source_document_repo=source_document_repo,
+        source_section_repo=source_section_repo,
+        template_repo=template_repo,
+        generated_contract_repo=generated_contract_repo,
+        storage=storage,
+        reducto=reducto,
+        llm=llm,
+        publisher=publisher,
+        domain_event_publisher=domain_event_publisher,
+        sqs_ingestion_queue_url=settings.sqs_contract_ingestion_queue_url,
+        sqs_analysis_queue_url=settings.sqs_contract_analysis_queue_url,
+        sqs_ingestion_dlq_url=settings.sqs_contract_ingestion_dlq_url,
+        sqs_analysis_dlq_url=settings.sqs_contract_analysis_dlq_url,
+        reducto_pipeline_id=settings.reducto_pipeline_id,
+        s3_bucket_name=settings.contract_s3_bucket_name,
+        aws_endpoint_url=settings.aws_endpoint_url,
+        heartbeat_interval=settings.contract_heartbeat_interval,
+        heartbeat_extension=settings.contract_heartbeat_extension,
+    )
+    return _contract_intelligence_container

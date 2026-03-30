@@ -3,8 +3,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from shared.api.dependencies import get_supabase_user_id
+from shared.events.base import DomainEvent
+from shared.events.types import PROPERTY_CREATED
 from property_management.adapters.api.schemas import PropertyAmenityResponse
-from property_management.domain.events import PropertyCreated
 from property_management.domain.exceptions import PropertyNotFoundError
 
 router = APIRouter(prefix="/property-amenities", tags=["property-amenities"])
@@ -85,8 +86,8 @@ async def discover_property_amenities(
 ):
     await _verify_property_ownership(request, property_id, organization_id)
 
-    discovery_event_bus = request.app.state.property_container.discovery_event_bus
-    if not discovery_event_bus:
+    domain_event_publisher = request.app.state.property_container.domain_event_publisher
+    if not domain_event_publisher:
         raise HTTPException(status_code=503, detail="Discovery service not available")
 
     try:
@@ -99,6 +100,8 @@ async def discover_property_amenities(
     if prop.latitude is None or prop.longitude is None:
         raise HTTPException(status_code=422, detail="Property missing coordinates")
 
-    await discovery_event_bus.publish(PropertyCreated(property_id=str(property_id)))
+    await domain_event_publisher.publish(
+        DomainEvent(event_type=PROPERTY_CREATED, data={"property_id": str(property_id)})
+    )
 
     return {"status": "discovery_triggered", "property_id": str(property_id)}

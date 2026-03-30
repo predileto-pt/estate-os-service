@@ -60,6 +60,7 @@ from property_management.application.use_cases.discover_property_amenities impor
 from property_management.application.use_cases.get_property_amenities import (
     GetPropertyAmenities,
 )
+from shared.events.publisher import DomainEventPublisher
 
 
 class Container:
@@ -74,7 +75,7 @@ class Container:
         document_classifier: DocumentClassifier | None = None,
         document_parser: DocumentParser | None = None,
         document_content_repo: DocumentContentRepository | None = None,
-        discovery_event_bus: EventBus | None = None,
+        domain_event_publisher: DomainEventPublisher | None = None,
         places_service: PlacesService | None = None,
         amenity_repo: PropertyAmenityRepository | None = None,
     ) -> None:
@@ -87,14 +88,14 @@ class Container:
         self.document_classifier = document_classifier
         self.document_parser = document_parser
         self.document_content_repo = document_content_repo
-        self.discovery_event_bus = discovery_event_bus
+        self.domain_event_publisher = domain_event_publisher
         self.places_service = places_service
         self.amenity_repo = amenity_repo
 
         # Existing use cases
         self.create_property = CreateProperty(
             property_repo=property_repo,
-            discovery_event_bus=discovery_event_bus,
+            domain_event_publisher=domain_event_publisher,
         )
         self.list_properties = ListProperties(property_repo=property_repo)
         self.list_active_properties = ListActiveProperties(property_repo=property_repo)
@@ -170,7 +171,7 @@ class Container:
                 document_parser=document_parser,
                 property_extractor=property_extractor,
                 property_repo=property_repo,
-                discovery_event_bus=discovery_event_bus,
+                domain_event_publisher=domain_event_publisher,
             )
 
         if document_storage and extraction_job_repo and event_bus:

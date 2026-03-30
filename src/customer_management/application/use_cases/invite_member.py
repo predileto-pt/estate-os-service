@@ -4,7 +4,6 @@ from uuid import UUID, uuid4
 
 import structlog
 
-from customer_management.application.ports.event_bus import EventBus
 from customer_management.application.ports.repositories.invitation_repository import (
     InvitationRepository,
 )
@@ -12,7 +11,6 @@ from customer_management.application.ports.repositories.membership_repository im
     MembershipRepository,
 )
 from customer_management.application.ports.repositories.user_repository import UserRepository
-from customer_management.domain.events import MemberInvited
 from customer_management.domain.exceptions import (
     InsufficientPermissionError,
     MembershipAlreadyExistsError,
@@ -33,12 +31,10 @@ class InviteMember:
         invitation_repo: InvitationRepository,
         membership_repo: MembershipRepository,
         user_repo: UserRepository,
-        event_bus: EventBus,
     ) -> None:
         self.invitation_repo = invitation_repo
         self.membership_repo = membership_repo
         self.user_repo = user_repo
-        self.event_bus = event_bus
 
     async def execute(
         self,
@@ -80,15 +76,6 @@ class InviteMember:
             created_at=now,
         )
         invitation = await self.invitation_repo.save(invitation)
-
-        await self.event_bus.publish(
-            MemberInvited(
-                invitation_id=invitation.id,
-                organization_id=organization_id,
-                email=email,
-                role=role.value,
-            )
-        )
 
         log.info(
             "member_invited",

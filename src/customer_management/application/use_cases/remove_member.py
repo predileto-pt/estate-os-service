@@ -2,12 +2,10 @@ from uuid import UUID
 
 import structlog
 
-from customer_management.application.ports.event_bus import EventBus
 from customer_management.application.ports.repositories.membership_repository import (
     MembershipRepository,
 )
 from customer_management.application.ports.repositories.user_repository import UserRepository
-from customer_management.domain.events import MemberRemoved
 from customer_management.domain.exceptions import (
     InsufficientPermissionError,
     LastOwnerError,
@@ -25,11 +23,9 @@ class RemoveMember:
         self,
         membership_repo: MembershipRepository,
         user_repo: UserRepository,
-        event_bus: EventBus,
     ) -> None:
         self.membership_repo = membership_repo
         self.user_repo = user_repo
-        self.event_bus = event_bus
 
     async def execute(
         self,
@@ -61,14 +57,6 @@ class RemoveMember:
                 raise LastOwnerError()
 
         await self.membership_repo.delete(target.id)
-
-        await self.event_bus.publish(
-            MemberRemoved(
-                membership_id=target.id,
-                user_id=target.user_id,
-                organization_id=target.organization_id,
-            )
-        )
 
         log.info(
             "member_removed",

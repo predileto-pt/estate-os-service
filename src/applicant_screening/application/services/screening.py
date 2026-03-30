@@ -9,19 +9,29 @@ from applicant_screening.application.events import (
     DocumentPayload,
     ScreeningResultPayload,
 )
-from applicant_screening.application.ports.messaging import MessagePublisher
-from applicant_screening.application.ports.repositories.applicant_repository import ApplicantRepository
-from applicant_screening.application.ports.repositories.document_repository import DocumentRepository
+from applicant_screening.application.ports.repositories.applicant_repository import (
+    ApplicantRepository,
+)
+from applicant_screening.application.ports.repositories.document_repository import (
+    DocumentRepository,
+)
 from applicant_screening.application.ports.repositories.event_repository import EventRepository
-from applicant_screening.application.ports.repositories.extracted_data_repository import ExtractedDataRepository
-from applicant_screening.application.ports.repositories.screening_report_repository import ScreeningReportRepository
-from applicant_screening.application.ports.repositories.submission_repository import SubmissionRepository
+from applicant_screening.application.ports.repositories.extracted_data_repository import (
+    ExtractedDataRepository,
+)
+from applicant_screening.application.ports.repositories.screening_report_repository import (
+    ScreeningReportRepository,
+)
+from applicant_screening.application.ports.repositories.submission_repository import (
+    SubmissionRepository,
+)
 from applicant_screening.application.ports.screening import ScreeningAssessor
 from applicant_screening.application.ports.translator import Translator
 from applicant_screening.domain import events
 from applicant_screening.domain.exceptions import ApplicantNotFoundError
 from applicant_screening.domain.models.document import DocumentType
 from applicant_screening.domain.models.submission import SubmissionStatus
+from shared.events import DomainEvent, DomainEventPublisher
 
 logger = structlog.get_logger()
 
@@ -34,9 +44,8 @@ class ScreeningService:
         extracted_data_repo: ExtractedDataRepository,
         report_repo: ScreeningReportRepository,
         assessor: ScreeningAssessor,
-        publisher: MessagePublisher,
         event_repo: EventRepository,
-        events_queue_url: str,
+        domain_event_publisher: DomainEventPublisher,
         submission_repo: SubmissionRepository | None = None,
         translator: Translator | None = None,
     ) -> None:
@@ -45,9 +54,8 @@ class ScreeningService:
         self._extracted_data_repo = extracted_data_repo
         self._report_repo = report_repo
         self._assessor = assessor
-        self._publisher = publisher
         self._event_repo = event_repo
-        self._events_queue_url = events_queue_url
+        self._domain_event_publisher = domain_event_publisher
         self._submission_repo = submission_repo
         self._translator = translator
 
@@ -115,7 +123,9 @@ class ScreeningService:
 
         # Build enriched event for other services
         has_id_document = any(doc.document_type == DocumentType.ID_DOCUMENT for doc in documents)
-        has_proof_of_income = any(doc.document_type == DocumentType.PROOF_OF_INCOME for doc in documents)
+        has_proof_of_income = any(
+            doc.document_type == DocumentType.PROOF_OF_INCOME for doc in documents
+        )
 
         screened_event = ApplicantScreenedEvent(
             applicant_id=applicant.id,
@@ -149,7 +159,9 @@ class ScreeningService:
             screened_at=datetime.now(UTC),
         )
 
-        await self._publisher.publish(
-            self._events_queue_url,
-            screened_event.model_dump(mode="json"),
+        await self._domain_event_publisher.publish(
+            DomainEvent(
+                event_type="APPLICANT_SCREENED",
+                data=screened_event.model_dump(mode="json"),
+            )
         )

@@ -3,7 +3,6 @@ from uuid import uuid4
 
 import structlog
 
-from customer_management.application.ports.event_bus import EventBus
 from customer_management.application.ports.repositories.invitation_repository import (
     InvitationRepository,
 )
@@ -17,7 +16,6 @@ from customer_management.application.ports.repositories.subscription_repository 
     SubscriptionRepository,
 )
 from customer_management.application.ports.repositories.user_repository import UserRepository
-from customer_management.domain.events import MemberJoined, UserRegistered
 from customer_management.domain.exceptions import UserAlreadyExistsError
 from customer_management.domain.models.invitation import InvitationStatus
 from customer_management.domain.models.membership import Membership, MembershipRole
@@ -42,14 +40,12 @@ class RegisterUser:
         subscription_repo: SubscriptionRepository,
         membership_repo: MembershipRepository,
         invitation_repo: InvitationRepository,
-        event_bus: EventBus,
     ) -> None:
         self.user_repo = user_repo
         self.organization_repo = organization_repo
         self.subscription_repo = subscription_repo
         self.membership_repo = membership_repo
         self.invitation_repo = invitation_repo
-        self.event_bus = event_bus
 
     async def execute(
         self,
@@ -132,18 +128,6 @@ class RegisterUser:
             updated_at=now,
         )
         await self.membership_repo.save(membership)
-
-        await self.event_bus.publish(
-            UserRegistered(user_id=user.id, email=user.email, organization_id=organization_id)
-        )
-        await self.event_bus.publish(
-            MemberJoined(
-                membership_id=membership.id,
-                user_id=user.id,
-                organization_id=organization_id,
-                role=role.value,
-            )
-        )
 
         log.info("user_registered", user_id=str(user.id), email=user.email)
         return user

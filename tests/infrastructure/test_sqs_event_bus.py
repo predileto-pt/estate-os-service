@@ -1,7 +1,7 @@
 import json
 
 from property_management.adapters.queue.sqs_event_bus import SQSEventBus
-from property_management.domain.events import PropertyCreated, PropertyExtractionRequested
+from property_management.domain.events import PropertyExtractionRequested
 
 
 async def test_publish_and_receive(localstack_url, sqs_queue_url, sqs_client):
@@ -35,7 +35,7 @@ async def test_publish_multiple_messages(localstack_url, sqs_queue_url, sqs_clie
     )
 
     for i in range(3):
-        await event_bus.publish(PropertyCreated(property_id=str(i)))
+        await event_bus.publish(PropertyExtractionRequested(job_id=f"job-{i}"))
 
     received = []
     for _ in range(3):

@@ -3,7 +3,6 @@ from uuid import uuid4
 
 import pytest
 
-from customer_management.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
 from customer_management.adapters.inmemory.inmemory_invitation_repo import (
     InMemoryInvitationRepository,
 )
@@ -25,13 +24,11 @@ def invite_use_case():
     invitation_repo = InMemoryInvitationRepository()
     membership_repo = InMemoryMembershipRepository()
     user_repo = InMemoryUserRepository()
-    event_bus = InMemoryEventBus()
     return (
         InviteMember(
             invitation_repo=invitation_repo,
             membership_repo=membership_repo,
             user_repo=user_repo,
-            event_bus=event_bus,
         ),
         user_repo,
         membership_repo,

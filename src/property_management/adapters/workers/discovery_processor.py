@@ -9,26 +9,23 @@ from property_management.domain.exceptions import (
 log = structlog.get_logger()
 
 
-async def process_event(body: dict, container: Container) -> None:
-    event_type = body.get("event_type")
-    data = body.get("data", {})
+async def handle_property_created(data: dict, context) -> None:
+    """Handle PROPERTY_CREATED event — discover amenities for the new property."""
+    container = context["property"]
     property_id = data.get("property_id")
+    if not property_id:
+        log.warning("discovery.missing_property_id", data=data)
+        return
+    try:
+        await container.discover_property_amenities.execute(property_id=property_id)
+    except PropertyMissingCoordinatesError:
+        log.info("discovery.skipped_no_coordinates", property_id=property_id)
+    except PropertyNotFoundError:
+        log.warning("discovery.property_not_found", property_id=property_id)
 
-    if event_type == "PROPERTY_CREATED":
-        if not property_id:
-            log.warning("discovery.missing_property_id", body=body)
-            return
-        try:
-            await container.discover_property_amenities.execute(property_id=property_id)
-        except PropertyMissingCoordinatesError:
-            log.info(
-                "discovery.skipped_no_coordinates",
-                property_id=property_id,
-            )
-        except PropertyNotFoundError:
-            log.warning(
-                "discovery.property_not_found",
-                property_id=property_id,
-            )
-    else:
-        log.warning("discovery.unknown_event_type", event_type=event_type)
+
+async def process_event(body: dict, container: Container) -> None:
+    """Legacy entry point for direct worker calls."""
+    data = body.get("data", {})
+    context = {"property": container}
+    await handle_property_created(data, context)

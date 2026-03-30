@@ -3,7 +3,6 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from customer_management.adapters.inmemory.inmemory_email_service import InMemoryEmailService
-from customer_management.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
 from customer_management.adapters.inmemory.inmemory_invitation_repo import (
     InMemoryInvitationRepository,
 )
@@ -93,11 +92,6 @@ def email_service():
 
 
 @pytest.fixture
-def event_bus():
-    return InMemoryEventBus()
-
-
-@pytest.fixture
 def property_repo():
     return InMemoryPropertyRepository()
 
@@ -122,7 +116,6 @@ def container(
     invitation_repo,
     portal_user_repo,
     email_service,
-    event_bus,
 ):
     return Container(
         user_repo=user_repo,
@@ -133,7 +126,6 @@ def container(
         invitation_repo=invitation_repo,
         portal_user_repo=portal_user_repo,
         email_service=email_service,
-        event_bus=event_bus,
     )
 
 

@@ -10,6 +10,8 @@ from alembic import context
 from shared.config import Settings
 from shared.database.models import Base
 import applicant_screening.adapters.database.models  # noqa: F401 — register models for autogenerate
+import booking_management.adapters.database.models  # noqa: F401 — register models for autogenerate
+import contract_intelligence.adapters.database.models  # noqa: F401 — register models for autogenerate
 import customer_management.adapters.database.models  # noqa: F401 — register models for autogenerate
 import property_management.adapters.database.models  # noqa: F401 — register models for autogenerate
 

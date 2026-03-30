@@ -1,19 +1,30 @@
 from applicant_screening.application.ports.extractor import DocumentExtractor
 from applicant_screening.application.ports.messaging import MessageConsumer, MessagePublisher
-from applicant_screening.application.ports.repositories.applicant_repository import ApplicantRepository
-from applicant_screening.application.ports.repositories.document_repository import DocumentRepository
+from applicant_screening.application.ports.repositories.applicant_repository import (
+    ApplicantRepository,
+)
+from applicant_screening.application.ports.repositories.document_repository import (
+    DocumentRepository,
+)
 from applicant_screening.application.ports.repositories.event_repository import EventRepository
-from applicant_screening.application.ports.repositories.extracted_data_repository import ExtractedDataRepository
+from applicant_screening.application.ports.repositories.extracted_data_repository import (
+    ExtractedDataRepository,
+)
 from applicant_screening.application.ports.repositories.intake_form_request_repository import (
     IntakeFormRequestRepository,
 )
-from applicant_screening.application.ports.repositories.screening_report_repository import ScreeningReportRepository
-from applicant_screening.application.ports.repositories.submission_repository import SubmissionRepository
+from applicant_screening.application.ports.repositories.screening_report_repository import (
+    ScreeningReportRepository,
+)
+from applicant_screening.application.ports.repositories.submission_repository import (
+    SubmissionRepository,
+)
 from applicant_screening.application.ports.screening import ScreeningAssessor
 from applicant_screening.application.ports.translator import Translator
 from applicant_screening.application.services.extraction import ExtractionService
 from applicant_screening.application.services.screening import ScreeningService
 from applicant_screening.application.services.submission import SubmissionService
+from shared.events import DomainEventPublisher
 from shared.ports.document_storage import DocumentStorage
 
 
@@ -31,9 +42,9 @@ class Container:
         publisher: MessagePublisher,
         extractor: DocumentExtractor,
         assessor: ScreeningAssessor,
+        domain_event_publisher: DomainEventPublisher,
         extraction_queue_url: str,
         screening_queue_url: str,
-        events_queue_url: str,
         max_documents: int = 5,
         consumer: MessageConsumer | None = None,
         translator: Translator | None = None,
@@ -51,9 +62,9 @@ class Container:
         self.extractor = extractor
         self.assessor = assessor
         self.translator = translator
+        self.domain_event_publisher = domain_event_publisher
         self.extraction_queue_url = extraction_queue_url
         self.screening_queue_url = screening_queue_url
-        self.events_queue_url = events_queue_url
         self.max_documents = max_documents
 
         self.submission_service = SubmissionService(
@@ -83,9 +94,8 @@ class Container:
             extracted_data_repo=extracted_data_repo,
             report_repo=screening_report_repo,
             assessor=assessor,
-            publisher=publisher,
             event_repo=event_repo,
-            events_queue_url=events_queue_url,
+            domain_event_publisher=domain_event_publisher,
             submission_repo=submission_repo,
             translator=translator,
         )

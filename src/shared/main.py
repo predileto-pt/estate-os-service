@@ -32,6 +32,17 @@ from applicant_screening.adapters.api.routes import (
     submissions,
 )
 from properties_listing.adapters.api.routes import listings
+from booking_management.adapters.api.routes import (
+    bookings as booking_admin,
+    portal_bookings,
+    slots,
+)
+from contract_intelligence.adapters.api.routes import (
+    generated_contracts,
+    review as contract_review,
+    source_documents,
+    template_versions,
+)
 
 
 def create_app(
@@ -39,6 +50,8 @@ def create_app(
     property_container=None,
     applicant_screening_container=None,
     listing_container=None,
+    booking_container=None,
+    contract_intelligence_container=None,
 ) -> FastAPI:
     setup_logging(settings.log_level)
 
@@ -47,7 +60,9 @@ def create_app(
         if not hasattr(app.state, "container") or app.state.container is None:
             from shared.entrypoints.bootstrap import (
                 get_applicant_screening_container,
+                get_booking_container,
                 get_container,
+                get_contract_intelligence_container,
                 get_listing_container,
                 get_property_container,
             )
@@ -57,6 +72,8 @@ def create_app(
             app.state.applicant_screening_container = await get_applicant_screening_container()
             listing_cont = await get_listing_container()
             app.state.listing_container = listing_cont
+            app.state.booking_container = await get_booking_container()
+            app.state.contract_intelligence_container = await get_contract_intelligence_container()
             # Expose document storage for image presigned URLs in listing context
             app.state._listing_document_storage = getattr(
                 app.state.property_container, "document_storage", None
@@ -89,9 +106,22 @@ def create_app(
             {"name": "property-images", "description": "Property image management"},
             {"name": "property-amenities", "description": "Property amenity discovery"},
             {"name": "property-listings", "description": "Public property listings"},
-            {"name": "applicant-submissions", "description": "Applicant document submission and screening"},
+            {
+                "name": "applicant-submissions",
+                "description": "Applicant document submission and screening",
+            },
             {"name": "intake-form-requests", "description": "Intake form request management"},
             {"name": "applicants", "description": "Applicant listing and details"},
+            {"name": "booking-slots", "description": "Visit slot management"},
+            {"name": "booking-bookings", "description": "Visit booking management"},
+            {"name": "portal-bookings", "description": "Portal booking for applicants"},
+            {
+                "name": "contract-source-documents",
+                "description": "Contract source document management",
+            },
+            {"name": "contract-review", "description": "Contract section and field review"},
+            {"name": "contract-templates", "description": "Contract template version management"},
+            {"name": "contract-generation", "description": "Contract generation from templates"},
         ],
     )
 
@@ -138,6 +168,19 @@ def create_app(
     app.include_router(intake_forms.router, prefix="/api/v1/admin")
     app.include_router(screening_applicants.router, prefix="/api/v1/admin")
 
+    # Booking management — admin (JWT auth: agency staff)
+    app.include_router(slots.router, prefix="/api/v1/admin")
+    app.include_router(booking_admin.router, prefix="/api/v1/admin")
+
+    # Booking management — portal (applicant-facing)
+    app.include_router(portal_bookings.router, prefix="/api/v1/portal")
+
+    # Contract intelligence — admin (JWT auth: agency staff)
+    app.include_router(source_documents.router, prefix="/api/v1/admin")
+    app.include_router(contract_review.router, prefix="/api/v1/admin")
+    app.include_router(template_versions.router, prefix="/api/v1/admin")
+    app.include_router(generated_contracts.router, prefix="/api/v1/admin")
+
     # DI container (set by tests; production uses lifespan)
     if container:
         app.state.container = container
@@ -147,6 +190,10 @@ def create_app(
         app.state.applicant_screening_container = applicant_screening_container
     if listing_container:
         app.state.listing_container = listing_container
+    if booking_container:
+        app.state.booking_container = booking_container
+    if contract_intelligence_container:
+        app.state.contract_intelligence_container = contract_intelligence_container
 
     return app
 

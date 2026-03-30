@@ -25,12 +25,11 @@ class Settings(BaseSettings):
     aws_endpoint_url: str | None = None
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
-    sqs_queue_url: str = ""
-    sqs_events_queue_url: str = ""
-    sqs_property_extraction_queue_url: str = ""
-    sqs_property_discovery_queue_url: str = ""
+    # Domain Events (single unified queue for cross-context events)
+    sqs_domain_events_queue_url: str = ""
 
-    # Applicant Screening SQS
+    # Internal pipeline commands (context-specific)
+    sqs_property_extraction_queue_url: str = ""
     sqs_applicant_extraction_queue_url: str = ""
     sqs_applicant_screening_queue_url: str = ""
 
@@ -50,6 +49,20 @@ class Settings(BaseSettings):
 
     # Reducto
     reducto_api_key: str = ""
+
+    # Booking Management
+    booking_token_secret: str = ""
+    booking_link_url: str = "https://portal.predileto.com/book"
+
+    # Contract Intelligence
+    sqs_contract_ingestion_queue_url: str = ""
+    sqs_contract_analysis_queue_url: str = ""
+    sqs_contract_ingestion_dlq_url: str = ""
+    sqs_contract_analysis_dlq_url: str = ""
+    contract_s3_bucket_name: str = "contract-intelligence-documents"
+    reducto_pipeline_id: str = ""
+    contract_heartbeat_interval: int = 60
+    contract_heartbeat_extension: int = 120
 
     # Logfire
     logfire_token: str = ""

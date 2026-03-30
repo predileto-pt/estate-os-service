@@ -4,7 +4,6 @@ from uuid import uuid4
 
 import pytest
 
-from customer_management.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
 from customer_management.adapters.inmemory.inmemory_invitation_repo import (
     InMemoryInvitationRepository,
 )
@@ -31,14 +30,12 @@ def register_use_case():
     subscription_repo = InMemorySubscriptionRepository()
     membership_repo = InMemoryMembershipRepository()
     invitation_repo = InMemoryInvitationRepository()
-    event_bus = InMemoryEventBus()
     uc = RegisterUser(
         user_repo=user_repo,
         organization_repo=organization_repo,
         subscription_repo=subscription_repo,
         membership_repo=membership_repo,
         invitation_repo=invitation_repo,
-        event_bus=event_bus,
     )
     return uc, user_repo, organization_repo, subscription_repo, membership_repo, invitation_repo
 

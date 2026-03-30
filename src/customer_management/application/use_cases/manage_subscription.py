@@ -3,11 +3,9 @@ from uuid import UUID, uuid4
 
 import structlog
 
-from customer_management.application.ports.event_bus import EventBus
 from customer_management.application.ports.repositories.subscription_repository import (
     SubscriptionRepository,
 )
-from customer_management.domain.events import SubscriptionCreated, SubscriptionUpdated
 from customer_management.domain.exceptions import SubscriptionNotFoundError
 from customer_management.domain.models.subscription import (
     Subscription,
@@ -23,10 +21,8 @@ class CreateSubscription:
     def __init__(
         self,
         subscription_repo: SubscriptionRepository,
-        event_bus: EventBus,
     ) -> None:
         self.subscription_repo = subscription_repo
-        self.event_bus = event_bus
 
     async def execute(
         self,
@@ -56,14 +52,6 @@ class CreateSubscription:
         )
         subscription = await self.subscription_repo.save(subscription)
 
-        await self.event_bus.publish(
-            SubscriptionCreated(
-                subscription_id=subscription.id,
-                organization_id=organization_id,
-                plan=plan.value,
-            )
-        )
-
         log.info("subscription_created", subscription_id=str(subscription.id))
         return subscription
 
@@ -72,10 +60,8 @@ class UpdateSubscription:
     def __init__(
         self,
         subscription_repo: SubscriptionRepository,
-        event_bus: EventBus,
     ) -> None:
         self.subscription_repo = subscription_repo
-        self.event_bus = event_bus
 
     async def execute(
         self,
@@ -91,8 +77,6 @@ class UpdateSubscription:
         if not subscription:
             raise SubscriptionNotFoundError(str(subscription_id))
 
-        old_status = subscription.status.value
-
         subscription.update(
             status=status,
             stripe_subscription_id=stripe_subscription_id,
@@ -102,15 +86,6 @@ class UpdateSubscription:
         )
 
         subscription = await self.subscription_repo.update(subscription)
-
-        if status is not None:
-            await self.event_bus.publish(
-                SubscriptionUpdated(
-                    subscription_id=subscription.id,
-                    old_status=old_status,
-                    new_status=subscription.status.value,
-                )
-            )
 
         log.info("subscription_updated", subscription_id=str(subscription.id))
         return subscription

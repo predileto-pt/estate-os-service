@@ -41,7 +41,9 @@ class TestDiscoveryProcessor:
 
         container.discover_property_amenities.execute.assert_not_called()
 
-    async def test_unknown_event_type(self, container):
+    async def test_unknown_event_type_still_processes(self, container):
+        """Event type filtering is now done by the shared EventRouter.
+        The processor always calls handle_property_created with the data."""
         body = {
             "event_type": "UNKNOWN_EVENT",
             "data": {"property_id": str(uuid4())},
@@ -49,7 +51,7 @@ class TestDiscoveryProcessor:
 
         await process_event(body, container)
 
-        container.discover_property_amenities.execute.assert_not_called()
+        container.discover_property_amenities.execute.assert_called_once()
 
     async def test_missing_coordinates_handled_gracefully(self, container):
         container.discover_property_amenities.execute = AsyncMock(

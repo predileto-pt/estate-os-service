@@ -7,7 +7,6 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from customer_management.adapters.inmemory.inmemory_email_service import InMemoryEmailService
-from customer_management.adapters.inmemory.inmemory_event_bus import InMemoryEventBus
 from customer_management.adapters.inmemory.inmemory_invitation_repo import (
     InMemoryInvitationRepository,
 )
@@ -65,7 +64,6 @@ def openai_app(id_extractor, monkeypatch):
         membership_repo=InMemoryMembershipRepository(),
         invitation_repo=InMemoryInvitationRepository(),
         email_service=InMemoryEmailService(),
-        event_bus=InMemoryEventBus(),
     )
     property_container = PropertyContainer(
         property_repo=InMemoryPropertyRepository(),

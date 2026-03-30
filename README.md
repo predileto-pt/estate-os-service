@@ -42,8 +42,10 @@ Edit `.env` with your values:
 | `DATABASE_URL` | PostgreSQL connection for Alembic (`postgresql+asyncpg://...`) |
 | `RESEND_API_KEY` | [Resend](https://resend.com) API key |
 | `AWS_ENDPOINT_URL` | LocalStack endpoint (default: `http://localhost:4566`) |
-| `SQS_QUEUE_URL` | SQS queue URL for domain events |
-| `SQS_PROPERTY_DISCOVERY_QUEUE_URL` | SQS queue for property discovery events |
+| `SQS_DOMAIN_EVENTS_QUEUE_URL` | Unified SQS queue for cross-context domain events |
+| `SQS_PROPERTY_EXTRACTION_QUEUE_URL` | SQS task queue for property extraction commands |
+| `SQS_APPLICANT_EXTRACTION_QUEUE_URL` | SQS task queue for applicant document extraction commands |
+| `SQS_APPLICANT_SCREENING_QUEUE_URL` | SQS task queue for applicant screening commands |
 | `GOOGLE_MAPS_API_KEY` | Google Maps API key (Places API enabled) |
 | `CORS_ORIGINS` | Comma-separated allowed origins |
 
@@ -72,7 +74,7 @@ uv run alembic downgrade -1
 uv run alembic stamp head
 ```
 
-Schema is defined in SQLAlchemy models at `src/customer_management/adapters/database/models.py` and `src/property_management/adapters/database/models.py`.
+Schema is defined in SQLAlchemy models across bounded contexts: `src/customer_management/adapters/database/models.py`, `src/property_management/adapters/database/models.py`, `src/applicant_screening/adapters/database/models.py`, and `src/booking_management/adapters/database/models.py`.
 
 **Adopting on an existing database:** If the database already has the schema (e.g. production), stamp it as current without executing any DDL:
 
@@ -212,6 +214,54 @@ All endpoints are prefixed with `/api/v1`. Authenticated endpoints require a Sup
 | `GET` | `/extraction-jobs` | List jobs by organization |
 | `GET` | `/extraction-jobs/{id}` | Get job status |
 
+### Applicant Screening (Admin — `/api/v1/admin`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/applicants` | List applicants for organization |
+| `GET` | `/applicants/{id}` | Get applicant detail with screening report |
+| `POST` | `/intake-form-requests` | Create intake form request |
+| `GET` | `/intake-form-requests` | List intake form requests |
+| `GET` | `/intake-form-requests/{id}` | Get intake form request |
+
+### Applicant Screening (Portal — `/api/v1/portal`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/submissions/uploads/presign` | Get presigned S3 URLs for document uploads |
+| `POST` | `/submissions` | Submit applicant documents for screening |
+| `GET` | `/submissions/{applicant_id}/status` | Check screening status |
+
+### Property Listings (Public — `/api/v1/listings`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/properties` | List active properties with filtering and pagination |
+| `GET` | `/properties/{id}` | Get single active property detail |
+
+Query parameters for listing: `listing_type`, `typology`, `min_price`, `max_price`, `district`, `limit`, `offset`.
+
+### Booking Management (Admin — `/api/v1/admin`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/slots` | Create a visit time slot for a property |
+| `GET` | `/slots` | List slots (filter by `property_id` or agent) |
+| `GET` | `/slots/{id}` | Get slot details |
+| `DELETE` | `/slots/{id}` | Cancel a slot (cascades to booking if booked) |
+| `GET` | `/bookings` | List bookings for organization |
+| `GET` | `/bookings/{id}` | Get booking details |
+| `DELETE` | `/bookings/{id}` | Cancel a booking (agent cancellation) |
+| `POST` | `/booking-invitations` | Generate signed booking invitation link |
+
+### Booking Management (Portal — `/api/v1/portal`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/properties/{id}/slots` | List available slots for a property (future only) |
+| `POST` | `/bookings` | Create a booking (requires booking invitation token) |
+| `GET` | `/bookings/status` | List applicant's bookings |
+
 ## Architecture
 
 ```
@@ -237,18 +287,21 @@ src/customer_management/
 └── main.py           # FastAPI app factory
 ```
 
-### Two Bounded Contexts
+### Bounded Contexts
 
-The service hosts two independent bounded contexts, each following the same hexagonal structure:
+The service hosts five independent bounded contexts, each following the same hexagonal structure:
 
-| Context | Package | Entities |
-|---------|---------|----------|
-| **Customer Management** | `src/customer_management/` | User, Company, Subscription, Notification |
-| **Property Management** | `src/property_management/` | Property, PropertyOwner, PropertyImage, PropertyAmenity, ExtractionJob, PropertyCharacteristics, DocumentContent |
+| Context | Package | Entities | Persistence |
+|---------|---------|----------|-------------|
+| **Customer Management** | `src/customer_management/` | User, Organization, Subscription, Notification, Membership, Invitation, PortalUser | Supabase client |
+| **Property Management** | `src/property_management/` | Property, PropertyOwner, PropertyImage, PropertyAmenity, ExtractionJob, DocumentContent | Supabase client |
+| **Applicant Screening** | `src/applicant_screening/` | Applicant, Document, ExtractedData, ScreeningReport, Submission, IntakeFormRequest | SQLAlchemy + Alembic |
+| **Properties Listing** | `src/properties_listing/` | ListedProperty (read-only view of property_management data) | SQLAlchemy (read-only) |
+| **Booking Management** | `src/booking_management/` | Slot, Booking, BookingApplicant | SQLAlchemy + Alembic |
 
-Both are wired in `shared/main.py` via `create_app(container, property_container)` and bootstrapped for production in `shared/entrypoints/bootstrap.py`. Neither context imports from the other.
+All are wired in `shared/main.py` via `create_app()` and bootstrapped in `shared/entrypoints/bootstrap.py`. Contexts do not import from each other (cross-context access happens at the route level via `app.state`).
 
-Shared infrastructure lives in `src/shared/` — config, middleware, database Base, app factory, bootstrap, and Lambda handler.
+Shared infrastructure lives in `src/shared/` — config, middleware, database Base, app factory, bootstrap, S3 storage, and Lambda handler.
 
 ### Property Management
 
@@ -295,7 +348,8 @@ Images with presigned download URLs are returned inline in `PropertyResponse`.
 | `DocumentDataExtractor` | AI owner data from ID doc text | `OpenAIIdDocumentExtractor` |
 | `DocumentClassifier` | AI document classification from text | `OpenAITextDocumentClassifier` |
 | `DocumentStorage` | S3 file upload/download/presigned URLs | `S3DocumentStorage` |
-| `EventBus` | SQS event publishing | `SQSEventBus` |
+| `EventBus` | SQS internal pipeline commands | `SQSEventBus` |
+| `DomainEventPublisher` | Cross-context domain event publishing | `SQSDomainEventPublisher` |
 | `PlacesService` | Nearby amenity discovery | `GooglePlacesService` |
 | `PropertyAmenityRepository` | CRUD for property amenities | `SupabasePropertyAmenityRepository` |
 
@@ -320,25 +374,7 @@ docker build -t core-api .
 docker run -p 8000:8000 --env-file .env core-api
 ```
 
-## Running the Intake Form Flow Locally
-
-The intake form flow spans three services. When an applicant submits the form, the screening service processes their documents and publishes an `APPLICANT_SCREENED` event to SQS. The core-api events worker consumes that event and creates an applicant row that the agencies-dashboard reads.
-
-```
-agencies-dashboard          applicants-screening-service         core-api
-      │                              │                              │
-      │  create intake form request  │                              │
-      ├──────────────────────────────┼──────────────────────────────►│ (Supabase)
-      │                              │                              │
-      │  applicant submits form      │                              │
-      ├─────────────────────────────►│                              │
-      │                              │ screen & publish event       │
-      │                              ├──────── SQS ────────────────►│
-      │                              │   APPLICANT_SCREENED         │ events worker
-      │                              │                              │ creates applicant
-      │  dashboard reads applicants  │                              │
-      ├──────────────────────────────┼──────────────────────────────►│ (Supabase)
-```
+## Running Locally
 
 ### Prerequisites
 
@@ -349,231 +385,318 @@ agencies-dashboard          applicants-screening-service         core-api
 
 ### 1. Start infrastructure
 
-Each service has its own `docker-compose.yml`. Start both:
-
 ```bash
-# Terminal 1 — screening service infra (Postgres + LocalStack with S3/SQS queues)
-cd applicants-screening-service
-docker compose up -d
-
-# Terminal 2 — core-api infra (LocalStack with SQS queues)
-cd core-api
 docker compose up -d
 ```
 
-The screening service LocalStack creates: `document-extraction-queue`, `screening-assessment-queue`, `screening-events-queue`.
-The core-api LocalStack creates: `core-api-events`, `screening-events-queue`.
+LocalStack creates these SQS queues:
 
-> **Note:** If running both on the same machine, they share port 4566. Either run only the screening service's docker-compose (it creates all needed queues), or change the core-api LocalStack to a different port.
->
-> Simplest approach — use a single LocalStack instance. Start only the screening service's docker-compose, then create the extra core-api queue manually:
->
-> ```bash
-> cd applicants-screening-service
-> docker compose up -d
-> aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name core-api-events
-> ```
+| Queue | Purpose |
+|-------|---------|
+| `domain-events` | **Unified domain events** — all cross-context events (APPLICANT_SCREENED, PROPERTY_CREATED, etc.) |
+| `property-extraction-queue` | Internal task queue — property document extraction commands |
+| `applicant-extraction-queue` | Internal task queue — applicant document extraction commands |
+| `applicant-screening-queue` | Internal task queue — applicant screening commands |
+
+The first queue carries **domain events** (things that happened, consumed by multiple contexts). The other three carry **pipeline commands** (work to be done, consumed by a single dedicated worker each). Commands stay on separate queues for independent scaling — extraction is I/O bound (Reducto API calls), screening is LLM bound (OpenAI).
 
 ### 2. Configure environment
 
 ```bash
-# Screening service
-cd applicants-screening-service
 cp .env.example .env
-# Edit .env — set DATABASE_URL, OPENAI_API_KEY, REDUCTO_API_KEY, encryption keys
-
-# Core API
-cd core-api
-cp .env.example .env
-# Edit .env — set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET
+# Edit .env — set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET, DATABASE_URL
 ```
 
-Key env vars for the events flow:
+Key SQS env vars:
 
-| Service | Variable | Value |
-|---------|----------|-------|
-| screening | `SQS_EVENTS_QUEUE_URL` | `http://localhost:4566/000000000000/screening-events-queue` |
-| core-api | `SQS_EVENTS_QUEUE_URL` | `http://localhost:4566/000000000000/screening-events-queue` |
-| both | `AWS_ENDPOINT_URL` | `http://localhost:4566` |
-| both | `AWS_ACCESS_KEY_ID` | `test` |
-| both | `AWS_SECRET_ACCESS_KEY` | `test` |
-
-Both services must point `SQS_EVENTS_QUEUE_URL` to the **same queue** so the screening service publishes and core-api consumes from it.
+| Variable | Local Value |
+|----------|-------------|
+| `SQS_DOMAIN_EVENTS_QUEUE_URL` | `http://localhost:4566/000000000000/domain-events` |
+| `SQS_PROPERTY_EXTRACTION_QUEUE_URL` | `http://localhost:4566/000000000000/property-extraction-queue` |
+| `SQS_APPLICANT_EXTRACTION_QUEUE_URL` | `http://localhost:4566/000000000000/applicant-extraction-queue` |
+| `SQS_APPLICANT_SCREENING_QUEUE_URL` | `http://localhost:4566/000000000000/applicant-screening-queue` |
+| `AWS_ENDPOINT_URL` | `http://localhost:4566` |
+| `AWS_ACCESS_KEY_ID` | `test` |
+| `AWS_SECRET_ACCESS_KEY` | `test` |
 
 ### 3. Run database migrations
 
 ```bash
-# Screening service (local Postgres from docker-compose)
-cd applicants-screening-service
-uv run alembic upgrade head
-
-# Core API (Supabase Postgres)
-cd core-api
 uv run alembic upgrade head
 ```
 
 ### 4. Start all services
 
-You need several processes. Use separate terminals or a process manager like [overmind](https://github.com/DarthSim/overmind)/[foreman](https://github.com/ddollar/foreman):
+Use separate terminals or a process manager like [overmind](https://github.com/DarthSim/overmind)/[foreman](https://github.com/ddollar/foreman):
 
 ```bash
-# Terminal 1 — Screening API (receives form submissions)
-cd applicants-screening-service
-uv run uvicorn applicant_screening.entrypoints.api:create_app --factory --reload --port 8001
-
-# Terminal 2 — Screening extraction worker
-cd applicants-screening-service
-uv run python -m applicant_screening.entrypoints.worker --queue extraction
-
-# Terminal 3 — Screening assessment worker
-cd applicants-screening-service
-uv run python -m applicant_screening.entrypoints.worker --queue screening
-
-# Terminal 4 — Core API server
-cd core-api
+# Terminal 1 — API server
 uv run uvicorn shared.main:app --reload --port 8000
 
-# Terminal 5 — Core API events worker (consumes APPLICANT_SCREENED)
-cd core-api
-uv run python -m customer_management.entrypoints.worker --queue events
+# Terminal 2 — Domain events worker (routes APPLICANT_SCREENED, PROPERTY_CREATED, etc.)
+uv run python -m shared.entrypoints.events_worker
 
-# Terminal 6 — Property discovery worker (discovers nearby amenities)
-cd core-api
-uv run python -m property_management.entrypoints.worker --queue discovery
+# Terminal 3 — Property extraction worker
+uv run python -m property_management.entrypoints.worker --queue extraction
 
-# Terminal 8 — Agencies dashboard
-cd agencies-dashboard
-npm run dev
+# Terminal 4 — Applicant extraction worker
+uv run python -m applicant_screening.entrypoints.worker --queue extraction
 
-# Terminal 9 — Applicant intake form (Vite)
-cd applicants-intake-form
-npm run dev
+# Terminal 5 — Applicant screening worker
+uv run python -m applicant_screening.entrypoints.worker --queue screening
+
+# Terminal 6 — Agencies dashboard
+cd ../estate-os && npm run dev
+
+# Terminal 7 — Applicant intake form
+cd ../applicants-intake-form && npm run dev
 ```
 
 ### 5. End-to-end test
 
 1. Open the agencies dashboard at `http://localhost:4000`
-2. Navigate to **Intake Forms** and create a new request (fill in applicant name, email, property ID)
-3. Open the link sent to the applicant (or go to `http://localhost:5173/<form-request-id>`)
+2. Navigate to **Intake Forms** and create a new request
+3. Open the applicant link (or go to `http://localhost:5173/<form-request-id>`)
 4. Submit the intake form with documents
-5. Watch the screening workers process the documents (extraction → screening)
-6. The core-api events worker picks up the `APPLICANT_SCREENED` event and creates an applicant row
+5. Watch the extraction → screening pipeline process the documents
+6. The domain events worker picks up `APPLICANT_SCREENED` and:
+   - Sends a notification email (customer_management handler)
+   - Creates a booking-context applicant (booking_management handler)
 7. Refresh the dashboard — the new applicant appears in the **Applicants** list
 
 ### Manually publishing a test event
 
-To test the core-api events worker without running the full screening pipeline:
+To test the domain events worker without running the full pipeline:
 
 ```bash
 aws --endpoint-url=http://localhost:4566 sqs send-message \
-  --queue-url http://localhost:4566/000000000000/screening-events-queue \
+  --queue-url http://localhost:4566/000000000000/domain-events \
   --message-body '{
     "event_type": "APPLICANT_SCREENED",
-    "applicant_id": "00000000-0000-0000-0000-000000000001",
-    "form_request_id": "<a-real-intake-form-request-id>",
-    "owner_id": "<agency-user-uuid>",
-    "name": "João Silva",
-    "email": "joao@example.com",
-    "date_of_birth": "1990-05-15",
-    "property_type": "RENTAL",
-    "monthly_rent": 850.0,
-    "has_id_document": true,
-    "has_proof_of_income": true,
-    "documents": [],
-    "screening": {
-      "risk_level": "LOW",
-      "identity_verified": true,
-      "income_verified": true,
-      "dti_ratio": 0.28,
-      "justification": "All checks passed.",
-      "average_monthly_income": 3000.0
-    },
-    "screened_at": "2026-03-08T12:00:00Z"
+    "event_id": "test-event-001",
+    "occurred_at": "2026-03-30T12:00:00Z",
+    "data": {
+      "applicant_id": "00000000-0000-0000-0000-000000000001",
+      "form_request_id": "<a-real-intake-form-request-id>",
+      "organization_id": "<agency-org-uuid>",
+      "name": "João Silva",
+      "email": "joao@example.com",
+      "date_of_birth": "1990-05-15",
+      "listing_type": "ARRENDAMENTO",
+      "monthly_rent": 850.0,
+      "has_id_document": true,
+      "has_proof_of_income": true,
+      "documents": [],
+      "screening": {
+        "risk_level": "LOW",
+        "identity_verified": true,
+        "income_verified": true,
+        "dti_ratio": 0.28,
+        "justification": "All checks passed.",
+        "average_monthly_income": 3000.0
+      },
+      "screened_at": "2026-03-30T12:00:00Z"
+    }
   }'
 ```
 
-Replace `form_request_id` and `owner_id` with real UUIDs from your Supabase `intake_form_requests` table. The events worker will log `screening_result_processed` and the applicant row will appear in the `applicants` table.
+Note the unified envelope format: `{event_type, event_id, occurred_at, data: {...}}`. All domain events follow this structure.
 
-## Property Extraction Worker
+## Workers
 
-The property extraction worker processes document extraction jobs from SQS.
+### Domain Events Worker
 
-### Running the worker
+The unified domain events worker polls the single `domain-events` queue and routes events to handlers registered from all bounded contexts. One event can trigger multiple handlers.
+
+```bash
+uv run python -m shared.entrypoints.events_worker
+```
+
+| Event | Handlers |
+|-------|----------|
+| `APPLICANT_SCREENED` | customer_management (send notification email), booking_management (create booking applicant) |
+| `PROPERTY_CREATED` | property_management (discover nearby amenities via Google Places API) |
+
+In production, deploy as a Lambda function: `shared.entrypoints.lambda_events.handler`.
+
+#### Event Envelope Format
+
+All domain events follow the same structure:
+
+```json
+{
+  "event_type": "APPLICANT_SCREENED",
+  "event_id": "uuid",
+  "occurred_at": "2026-03-30T12:00:00+00:00",
+  "data": { ... }
+}
+```
+
+Event types are defined in `src/shared/events/types.py`. Handlers are registered in `src/shared/entrypoints/events_worker.py:_build_router()`.
+
+### Property Extraction Worker
+
+Processes property document extraction jobs from the `property-extraction-queue` task queue.
 
 ```bash
 uv run python -m property_management.entrypoints.worker --queue extraction
 ```
 
-### Retrying a failed extraction job
-
-If an extraction job fails (e.g. due to a transient error), you can retry it via CLI or API.
-
-**CLI:**
+Retry a failed job:
 
 ```bash
+# CLI
 uv run python -m property_management.entrypoints.worker --retry-job <job_id>
-```
 
-This marks the job as `retrying`, re-publishes the extraction event to SQS, and exits. The running worker will then pick up and reprocess the job.
-
-**API:**
-
-```bash
+# API
 curl -X POST http://localhost:8000/api/v1/extraction-jobs/<job_id>/retry \
   -H "Authorization: Bearer <token>"
 ```
 
-Only jobs with `failed` status can be retried.
+### Applicant Extraction + Screening Workers
 
-## Property Discovery Worker
-
-The property discovery worker listens for `PROPERTY_CREATED` events on SQS and discovers nearby amenities using the Google Places API. It runs automatically when a property is created (via manual creation or document extraction), or can be triggered manually via the API.
-
-### What it discovers
-
-For each property with coordinates, the worker searches within a **5 km radius** for:
-
-- Hospitals, banks, schools, pharmacies, gyms, restaurants, laundries, coffee shops
-- **Groceries** — searches specifically for Portuguese chains (Continente, Lidl, Pingo Doce, Intermarché, Mercadona) plus generic supermarkets, deduplicates results
-
-For each category it stores the **nearest place** (name, distance, coordinates) and the **total count** of places found nearby.
-
-### Running the worker
+Process applicant document extraction and LLM screening from their respective task queues.
 
 ```bash
-uv run python -m property_management.entrypoints.worker --queue discovery
+# Extraction (Reducto OCR)
+uv run python -m applicant_screening.entrypoints.worker --queue extraction
+
+# Screening (LangGraph 4-node pipeline)
+uv run python -m applicant_screening.entrypoints.worker --queue screening
 ```
 
-### Triggering discovery manually
+In production, deploy as Lambda functions: `applicant_screening.entrypoints.lambda_extraction.handler` and `applicant_screening.entrypoints.lambda_screening.handler`.
 
-If a property already exists and you want to (re-)run discovery:
+### Property Discovery (via Domain Events)
+
+Property discovery no longer has its own worker or queue. When a property is created, a `PROPERTY_CREATED` domain event is published and the domain events worker handles it automatically.
+
+To trigger discovery manually for an existing property:
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/property-amenities/discover?property_id=<uuid>&organization_id=<uuid>" \
   -H "Authorization: Bearer <token>"
 ```
 
-This publishes a `PROPERTY_CREATED` event to SQS. The running discovery worker picks it up and processes the property. Returns `202 Accepted`.
+This publishes a `PROPERTY_CREATED` event to the domain events queue. Returns `202 Accepted`.
 
-### Querying amenities
+Discovery searches within a **5 km radius** for hospitals, banks, schools, pharmacies, gyms, restaurants, laundries, coffee shops, and Portuguese grocery chains. Properties without coordinates are skipped. Discovery is idempotent.
 
-```bash
-curl "http://localhost:8000/api/v1/property-amenities?property_id=<uuid>&organization_id=<uuid>" \
-  -H "Authorization: Bearer <token>"
-```
+## Applicant Screening
 
-### Environment variables
+The applicant screening context handles the full document-based screening pipeline for property applicants. It receives document uploads (ID + proof of income), extracts data via Reducto OCR, and runs an LLM-based assessment via a LangGraph pipeline.
+
+### Processing Pipeline
+
+1. **Intake Form Request** — agency creates a request via the admin API, generating a unique link for the applicant
+2. **Submission** — applicant uploads documents via presigned S3 URLs, system creates applicant record and publishes extraction messages to SQS
+3. **Extraction** (SQS worker/Lambda) — calls Reducto API to extract text from documents
+4. **Screening** (SQS worker/Lambda) — runs a 4-node LangGraph pipeline: verify identity → verify income → assess affordability → generate report
+5. **Event** — publishes `APPLICANT_SCREENED` domain event to the unified domain events queue, where the events worker routes it to booking_management (create applicant) and customer_management (send notification)
+
+### NIF Encryption
+
+Portuguese Tax IDs (NIFs) are encrypted at rest using RSA (OAEP/SHA-256) and use HMAC-SHA256 blind indexing for lookups without decryption. Keys are base64-encoded PEM strings in env vars (`ENCRYPTION_PUBLIC_KEY`, `ENCRYPTION_PRIVATE_KEY`, `ENCRYPTION_HMAC_KEY`).
+
+### Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `SQS_PROPERTY_DISCOVERY_QUEUE_URL` | SQS queue URL for discovery events |
-| `GOOGLE_MAPS_API_KEY` | Google Maps API key (Places API must be enabled) |
+| `SQS_APPLICANT_EXTRACTION_QUEUE_URL` | SQS queue for extraction jobs |
+| `SQS_APPLICANT_SCREENING_QUEUE_URL` | SQS queue for screening assessment |
+| `ENCRYPTION_PUBLIC_KEY` | RSA public key (base64 PEM) |
+| `ENCRYPTION_PRIVATE_KEY` | RSA private key (base64 PEM) |
+| `ENCRYPTION_HMAC_KEY` | HMAC key (base64) |
+| `REDUCTO_API_KEY` | Reducto OCR API key |
+| `OPENAI_API_KEY` | OpenAI API key (for LangGraph pipeline) |
+| `MAX_APPLICANT_DOCUMENTS` | Max documents per submission (default: 5) |
 
-### Behavior
+## Booking Management
 
-- Properties **without coordinates** are skipped (logged, message acknowledged, no retry)
-- Google Places API failures are handled **per category** — if one category fails, others still succeed
-- Discovery is **idempotent** — re-running replaces previous results for the property
+The booking management context allows agency staff to create visit time slots for properties and approved applicants to book visits.
+
+### How It Works
+
+```
+Agency (admin)                     Applicant (portal)
+     │                                    │
+     │  1. Create slots for property      │
+     │  POST /api/v1/admin/slots          │
+     │                                    │
+     │  2. Generate booking invitation    │
+     │  POST /api/v1/admin/booking-invitations
+     │  → returns signed token + URL      │
+     │                                    │
+     │  3. Share link with applicant ─────►│
+     │                                    │
+     │                                    │  4. View available slots
+     │                                    │  GET /api/v1/portal/properties/{id}/slots
+     │                                    │
+     │                                    │  5. Book a slot
+     │                                    │  POST /api/v1/portal/bookings
+     │                                    │  (uses booking token, not JWT)
+     │                                    │
+     │  6. View bookings                  │
+     │  GET /api/v1/admin/bookings        │
+     │                                    │
+     │  7. Cancel slot or booking         │
+     │  DELETE /api/v1/admin/slots/{id}   │
+     │  DELETE /api/v1/admin/bookings/{id}│
+```
+
+### Domain Models
+
+**Slot** — a time window when a property can be visited.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Primary key |
+| `property_id` | UUID | Property being visited |
+| `agent_user_id` | UUID | Supabase user ID of the agent who created it |
+| `organization_id` | UUID | Organization scope |
+| `start_time` | datetime | Visit start |
+| `end_time` | datetime | Visit end (must be after start) |
+| `status` | string | `available` → `booked` → `cancelled` |
+
+**Booking** — a confirmed visit by an applicant.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Primary key |
+| `slot_id` | UUID | The booked slot (unique — one booking per slot) |
+| `applicant_id` | UUID | Booking-context applicant |
+| `property_id` | UUID | Denormalized from slot |
+| `organization_id` | UUID | Denormalized from slot |
+| `status` | string | `confirmed`, `cancelled_by_applicant`, `cancelled_by_agent` |
+| `notes` | string | Optional notes from applicant |
+
+**BookingApplicant** — local projection of screened applicants (created from `APPLICANT_SCREENED` SQS events). Only LOW and MEDIUM risk applicants are accepted; HIGH risk is rejected.
+
+### Key Patterns
+
+- **Optimistic locking** prevents double-booking: `UPDATE booking_slots SET status='booked' WHERE id=? AND status='available'` — if the slot was already booked by another request, the update affects 0 rows and the booking is rejected with 409 Conflict
+- **Booking invitation tokens** — HS256-signed JWTs containing `applicant_id`, `property_id`, `organization_id`, and `email`. Valid for 7 days. Used for `POST /api/v1/portal/bookings` instead of Supabase JWT
+- **Cascade cancellation** — cancelling a booked slot automatically cancels the linked booking and releases the slot
+- **Organization scoping** — slot creation verifies the property belongs to the agent's organization (cross-context check via `property_container.get_property`)
+
+### Event Handling
+
+The `APPLICANT_SCREENED` domain event is handled by the unified domain events worker (not a booking-specific consumer). The handler at `booking_management.adapters.events.handlers.handle_applicant_screened` creates booking-context applicant records from the screening pipeline output.
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `BOOKING_TOKEN_SECRET` | HS256 secret for signing booking invitation tokens |
+| `BOOKING_LINK_URL` | Base URL for booking links (default: `https://portal.predileto.com/book`) |
+
+### Database Tables
+
+All tables are prefixed with `booking_` to avoid collision with other contexts:
+
+- `booking_applicants` — local applicant projection (external_id unique, risk_level)
+- `booking_slots` — visit time slots (CHECK: end > start, CHECK: status enum)
+- `booking_bookings` — confirmed visits (UNIQUE slot_id, FK to slots + applicants)
 
 ## Linting
 

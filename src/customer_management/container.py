@@ -1,5 +1,4 @@
 from customer_management.application.ports.email_service import EmailService
-from customer_management.application.ports.event_bus import EventBus
 from customer_management.application.ports.repositories.invitation_repository import (
     InvitationRepository,
 )
@@ -52,7 +51,6 @@ class Container:
         invitation_repo: InvitationRepository,
         portal_user_repo: PortalUserRepository,
         email_service: EmailService,
-        event_bus: EventBus,
     ) -> None:
         self.user_repo = user_repo
         self.organization_repo = organization_repo
@@ -62,7 +60,6 @@ class Container:
         self.invitation_repo = invitation_repo
         self.portal_user_repo = portal_user_repo
         self.email_service = email_service
-        self.event_bus = event_bus
 
         # Use cases
         self.register_user = RegisterUser(
@@ -71,7 +68,6 @@ class Container:
             subscription_repo=subscription_repo,
             membership_repo=membership_repo,
             invitation_repo=invitation_repo,
-            event_bus=event_bus,
         )
         self.get_user_profile = GetUserProfile(
             user_repo=user_repo,
@@ -91,23 +87,19 @@ class Container:
         )
         self.create_subscription = CreateSubscription(
             subscription_repo=subscription_repo,
-            event_bus=event_bus,
         )
         self.update_subscription = UpdateSubscription(
             subscription_repo=subscription_repo,
-            event_bus=event_bus,
         )
         self.list_notifications = ListNotifications(notification_repo=notification_repo)
         self.mark_notifications_read = MarkNotificationsRead(notification_repo=notification_repo)
         self.send_notification = SendNotification(
             notification_repo=notification_repo,
-            event_bus=event_bus,
         )
         self.invite_member = InviteMember(
             invitation_repo=invitation_repo,
             membership_repo=membership_repo,
             user_repo=user_repo,
-            event_bus=event_bus,
         )
         self.list_members = ListMembers(
             membership_repo=membership_repo,
@@ -116,12 +108,10 @@ class Container:
         self.update_member_role = UpdateMemberRole(
             membership_repo=membership_repo,
             user_repo=user_repo,
-            event_bus=event_bus,
         )
         self.remove_member = RemoveMember(
             membership_repo=membership_repo,
             user_repo=user_repo,
-            event_bus=event_bus,
         )
         self.list_invitations = ListInvitations(
             invitation_repo=invitation_repo,

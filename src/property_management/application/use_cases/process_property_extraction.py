@@ -8,8 +8,6 @@ import structlog
 
 from property_management.application.ports.document_parser import DocumentParser
 from property_management.application.ports.document_storage import DocumentStorage
-from property_management.application.ports.event_bus import EventBus
-from property_management.domain.events import PropertyCreated
 from property_management.application.ports.property_extractor import (
     PropertyExtractorService,
 )
@@ -30,6 +28,9 @@ from property_management.domain.models.property import (
 from property_management.domain.models.property_characteristics import (
     PropertyCharacteristics,
 )
+from shared.events.base import DomainEvent as SharedDomainEvent
+from shared.events.publisher import DomainEventPublisher
+from shared.events.types import PROPERTY_CREATED
 
 log = structlog.get_logger()
 
@@ -42,14 +43,14 @@ class ProcessPropertyExtraction:
         document_parser: DocumentParser,
         property_extractor: PropertyExtractorService,
         property_repo: PropertyRepository,
-        discovery_event_bus: EventBus | None = None,
+        domain_event_publisher: DomainEventPublisher | None = None,
     ) -> None:
         self.extraction_job_repo = extraction_job_repo
         self.document_storage = document_storage
         self.document_parser = document_parser
         self.property_extractor = property_extractor
         self.property_repo = property_repo
-        self.discovery_event_bus = discovery_event_bus
+        self.domain_event_publisher = domain_event_publisher
 
     async def execute(self, *, job_id: str) -> ExtractionJob:
         start = time.monotonic()
@@ -109,14 +110,16 @@ class ProcessPropertyExtraction:
             )
             prop = await self.property_repo.save(prop)
 
-            if self.discovery_event_bus:
+            if self.domain_event_publisher:
                 try:
-                    await self.discovery_event_bus.publish(
-                        PropertyCreated(property_id=str(prop.id))
+                    await self.domain_event_publisher.publish(
+                        SharedDomainEvent(
+                            event_type=PROPERTY_CREATED, data={"property_id": str(prop.id)}
+                        )
                     )
                 except Exception:
                     log.exception(
-                        "extraction.discovery_event_failed",
+                        "extraction.domain_event_failed",
                         property_id=str(prop.id),
                     )
 

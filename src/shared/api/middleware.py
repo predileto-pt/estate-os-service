@@ -12,6 +12,7 @@ PUBLIC_PATHS = {
     "/api/v1/health",
     "/api/v1/admin/subscriptions/plans",
     "/api/v1/admin/properties/active",
+    "/api/v1/portal/bookings",
     "/docs",
     "/openapi.json",
 }

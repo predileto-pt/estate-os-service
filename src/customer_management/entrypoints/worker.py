@@ -21,7 +21,7 @@ async def _run_events_worker() -> None:
     )
     consumer = SQSMessageConsumer(session, endpoint_url=settings.aws_endpoint_url)
     container = await get_container()
-    worker = EventsWorker(consumer, settings.sqs_events_queue_url, container)
+    worker = EventsWorker(consumer, settings.sqs_domain_events_queue_url, container)
     await worker.run()
 
 
