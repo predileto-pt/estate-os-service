@@ -23,8 +23,14 @@ from properties.domain.models.property_amenity import (
     PropertyAmenity,
 )
 from properties.domain.services.amenity_ranker import rank_places, rank_top_places
+from shared.utils.concurrency import gather_with_concurrency
 
 log = structlog.get_logger()
+
+# Max concurrent Google Places API calls per discovery run.
+# Keeps us well under Google's QPS limits while still being ~5x faster
+# than sequential calls.
+PLACES_CONCURRENCY_LIMIT = 5
 
 CATEGORY_PLACE_TYPE_MAP: dict[AmenityCategory, str] = {
     AmenityCategory.HOSPITAL: "hospital",
@@ -66,34 +72,21 @@ class DiscoverPropertyAmenities:
         if prop.latitude is None or prop.longitude is None:
             raise PropertyMissingCoordinatesError(property_id)
 
-        amenities: list[PropertyAmenity] = []
         now = datetime.now(timezone.utc)
 
-        for category in AmenityCategory:
-            try:
-                if category == AmenityCategory.GROCERY:
-                    places = await self._discover_groceries(prop.latitude, prop.longitude)
-                else:
-                    place_type = CATEGORY_PLACE_TYPE_MAP[category]
-                    places = await self.places_service.find_nearby(
-                        latitude=prop.latitude,
-                        longitude=prop.longitude,
-                        place_type=place_type,
-                    )
-            except Exception:
-                log.exception(
-                    "discovery.category_failed",
-                    property_id=property_id,
-                    category=category.value,
-                )
-                places = []
+        # Discover all categories concurrently (max PLACES_CONCURRENCY_LIMIT at a time).
+        # Each coroutine handles its own errors and returns [] on failure.
+        results = await gather_with_concurrency(
+            PLACES_CONCURRENCY_LIMIT,
+            *(
+                self._discover_category(category, prop.latitude, prop.longitude, property_id)
+                for category in AmenityCategory
+            ),
+        )
 
+        amenities: list[PropertyAmenity] = []
+        for category, places in results:
             if not places:
-                log.info(
-                    "discovery.no_results",
-                    property_id=property_id,
-                    category=category.value,
-                )
                 continue
 
             best = rank_places(places, category)
@@ -127,38 +120,67 @@ class DiscoverPropertyAmenities:
         )
         return amenities
 
-    async def _discover_groceries(self, latitude: float, longitude: float) -> list[NearbyPlace]:
-        seen_names: set[str] = set()
-        all_places: list[NearbyPlace] = []
+    async def _discover_category(
+        self,
+        category: AmenityCategory,
+        latitude: float,
+        longitude: float,
+        property_id: str,
+    ) -> tuple[AmenityCategory, list[NearbyPlace]]:
+        try:
+            if category == AmenityCategory.GROCERY:
+                places = await self._discover_groceries(latitude, longitude)
+            else:
+                place_type = CATEGORY_PLACE_TYPE_MAP[category]
+                places = await self.places_service.find_nearby(
+                    latitude=latitude,
+                    longitude=longitude,
+                    place_type=place_type,
+                )
+        except Exception:
+            log.exception(
+                "discovery.category_failed",
+                property_id=property_id,
+                category=category.value,
+            )
+            places = []
 
-        # Search for each chain specifically
-        for chain in GROCERY_CHAINS:
+        if not places:
+            log.info(
+                "discovery.no_results",
+                property_id=property_id,
+                category=category.value,
+            )
+
+        return (category, places)
+
+    async def _discover_groceries(self, latitude: float, longitude: float) -> list[NearbyPlace]:
+        # Run all chain searches + generic search concurrently.
+        async def _search_chain(keyword: str | None) -> list[NearbyPlace]:
             try:
-                results = await self.places_service.find_nearby(
+                return await self.places_service.find_nearby(
                     latitude=latitude,
                     longitude=longitude,
                     place_type="supermarket",
-                    keyword=chain,
+                    keyword=keyword,
                 )
-                for place in results:
-                    if place.name not in seen_names:
-                        seen_names.add(place.name)
-                        all_places.append(place)
             except Exception:
-                log.exception("discovery.grocery_chain_failed", chain=chain)
+                log.exception("discovery.grocery_search_failed", keyword=keyword)
+                return []
 
-        # Also do a generic supermarket search
-        try:
-            results = await self.places_service.find_nearby(
-                latitude=latitude,
-                longitude=longitude,
-                place_type="supermarket",
-            )
+        chain_results = await gather_with_concurrency(
+            PLACES_CONCURRENCY_LIMIT,
+            *(_search_chain(chain) for chain in GROCERY_CHAINS),
+            _search_chain(None),  # generic supermarket search
+        )
+
+        # Deduplicate by name across all results.
+        seen_names: set[str] = set()
+        all_places: list[NearbyPlace] = []
+        for results in chain_results:
             for place in results:
                 if place.name not in seen_names:
                     seen_names.add(place.name)
                     all_places.append(place)
-        except Exception:
-            log.exception("discovery.grocery_generic_failed")
 
         return all_places
