@@ -114,7 +114,7 @@ async def _run_screening_worker() -> None:
     container = await get_screening_container()
     worker = SQSWorker(
         session,
-        settings.sqs_screening_queue_url,
+        settings.sqs_applicant_screening_queue_url,
         container,
         processor=screening_processor,
         endpoint_url=settings.aws_endpoint_url,

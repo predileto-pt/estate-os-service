@@ -110,7 +110,6 @@ class SQSWorker:
 
         try:
             await self._processor.process_event(msg["body"], self._container)
-            await self._delete_message(msg["receipt_handle"])
             elapsed = time.monotonic() - start
             log.info(
                 f"{self._worker_name}_message_processed",
@@ -119,6 +118,9 @@ class SQSWorker:
         except Exception:
             log.exception(f"{self._worker_name}_message_error", raw_body=msg.get("body"))
         finally:
+            # Always delete the message — failed documents stay in their current
+            # status (UPLOADED/PARSED) and can be re-queued manually.
+            await self._delete_message(msg["receipt_handle"])
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
                 await asyncio.gather(heartbeat_task, return_exceptions=True)

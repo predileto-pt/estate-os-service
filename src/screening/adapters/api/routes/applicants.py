@@ -39,11 +39,65 @@ async def list_applicants(
 ) -> list[ApplicantDetailResponse]:
     container = request.app.state.screening_container
 
-    applicants = await container.applicant_repo.list_by_organization_id(organization_id)
+    async with container.uow:
+        applicants = await container.uow.applicants.list_by_organization_id(organization_id)
 
-    responses = []
-    for applicant in applicants:
-        report = await container.screening_report_repo.get_by_applicant_id(applicant.id)
+        responses = []
+        for applicant in applicants:
+            report = await container.uow.screening_reports.get_by_applicant_id(applicant.id)
+            report_response = None
+            if report:
+                report_response = ScreeningReportResponse(
+                    applicant_id=report.applicant_id,
+                    risk_level=report.risk_level,
+                    identity_verified=report.identity_verified,
+                    income_verified=report.income_verified,
+                    dti_ratio=report.dti_ratio,
+                    justification=report.justification,
+                    listing_type=report.listing_type,
+                    property_type=report.property_type,
+                    average_monthly_income=report.average_monthly_income,
+                )
+
+            submission = await container.uow.submissions.get_by_applicant_id(applicant.id)
+
+            responses.append(
+                ApplicantDetailResponse(
+                    id=applicant.id,
+                    name=applicant.name,
+                    email=applicant.email,
+                    phone=applicant.phone,
+                    organization_id=applicant.organization_id,
+                    form_request_id=applicant.form_request_id,
+                    listing_type=applicant.listing_type.value,
+                    property_type=applicant.property_type.value
+                    if applicant.property_type
+                    else None,
+                    property_value=applicant.property_value,
+                    monthly_rent=applicant.monthly_rent,
+                    property_title=applicant.property_title,
+                    property_address=applicant.property_address,
+                    status=submission.status if submission else None,
+                    screening_report=report_response,
+                )
+            )
+    return responses
+
+
+@router.get(
+    "/applicants/{applicant_id}",
+    response_model=ApplicantDetailResponse,
+    summary="Get applicant details with screening report",
+)
+async def get_applicant(applicant_id: UUID, request: Request) -> ApplicantDetailResponse:
+    container = request.app.state.screening_container
+
+    async with container.uow:
+        applicant = await container.uow.applicants.get_by_id(applicant_id)
+        if not applicant:
+            raise HTTPException(status_code=404, detail="Applicant not found")
+
+        report = await container.uow.screening_reports.get_by_applicant_id(applicant_id)
         report_response = None
         if report:
             report_response = ScreeningReportResponse(
@@ -58,56 +112,7 @@ async def list_applicants(
                 average_monthly_income=report.average_monthly_income,
             )
 
-        submission = await container.submission_repo.get_by_applicant_id(applicant.id)
-
-        responses.append(
-            ApplicantDetailResponse(
-                id=applicant.id,
-                name=applicant.name,
-                email=applicant.email,
-                phone=applicant.phone,
-                organization_id=applicant.organization_id,
-                form_request_id=applicant.form_request_id,
-                listing_type=applicant.listing_type.value,
-                property_type=applicant.property_type.value if applicant.property_type else None,
-                property_value=applicant.property_value,
-                monthly_rent=applicant.monthly_rent,
-                property_title=applicant.property_title,
-                property_address=applicant.property_address,
-                status=submission.status if submission else None,
-                screening_report=report_response,
-            )
-        )
-    return responses
-
-
-@router.get(
-    "/applicants/{applicant_id}",
-    response_model=ApplicantDetailResponse,
-    summary="Get applicant details with screening report",
-)
-async def get_applicant(applicant_id: UUID, request: Request) -> ApplicantDetailResponse:
-    container = request.app.state.screening_container
-    applicant = await container.applicant_repo.get_by_id(applicant_id)
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant not found")
-
-    report = await container.screening_report_repo.get_by_applicant_id(applicant_id)
-    report_response = None
-    if report:
-        report_response = ScreeningReportResponse(
-            applicant_id=report.applicant_id,
-            risk_level=report.risk_level,
-            identity_verified=report.identity_verified,
-            income_verified=report.income_verified,
-            dti_ratio=report.dti_ratio,
-            justification=report.justification,
-            listing_type=report.listing_type,
-            property_type=report.property_type,
-            average_monthly_income=report.average_monthly_income,
-        )
-
-    submission = await container.submission_repo.get_by_applicant_id(applicant_id)
+        submission = await container.uow.submissions.get_by_applicant_id(applicant_id)
 
     return ApplicantDetailResponse(
         id=applicant.id,

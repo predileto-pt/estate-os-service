@@ -101,7 +101,9 @@ async def create_intake_form_request(
         property_price=body.property_price,
         property_address=body.property_address,
     )
-    form_request = await container.intake_form_request_repo.save(form_request)
+    async with container.uow:
+        form_request = await container.uow.intake_form_requests.save(form_request)
+        await container.uow.commit()
     return _form_request_to_response(form_request, submission=None)
 
 
@@ -117,13 +119,14 @@ async def list_intake_form_requests(
     offset: int = Query(0, ge=0),
 ) -> list[IntakeFormRequestResponse]:
     container = request.app.state.screening_container
-    requests_list = await container.intake_form_request_repo.list_by_organization_id(
-        organization_id, limit=limit, offset=offset
-    )
-    responses = []
-    for r in requests_list:
-        submission = await container.submission_repo.get_by_form_request_id(r.id)
-        responses.append(_form_request_to_response(r, submission=submission))
+    async with container.uow:
+        requests_list = await container.uow.intake_form_requests.list_by_organization_id(
+            organization_id, limit=limit, offset=offset
+        )
+        responses = []
+        for r in requests_list:
+            submission = await container.uow.submissions.get_by_form_request_id(r.id)
+            responses.append(_form_request_to_response(r, submission=submission))
     return responses
 
 
@@ -134,8 +137,9 @@ async def list_intake_form_requests(
 )
 async def get_intake_form_request(request_id: UUID, request: Request) -> IntakeFormRequestResponse:
     container = request.app.state.screening_container
-    form_request = await container.intake_form_request_repo.get_by_id(request_id)
-    if not form_request:
-        raise HTTPException(status_code=404, detail="Intake form request not found")
-    submission = await container.submission_repo.get_by_form_request_id(form_request.id)
+    async with container.uow:
+        form_request = await container.uow.intake_form_requests.get_by_id(request_id)
+        if not form_request:
+            raise HTTPException(status_code=404, detail="Intake form request not found")
+        submission = await container.uow.submissions.get_by_form_request_id(form_request.id)
     return _form_request_to_response(form_request, submission=submission)

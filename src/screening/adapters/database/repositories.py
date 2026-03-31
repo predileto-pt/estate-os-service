@@ -70,17 +70,21 @@ class SqlAlchemyApplicantRepository:
             property_address=applicant.property_address,
         )
         self._session.add(model)
-        await self._session.commit()
+        await self._session.flush()
         return applicant
 
     async def get_by_id(self, applicant_id: UUID) -> Applicant | None:
-        result = await self._session.execute(select(ApplicantModel).where(ApplicantModel.id == applicant_id))
+        result = await self._session.execute(
+            select(ApplicantModel).where(ApplicantModel.id == applicant_id)
+        )
         model = result.scalar_one_or_none()
         return self._to_domain(model) if model else None
 
     async def get_by_nif(self, nif: str) -> Applicant | None:
         nif_hash = compute_blind_index(nif, self._hmac_key)
-        result = await self._session.execute(select(ApplicantModel).where(ApplicantModel.nif_hash == nif_hash))
+        result = await self._session.execute(
+            select(ApplicantModel).where(ApplicantModel.nif_hash == nif_hash)
+        )
         model = result.scalar_one_or_none()
         return self._to_domain(model) if model else None
 
@@ -128,11 +132,13 @@ class SqlAlchemyDocumentRepository:
             reducto_document_id=document.reducto_document_id,
         )
         self._session.add(model)
-        await self._session.commit()
+        await self._session.flush()
         return document
 
     async def get_by_id(self, document_id: UUID) -> Document | None:
-        result = await self._session.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+        result = await self._session.execute(
+            select(DocumentModel).where(DocumentModel.id == document_id)
+        )
         model = result.scalar_one_or_none()
         return self._to_domain(model) if model else None
 
@@ -143,12 +149,14 @@ class SqlAlchemyDocumentRepository:
         return [self._to_domain(m) for m in result.scalars().all()]
 
     async def update(self, document: Document) -> Document:
-        result = await self._session.execute(select(DocumentModel).where(DocumentModel.id == document.id))
+        result = await self._session.execute(
+            select(DocumentModel).where(DocumentModel.id == document.id)
+        )
         model = result.scalar_one_or_none()
         if model:
             model.status = document.status.value
             model.reducto_document_id = document.reducto_document_id
-            await self._session.commit()
+            await self._session.flush()
         return document
 
     @staticmethod
@@ -177,7 +185,7 @@ class SqlAlchemyExtractedDataRepository:
             extraction_status=extracted_data.extraction_status.value,
         )
         self._session.add(model)
-        await self._session.commit()
+        await self._session.flush()
         return extracted_data
 
     async def get_by_document_id(self, document_id: UUID) -> ExtractedData | None:
@@ -215,7 +223,7 @@ class SqlAlchemyScreeningReportRepository:
             average_monthly_income=report.average_monthly_income,
         )
         self._session.add(model)
-        await self._session.commit()
+        await self._session.flush()
         return report
 
     async def get_by_applicant_id(self, applicant_id: UUID) -> ScreeningReport | None:
@@ -254,12 +262,14 @@ class SqlAlchemyEventRepository:
             created_at=event.created_at,
         )
         self._session.add(model)
-        await self._session.commit()
+        await self._session.flush()
         return event
 
     async def get_by_applicant_id(self, applicant_id: UUID) -> list[DomainEvent]:
         result = await self._session.execute(
-            select(EventModel).where(EventModel.applicant_id == applicant_id).order_by(EventModel.created_at)
+            select(EventModel)
+            .where(EventModel.applicant_id == applicant_id)
+            .order_by(EventModel.created_at)
         )
         return [self._to_domain(m) for m in result.scalars().all()]
 
@@ -367,7 +377,9 @@ class SqlAlchemySubmissionRepository:
         return submission
 
     async def get_by_id(self, submission_id: UUID) -> Submission | None:
-        result = await self._session.execute(select(SubmissionModel).where(SubmissionModel.id == submission_id))
+        result = await self._session.execute(
+            select(SubmissionModel).where(SubmissionModel.id == submission_id)
+        )
         model = result.scalar_one_or_none()
         if model is None:
             return None

@@ -74,7 +74,7 @@ class SqlAlchemySlotRepository(SlotRepository):
             status=slot.status.value,
         )
         self.session.add(model)
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(model)
         return _slot_from_model(model)
 
@@ -92,7 +92,7 @@ class SqlAlchemySlotRepository(SlotRepository):
             .where(BookingSlotModel.id == slot_id, BookingSlotModel.status == "available")
             .values(status="booked", updated_at=text("now()"))
         )
-        await self.session.commit()
+        await self.session.flush()
         return result.rowcount > 0
 
     async def mark_available(self, slot_id: str) -> None:
@@ -101,7 +101,7 @@ class SqlAlchemySlotRepository(SlotRepository):
             .where(BookingSlotModel.id == slot_id)
             .values(status="available", updated_at=text("now()"))
         )
-        await self.session.commit()
+        await self.session.flush()
 
     async def cancel(self, slot_id: str) -> None:
         await self.session.execute(
@@ -109,7 +109,7 @@ class SqlAlchemySlotRepository(SlotRepository):
             .where(BookingSlotModel.id == slot_id)
             .values(status="cancelled", updated_at=text("now()"))
         )
-        await self.session.commit()
+        await self.session.flush()
 
     async def list_available_by_property(
         self, property_id: str, from_time: datetime, limit: int, offset: int
@@ -173,7 +173,7 @@ class SqlAlchemyBookingRepository(BookingRepository):
             notes=booking.notes,
         )
         self.session.add(model)
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(model)
         return _booking_from_model(model)
 
@@ -197,7 +197,7 @@ class SqlAlchemyBookingRepository(BookingRepository):
             .where(BookingBookingModel.id == booking_id)
             .values(status=status.value, updated_at=text("now()"))
         )
-        await self.session.commit()
+        await self.session.flush()
 
     async def list_by_applicant(
         self, applicant_id: str, limit: int, offset: int
@@ -241,7 +241,7 @@ class SqlAlchemyBookingApplicantRepository(BookingApplicantRepository):
             risk_level=applicant.risk_level.value,
         )
         self.session.add(model)
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(model)
         return _applicant_from_model(model)
 
@@ -267,4 +267,4 @@ class SqlAlchemyBookingApplicantRepository(BookingApplicantRepository):
             .where(BookingApplicantModel.id == applicant_id)
             .values(supabase_user_id=supabase_user_id)
         )
-        await self.session.commit()
+        await self.session.flush()

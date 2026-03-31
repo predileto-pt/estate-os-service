@@ -12,7 +12,9 @@ class ReductoDocumentExtractor:
     def __init__(self, api_key: str) -> None:
         self._client = Reducto(api_key=api_key)
 
-    async def extract(self, document_source: str | bytes, filename: str = "document.pdf") -> dict[str, Any]:
+    async def extract(
+        self, document_source: str | bytes, filename: str = "document.pdf"
+    ) -> dict[str, Any]:
         import asyncio
 
         if isinstance(document_source, bytes):

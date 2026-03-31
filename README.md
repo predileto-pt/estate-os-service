@@ -445,7 +445,13 @@ uv run python -m screening.entrypoints.worker --queue extraction
 # Terminal 5 — Applicant screening worker
 uv run python -m screening.entrypoints.worker --queue screening
 
-# Terminal 6 — Agencies dashboard
+# Terminal 6 — Contract ingestion worker (Reducto OCR pipeline)
+uv run python -m contract_intelligence.entrypoints.worker --queue ingestion
+
+# Terminal 7 — Contract analysis worker (LLM section classification)
+uv run python -m contract_intelligence.entrypoints.worker --queue analysis
+
+# Terminal 8 — Agencies dashboard
 cd ../estate-os && npm run dev
 
 # Terminal 7 — Applicant intake form
@@ -566,6 +572,23 @@ uv run python -m screening.entrypoints.worker --queue screening
 ```
 
 In production, deploy as Lambda functions: `screening.entrypoints.lambda_extraction.handler` and `screening.entrypoints.lambda_screening.handler`.
+
+### Contract Ingestion + Analysis Workers
+
+Process contract document ingestion (Reducto OCR pipeline) and LLM section analysis from their respective task queues. These workers include a heartbeat mechanism that extends SQS message visibility during long-running Reducto/LLM calls.
+
+```bash
+# Ingestion (Reducto parse + extract pipeline)
+uv run python -m contract_intelligence.entrypoints.worker --queue ingestion
+
+# Analysis (LLM section classification via LangChain/OpenAI)
+uv run python -m contract_intelligence.entrypoints.worker --queue analysis
+
+# Dead-letter queue (marks failed documents)
+uv run python -m contract_intelligence.entrypoints.worker --queue dlq
+```
+
+In production, deploy as Lambda functions: `contract_intelligence.entrypoints.lambda_ingestion.handler` and `contract_intelligence.entrypoints.lambda_analysis.handler`.
 
 ### Property Discovery (via Domain Events)
 
@@ -697,6 +720,104 @@ All tables are prefixed with `booking_` to avoid collision with other contexts:
 - `booking_applicants` — local applicant projection (external_id unique, risk_level)
 - `booking_slots` — visit time slots (CHECK: end > start, CHECK: status enum)
 - `booking_bookings` — confirmed visits (UNIQUE slot_id, FK to slots + applicants)
+
+## Contract Intelligence
+
+Ingests existing lease and sale contracts, extracts their structure via Reducto OCR, classifies each section with an LLM, and produces versioned templates that can be filled from CRM records to generate new contracts.
+
+### Domain Workflow
+
+1. **Upload** — a source contract (PDF or DOCX) is uploaded to S3. An ingestion event is published to SQS.
+2. **Parse** — the ingestion worker calls Reducto to OCR and split the document into sections (chunks with titles, page ranges, and text content).
+3. **Analyze** — on successful parsing, an analysis event is published. The analysis worker classifies each section (static / parameterized / conditional / generative), assigns a risk level, recommends a rendering strategy, and maps field + condition references.
+4. **Review** — a human inspects, accepts, corrects, or rejects each section and analysis result.
+5. **Template** — the approved results are compiled into a versioned template with Jinja render slots, field bindings, conditions, and party slots.
+6. **Generate** — a template version is combined with CRM data to render a contract and produce a downloadable PDF.
+
+### Ingestion Pipeline
+
+```
+Upload (POST /api/v1/admin/contracts/source-documents)
+  → Read bytes, compute SHA-256 hash (dedup check)
+  → Store PDF in S3
+  → Create SourceDocument (status=uploaded)
+  → Publish to SQS ingestion queue
+          ↓
+Ingestion Worker (polls SQS)
+  → Fetch document from DB
+  → Dev: download from LocalStack S3, upload to Reducto
+  → Prod: generate S3 presigned URL for Reducto
+  → Call Reducto Parse (OCR + layout analysis)
+  → Create SourceParseRun (status=succeeded)
+  → Create SourceSection rows (from parsed chunks)
+  → Update document (status=parsed)
+  → Publish to SQS analysis queue
+          ↓
+Analysis Worker (polls SQS)
+  → Load document + sections from DB
+  → Call LLM with structured output schema
+  → Classify each section (type, risk, strategy)
+  → Map field & condition references
+  → Create SourceSectionAnalysis + references
+  → Update document (status=analyzed)
+```
+
+### Status Transitions
+
+```
+SourceDocument:  UPLOADED → PARSED → ANALYZED  (or FAILED at any step)
+Parse/Analysis:  PENDING → RUNNING → SUCCEEDED | FAILED
+Review:          PENDING → ACCEPTED | CORRECTED | REJECTED
+Template:        DRAFT ↔ REVIEW → APPROVED → DEPRECATED → ARCHIVED
+Generated:       DRAFT → GENERATED → REVIEWED → SIGNED → ARCHIVED
+```
+
+### Re-queue a Failed Document
+
+If ingestion or analysis fails, the document stays in its current status (`uploaded` or `parsed`). To retry, re-send the SQS message:
+
+```bash
+# Re-queue for ingestion (document must be in "uploaded" status)
+aws --endpoint-url=http://localhost:4566 sqs send-message \
+  --queue-url http://localhost:4566/000000000000/contract-ingestion-queue \
+  --message-body '{"document_id": "<source-document-uuid>"}'
+
+# Re-queue for analysis (document must be in "parsed" status)
+aws --endpoint-url=http://localhost:4566 sqs send-message \
+  --queue-url http://localhost:4566/000000000000/contract-analysis-queue \
+  --message-body '{"document_id": "<source-document-uuid>"}'
+```
+
+### Worker Resilience
+
+Both ingestion and analysis workers extend SQS message visibility via a background **heartbeat** task while processing. This prevents re-delivery during long-running Reducto/LLM calls.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `CONTRACT_HEARTBEAT_INTERVAL` | 60s | Seconds between visibility extensions |
+| `CONTRACT_HEARTBEAT_EXTENSION` | 120s | Seconds to extend visibility by each time |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `SQS_CONTRACT_INGESTION_QUEUE_URL` | SQS queue for document parsing |
+| `SQS_CONTRACT_ANALYSIS_QUEUE_URL` | SQS queue for LLM section analysis |
+| `SQS_CONTRACT_INGESTION_DLQ_URL` | Dead-letter queue for failed ingestion |
+| `SQS_CONTRACT_ANALYSIS_DLQ_URL` | Dead-letter queue for failed analysis |
+| `CONTRACT_S3_BUCKET_NAME` | S3 bucket for contract documents (default: `contract-intelligence-documents`) |
+| `REDUCTO_API_KEY` | Reducto API key for OCR |
+| `OPENAI_API_KEY` | OpenAI API key for LLM section analysis |
+
+### Database Tables
+
+All 18 tables are prefixed with `contract_`:
+
+**Source document aggregate:** `contract_source_documents`, `contract_source_parse_runs`, `contract_source_sections`, `contract_source_extraction_runs`, `contract_source_field_evidence`, `contract_source_section_analysis_runs`, `contract_source_section_analyses`, `contract_source_section_analysis_references`
+
+**Template aggregate:** `contract_templates`, `contract_template_versions`, `contract_template_sections`, `contract_template_field_bindings`, `contract_template_conditions`, `contract_template_party_slots`
+
+**Generated contract aggregate:** `contract_generated_contracts`, `contract_generated_contract_parties`, `contract_generated_contract_sections`, `contract_generated_contract_artifacts`
 
 ## Linting
 

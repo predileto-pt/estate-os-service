@@ -211,7 +211,9 @@ Provide a comprehensive justification for your risk assessment.""",
         )
         return {"final_result": result.model_dump()}  # type: ignore[union-attr]
 
-    async def assess(self, applicant: Applicant, extracted_data: list[ExtractedData]) -> ScreeningReport:
+    async def assess(
+        self, applicant: Applicant, extracted_data: list[ExtractedData]
+    ) -> ScreeningReport:
         initial_state: ScreeningState = {
             "applicant": {
                 "id": str(applicant.id),

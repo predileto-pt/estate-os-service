@@ -12,8 +12,8 @@ from contract_intelligence.application.dtos.source_documents import (
     UploadSourceDocumentResponse,
 )
 from contract_intelligence.application.ports.messaging import MessagePublisherPort
-from contract_intelligence.application.ports.repositories import SourceDocumentRepository
 from contract_intelligence.application.ports.storage import FileStoragePort
+from contract_intelligence.application.ports.unit_of_work import ContractUnitOfWork
 from contract_intelligence.domain.entities.source_document import (
     SourceDocument,
 )
@@ -26,14 +26,14 @@ from contract_intelligence.domain.exceptions import (
 class SourceDocumentService:
     def __init__(
         self,
-        repo: SourceDocumentRepository,
+        uow: ContractUnitOfWork,
         storage: FileStoragePort,
         publisher: MessagePublisherPort,
         *,
         sqs_ingestion_queue_url: str,
         s3_bucket_name: str,
     ) -> None:
-        self._repo = repo
+        self._uow = uow
         self._storage = storage
         self._publisher = publisher
         self._sqs_ingestion_queue_url = sqs_ingestion_queue_url
@@ -45,10 +45,6 @@ class SourceDocumentService:
         data = await file.read()
         document_hash = hashlib.sha256(data).hexdigest()
 
-        existing = await self._repo.get_by_hash(document_hash)
-        if existing:
-            raise DuplicateDocumentHashError(document_hash)
-
         doc_id = uuid.uuid4()
         filename = file.filename or "untitled.pdf"
         content_type = file.content_type or "application/pdf"
@@ -56,24 +52,28 @@ class SourceDocumentService:
 
         storage_url = await self._storage.upload(storage_key, data, content_type)
 
-        document = SourceDocument.create(
-            filename=filename,
-            storage_url=storage_url,
-            mime_type=content_type,
-            document_hash=document_hash,
-            id=doc_id,
-            organization_id=organization_id,
-        )
-        document = await self._repo.save(document)
+        async with self._uow:
+            existing = await self._uow.source_documents.get_by_hash(document_hash)
+            if existing:
+                raise DuplicateDocumentHashError(document_hash)
 
-        # Publish SQS message before committing DB -- if publish fails,
-        # the transaction rolls back and no orphaned record is created.
+            document = SourceDocument.create(
+                filename=filename,
+                storage_url=storage_url,
+                mime_type=content_type,
+                document_hash=document_hash,
+                id=doc_id,
+                organization_id=organization_id,
+            )
+            document = await self._uow.source_documents.save(document)
+            await self._uow.commit()
+
+        # Publish SQS message AFTER commit so the DB record exists when the
+        # worker picks up the message.
         await self._publisher.publish(
             self._sqs_ingestion_queue_url,
             {"document_id": str(document.id)},
         )
-
-        await self._repo.commit()
 
         return UploadSourceDocumentResponse(
             id=document.id,
@@ -85,9 +85,10 @@ class SourceDocumentService:
         )
 
     async def get_source_document(self, document_id: uuid.UUID) -> SourceDocumentRead:
-        document = await self._repo.get_by_id(document_id)
-        if not document:
-            raise SourceDocumentNotFoundError(document_id)
+        async with self._uow:
+            document = await self._uow.source_documents.get_by_id(document_id)
+            if not document:
+                raise SourceDocumentNotFoundError(document_id)
 
         return SourceDocumentRead(
             id=document.id,
@@ -108,10 +109,12 @@ class SourceDocumentService:
     async def list_source_documents(
         self, organization_id: uuid.UUID | None = None
     ) -> list[SourceDocumentListItem]:
-        if organization_id:
-            documents = await self._repo.list_by_organization(organization_id)
-        else:
-            documents = await self._repo.list_all()
+        async with self._uow:
+            if organization_id:
+                documents = await self._uow.source_documents.list_by_organization(organization_id)
+            else:
+                documents = await self._uow.source_documents.list_all()
+
         items = []
         for doc in documents:
             key = self._storage_key_from_url(doc.storage_url)
@@ -131,9 +134,10 @@ class SourceDocumentService:
         return items
 
     async def get_source_document_detail(self, document_id: uuid.UUID) -> SourceDocumentDetail:
-        document = await self._repo.get_by_id(document_id)
-        if not document:
-            raise SourceDocumentNotFoundError(document_id)
+        async with self._uow:
+            document = await self._uow.source_documents.get_by_id(document_id)
+            if not document:
+                raise SourceDocumentNotFoundError(document_id)
 
         key = self._storage_key_from_url(document.storage_url)
         file_url = await self._storage.get_presigned_url(key)
@@ -153,8 +157,28 @@ class SourceDocumentService:
             parse_response_json=parse_response_json,
         )
 
-    async def request_parse(self, document_id: uuid.UUID) -> dict:
-        raise NotImplementedError
+    async def retry_document(self, document_id: uuid.UUID) -> UploadSourceDocumentResponse:
+        """Reset a FAILED document back to UPLOADED and re-queue for ingestion."""
+        async with self._uow:
+            document = await self._uow.source_documents.get_by_id(document_id)
+            if not document:
+                raise SourceDocumentNotFoundError(document_id)
 
-    async def request_extract(self, document_id: uuid.UUID) -> dict:
-        raise NotImplementedError
+            document.retry()
+            await self._uow.source_documents.update_status(document.id, document.upload_status)
+            await self._uow.commit()
+
+        # Publish SQS message AFTER commit
+        await self._publisher.publish(
+            self._sqs_ingestion_queue_url,
+            {"document_id": str(document.id)},
+        )
+
+        return UploadSourceDocumentResponse(
+            id=document.id,
+            filename=document.filename,
+            storage_url=document.storage_url,
+            mime_type=document.mime_type,
+            upload_status=document.upload_status.value,
+            created_at=document.created_at,
+        )

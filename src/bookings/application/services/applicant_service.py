@@ -2,30 +2,31 @@ from typing import Any
 
 import structlog
 
-from bookings.application.ports.repositories.applicant_repository import (
-    BookingApplicantRepository,
-)
+from bookings.application.ports.unit_of_work import BookingUnitOfWork
 from bookings.domain.models.applicant import BookingApplicant
 
 logger = structlog.get_logger()
 
 
 class ApplicantService:
-    def __init__(self, applicant_repo: BookingApplicantRepository) -> None:
-        self.applicant_repo = applicant_repo
+    def __init__(self, uow: BookingUnitOfWork) -> None:
+        self._uow = uow
 
     async def create_from_screening(self, data: dict[str, Any]) -> BookingApplicant:
         applicant_id = str(data.get("applicant_id", ""))
 
-        # Idempotency: check if already exists.
-        existing = await self.applicant_repo.find_by_external_id(applicant_id)
-        if existing is not None:
-            logger.info("applicant_already_exists", external_id=applicant_id)
-            return existing
+        async with self._uow:
+            # Idempotency: check if already exists.
+            existing = await self._uow.applicants.find_by_external_id(applicant_id)
+            if existing is not None:
+                logger.info("applicant_already_exists", external_id=applicant_id)
+                return existing
 
-        # Domain validates and rejects HIGH risk.
-        applicant = BookingApplicant.from_screening_event(data)
-        created = await self.applicant_repo.create(applicant)
+            # Domain validates and rejects HIGH risk.
+            applicant = BookingApplicant.from_screening_event(data)
+            created = await self._uow.applicants.create(applicant)
+            await self._uow.commit()
+
         logger.info(
             "applicant_created_from_screening",
             external_id=applicant_id,
@@ -34,7 +35,9 @@ class ApplicantService:
         return created
 
     async def find_by_external_id(self, external_id: str) -> BookingApplicant | None:
-        return await self.applicant_repo.find_by_external_id(external_id)
+        async with self._uow:
+            return await self._uow.applicants.find_by_external_id(external_id)
 
     async def find_by_supabase_user_id(self, supabase_user_id: str) -> BookingApplicant | None:
-        return await self.applicant_repo.find_by_supabase_user_id(supabase_user_id)
+        async with self._uow:
+            return await self._uow.applicants.find_by_supabase_user_id(supabase_user_id)

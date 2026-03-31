@@ -42,7 +42,7 @@ _UPLOAD_TRANSITIONS: dict[UploadStatus, set[UploadStatus]] = {
     UploadStatus.PARSED: {UploadStatus.EXTRACTED, UploadStatus.FAILED},
     UploadStatus.EXTRACTED: {UploadStatus.ANALYZED, UploadStatus.FAILED},
     UploadStatus.ANALYZED: {UploadStatus.FAILED},
-    UploadStatus.FAILED: set(),
+    UploadStatus.FAILED: {UploadStatus.UPLOADED},
 }
 
 _RUN_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
@@ -459,6 +459,13 @@ class SourceDocument:
             self.upload_status, UploadStatus.FAILED, _UPLOAD_TRANSITIONS, "SourceDocument"
         )
         self.upload_status = UploadStatus.FAILED
+
+    def retry(self) -> None:
+        """Reset a FAILED document back to UPLOADED so it can be re-ingested."""
+        _validate_transition(
+            self.upload_status, UploadStatus.UPLOADED, _UPLOAD_TRANSITIONS, "SourceDocument"
+        )
+        self.upload_status = UploadStatus.UPLOADED
 
     def record_page_count(self, count: int) -> None:
         self.page_count = count

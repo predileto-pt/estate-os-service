@@ -55,15 +55,7 @@ from listings.container import Container as ListingContainer
 from screening.adapters.ai.langchain_screening import LangChainScreeningAssessor
 from screening.adapters.ai.langchain_translator import LangChainTranslator
 from screening.adapters.ai.reducto_extractor import ReductoDocumentExtractor
-from screening.adapters.database.repositories import (
-    SqlAlchemyApplicantRepository,
-    SqlAlchemyDocumentRepository,
-    SqlAlchemyEventRepository,
-    SqlAlchemyExtractedDataRepository,
-    SqlAlchemyIntakeFormRequestRepository,
-    SqlAlchemyScreeningReportRepository,
-    SqlAlchemySubmissionRepository,
-)
+from screening.adapters.database.unit_of_work import SqlAlchemyScreeningUnitOfWork
 from screening.adapters.queue.sqs_publisher import SQSMessageConsumer, SQSMessagePublisher
 from screening.application.crypto import (
     load_private_key_from_env,
@@ -71,22 +63,12 @@ from screening.application.crypto import (
 )
 from screening.container import Container as ApplicantScreeningContainer
 
-from bookings.adapters.database.repositories import (
-    SqlAlchemyBookingApplicantRepository,
-    SqlAlchemyBookingRepository,
-    SqlAlchemySlotRepository,
-)
+from bookings.adapters.database.unit_of_work import SqlAlchemyBookingUnitOfWork
 from bookings.adapters.notification.log_notifier import LogNotifier
 from bookings.container import Container as BookingContainer
 
 from contract_intelligence.adapters.ai.reducto_client import ReductoClient
 from contract_intelligence.adapters.ai.section_analysis_client import SectionAnalysisLLMClient
-from contract_intelligence.adapters.database.repositories import (
-    SqlAlchemyGeneratedContractRepository,
-    SqlAlchemySourceDocumentRepository,
-    SqlAlchemySourceSectionRepository,
-    SqlAlchemyTemplateRepository,
-)
 from contract_intelligence.adapters.queue.sqs_publisher import (
     SQSMessagePublisher as ContractSQSPublisher,
 )
@@ -220,15 +202,17 @@ async def get_screening_container() -> ApplicantScreeningContainer:
 
     settings = Settings()
 
-    # SQLAlchemy async engine + session
+    # SQLAlchemy async engine + session factory
     engine = create_async_engine(settings.database_url, echo=False)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    session = session_factory()
 
     # Encryption keys
     public_key = load_public_key_from_env(settings.encryption_public_key)
     private_key = load_private_key_from_env(settings.encryption_private_key)
     hmac_key = base64.b64decode(settings.encryption_hmac_key)
+
+    # Unit of Work
+    uow = SqlAlchemyScreeningUnitOfWork(session_factory, public_key, private_key, hmac_key)
 
     # S3
     document_storage = S3DocumentStorage(
@@ -257,13 +241,7 @@ async def get_screening_container() -> ApplicantScreeningContainer:
     translator = LangChainTranslator(openai_api_key=settings.openai_api_key)
 
     _screening_container = ApplicantScreeningContainer(
-        applicant_repo=SqlAlchemyApplicantRepository(session, public_key, private_key, hmac_key),
-        document_repo=SqlAlchemyDocumentRepository(session),
-        extracted_data_repo=SqlAlchemyExtractedDataRepository(session),
-        screening_report_repo=SqlAlchemyScreeningReportRepository(session),
-        event_repo=SqlAlchemyEventRepository(session),
-        intake_form_request_repo=SqlAlchemyIntakeFormRequestRepository(session),
-        submission_repo=SqlAlchemySubmissionRepository(session),
+        uow=uow,
         document_storage=document_storage,
         publisher=publisher,
         consumer=consumer,
@@ -272,7 +250,7 @@ async def get_screening_container() -> ApplicantScreeningContainer:
         translator=translator,
         domain_event_publisher=domain_event_publisher,
         extraction_queue_url=settings.sqs_applicant_extraction_queue_url,
-        screening_queue_url=settings.sqs_screening_queue_url,
+        screening_queue_url=settings.sqs_applicant_screening_queue_url,
         max_documents=settings.max_applicant_documents,
     )
     return _screening_container
@@ -289,12 +267,11 @@ async def get_booking_container() -> BookingContainer:
 
     engine = create_async_engine(settings.database_url, echo=False)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    session = session_factory()
+
+    uow = SqlAlchemyBookingUnitOfWork(session_factory)
 
     _booking_container = BookingContainer(
-        slot_repo=SqlAlchemySlotRepository(session),
-        booking_repo=SqlAlchemyBookingRepository(session),
-        applicant_repo=SqlAlchemyBookingApplicantRepository(session),
+        uow=uow,
         notifier=LogNotifier(),
         booking_secret=settings.booking_token_secret,
         booking_link_url=settings.booking_link_url,
@@ -312,10 +289,9 @@ async def get_contract_intelligence_container() -> ContractIntelligenceContainer
 
     settings = Settings()
 
-    # SQLAlchemy async engine + session
+    # SQLAlchemy async engine + session factory
     engine = create_async_engine(settings.database_url, echo=False)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    session = session_factory()
 
     # AWS / S3 / SQS
     boto_session = aioboto3.Session(
@@ -346,17 +322,8 @@ async def get_contract_intelligence_container() -> ContractIntelligenceContainer
     reducto = ReductoClient(api_key=settings.reducto_api_key)
     llm = SectionAnalysisLLMClient(openai_api_key=settings.openai_api_key)
 
-    # Repositories
-    source_document_repo = SqlAlchemySourceDocumentRepository(session)
-    source_section_repo = SqlAlchemySourceSectionRepository(session)
-    template_repo = SqlAlchemyTemplateRepository(session)
-    generated_contract_repo = SqlAlchemyGeneratedContractRepository(session)
-
     _contract_intelligence_container = ContractIntelligenceContainer(
-        source_document_repo=source_document_repo,
-        source_section_repo=source_section_repo,
-        template_repo=template_repo,
-        generated_contract_repo=generated_contract_repo,
+        session_factory=session_factory,
         storage=storage,
         reducto=reducto,
         llm=llm,
@@ -366,7 +333,6 @@ async def get_contract_intelligence_container() -> ContractIntelligenceContainer
         sqs_analysis_queue_url=settings.sqs_contract_analysis_queue_url,
         sqs_ingestion_dlq_url=settings.sqs_contract_ingestion_dlq_url,
         sqs_analysis_dlq_url=settings.sqs_contract_analysis_dlq_url,
-        reducto_pipeline_id=settings.reducto_pipeline_id,
         s3_bucket_name=settings.contract_s3_bucket_name,
         aws_endpoint_url=settings.aws_endpoint_url,
         heartbeat_interval=settings.contract_heartbeat_interval,

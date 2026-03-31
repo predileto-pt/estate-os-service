@@ -5,9 +5,9 @@ from typing import Any
 
 from reducto import AsyncReducto, Reducto
 
-from contract_intelligence.domain.ports.reducto import ExtractedField, ParsedSection, PipelineResult
+from contract_intelligence.application.ports.reducto import ParsedSection, PipelineResult
 
-# Maximum time (seconds) to wait for a Reducto pipeline run
+# Maximum time (seconds) to wait for a Reducto call
 REDUCTO_TIMEOUT_SECONDS = 600
 
 
@@ -24,42 +24,27 @@ class ReductoClient:
         return f"reducto://{file_id}"
 
     async def run_pipeline(self, document_input: str, pipeline_id: str) -> PipelineResult:
-        async with asyncio.timeout(REDUCTO_TIMEOUT_SECONDS):
-            response = await self._async_client.pipeline.run(
-                input=document_input, pipeline_id=pipeline_id
-            )
+        """Parse a document using Reducto's parse API (no pipeline required).
 
-        parse_response_json: dict[str, Any] = {}
-        extract_response_json: dict[str, Any] = {}
-        split_response_json: dict[str, Any] | None = None
+        The pipeline_id parameter is accepted for interface compatibility but
+        ignored — we call the parse endpoint directly, which splits the
+        document into chunks with titles, page ranges, and text content.
+        """
+        async with asyncio.timeout(REDUCTO_TIMEOUT_SECONDS):
+            response = await self._async_client.parse.run(input=document_input)
+
+        parse_response_json = _to_dict(response)
         job_id = getattr(response, "job_id", "") or ""
 
-        sections: list[ParsedSection] = []
-        extracted_fields: list[ExtractedField] = []
-
-        # Walk pipeline steps to find parse and extract results
-        for step in getattr(response, "steps", []):
-            step_type = getattr(step, "type", "")
-            result = getattr(step, "result", None)
-
-            if step_type == "parse" and result is not None:
-                parse_response_json = _to_dict(result)
-                sections = _build_sections_from_parse(result)
-
-            elif step_type == "extract" and result is not None:
-                extract_response_json = _to_dict(result)
-                extracted_fields = _build_fields_from_extract(result)
-
-            elif step_type == "split" and result is not None:
-                split_response_json = _to_dict(result)
+        sections = _build_sections_from_parse(response)
 
         return PipelineResult(
             job_id=job_id,
             parse_response_json=parse_response_json,
-            extract_response_json=extract_response_json,
-            split_response_json=split_response_json,
+            extract_response_json={},
+            split_response_json=None,
             sections=sections,
-            extracted_fields=extracted_fields,
+            extracted_fields=[],
         )
 
 
@@ -144,49 +129,3 @@ def _detect_page_range(blocks: list) -> tuple[int | None, int | None]:
     if pages:
         return min(pages), max(pages)
     return None, None
-
-
-def _build_fields_from_extract(result: Any) -> list[ExtractedField]:
-    fields: list[ExtractedField] = []
-
-    # Extract result is typically a list of dicts or objects
-    items: list = []
-    if isinstance(result, list):
-        items = result
-    elif isinstance(result, dict):
-        items = result.get("result", result.get("fields", [result]))
-    elif hasattr(result, "result"):
-        items = result.result if isinstance(result.result, list) else [result.result]
-    else:
-        items = [result]
-
-    for item in items:
-        if isinstance(item, dict):
-            _flatten_extracted_dict(item, fields, prefix="")
-        elif hasattr(item, "model_dump"):
-            _flatten_extracted_dict(item.model_dump(), fields, prefix="")
-
-    return fields
-
-
-def _flatten_extracted_dict(
-    d: dict[str, Any],
-    fields: list[ExtractedField],
-    prefix: str,
-) -> None:
-    for key, value in d.items():
-        full_key = f"{prefix}.{key}" if prefix else key
-
-        if isinstance(value, dict) and not _looks_like_leaf_value(value):
-            _flatten_extracted_dict(value, fields, prefix=full_key)
-        else:
-            fields.append(
-                ExtractedField(
-                    field_key=full_key,
-                    field_value=value,
-                )
-            )
-
-
-def _looks_like_leaf_value(d: dict) -> bool:
-    return "value" in d or "confidence" in d or "source_text" in d

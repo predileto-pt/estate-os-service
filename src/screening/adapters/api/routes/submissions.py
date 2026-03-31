@@ -26,14 +26,20 @@ router = APIRouter(tags=["applicant-submissions"])
     response_model=PresignedUploadResponse,
     summary="Get presigned S3 URLs for document uploads",
 )
-async def presign_uploads(body: PresignedUploadRequest, request: Request) -> PresignedUploadResponse:
+async def presign_uploads(
+    body: PresignedUploadRequest, request: Request
+) -> PresignedUploadResponse:
     container = request.app.state.screening_container
-    form_request = await container.intake_form_request_repo.get_by_id(body.form_request_id)
+
+    async with container.uow:
+        form_request = await container.uow.intake_form_requests.get_by_id(body.form_request_id)
     if not form_request:
         raise HTTPException(status_code=404, detail="Intake form request not found")
 
     if len(body.files) > container.max_documents:
-        raise HTTPException(status_code=400, detail=f"Too many files. Maximum is {container.max_documents}")
+        raise HTTPException(
+            status_code=400, detail=f"Too many files. Maximum is {container.max_documents}"
+        )
 
     upload_id = str(uuid4())
     presigned_files: list[PresignedFileUpload] = []
@@ -135,11 +141,13 @@ async def create_submission(body: CreateSubmissionRequest, request: Request) -> 
 )
 async def get_screening_status(applicant_id: UUID, request: Request) -> ScreeningStatusResponse:
     container = request.app.state.screening_container
-    applicant = await container.applicant_repo.get_by_id(applicant_id)
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant not found")
 
-    report = await container.screening_report_repo.get_by_applicant_id(applicant_id)
+    async with container.uow:
+        applicant = await container.uow.applicants.get_by_id(applicant_id)
+        if not applicant:
+            raise HTTPException(status_code=404, detail="Applicant not found")
+
+        report = await container.uow.screening_reports.get_by_applicant_id(applicant_id)
 
     if report:
         return ScreeningStatusResponse(

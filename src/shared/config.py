@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # Internal pipeline commands (context-specific)
     sqs_property_extraction_queue_url: str = ""
     sqs_applicant_extraction_queue_url: str = ""
-    sqs_screening_queue_url: str = ""
+    sqs_applicant_screening_queue_url: str = ""
 
     # Applicant Screening Encryption (RSA + HMAC for NIF)
     encryption_public_key: str = ""
@@ -60,7 +60,6 @@ class Settings(BaseSettings):
     sqs_contract_ingestion_dlq_url: str = ""
     sqs_contract_analysis_dlq_url: str = ""
     contract_s3_bucket_name: str = "contract-intelligence-documents"
-    reducto_pipeline_id: str = ""
     contract_heartbeat_interval: int = 60
     contract_heartbeat_extension: int = 120
 

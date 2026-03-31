@@ -28,4 +28,15 @@ awslocal s3api put-bucket-cors --bucket property-documents --cors-configuration 
   ]
 }'
 
+awslocal s3api put-bucket-cors --bucket contract-intelligence-documents --cors-configuration '{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["*"],
+      "AllowedMethods": ["GET", "PUT", "POST"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["ETag"]
+    }
+  ]
+}'
+
 echo "LocalStack initialization complete."

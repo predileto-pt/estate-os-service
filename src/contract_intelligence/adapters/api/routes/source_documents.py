@@ -134,3 +134,28 @@ async def extract(
         return await container.source_document_service.request_extract(document_id)
     except SourceDocumentNotFoundError:
         raise HTTPException(status_code=404, detail="Source document not found.")
+
+
+@router.post(
+    "/{document_id}/retry",
+    summary="Retry a failed document",
+    description=(
+        "Resets a FAILED document back to UPLOADED status and re-publishes "
+        "an ingestion message to SQS so the worker will re-process it."
+    ),
+    response_model=UploadSourceDocumentResponse,
+)
+async def retry_document(
+    document_id: UUID,
+    request: Request,
+    supabase_user_id: str = Depends(get_supabase_user_id),
+) -> UploadSourceDocumentResponse:
+    container = request.app.state.contract_intelligence_container
+    try:
+        return await container.source_document_service.retry_document(document_id)
+    except SourceDocumentNotFoundError:
+        raise HTTPException(status_code=404, detail="Source document not found.")
+    except Exception as e:
+        if "invalid status transition" in str(e).lower():
+            raise HTTPException(status_code=400, detail="Document is not in FAILED status.")
+        raise

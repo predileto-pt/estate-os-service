@@ -1,10 +1,12 @@
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from contract_intelligence.adapters.database.unit_of_work import SqlAlchemyContractUnitOfWork
 from contract_intelligence.application.ports.llm import SectionAnalysisLLMPort
 from contract_intelligence.application.ports.messaging import MessagePublisherPort
 from contract_intelligence.application.ports.reducto import ReductoPort
 from contract_intelligence.application.ports.repositories import (
     GeneratedContractRepository,
     SourceDocumentRepository,
-    SourceSectionRepository,
     TemplateRepository,
 )
 from contract_intelligence.application.ports.storage import FileStoragePort
@@ -26,10 +28,7 @@ from shared.events import DomainEventPublisher
 class Container:
     def __init__(
         self,
-        source_document_repo: SourceDocumentRepository,
-        source_section_repo: SourceSectionRepository,
-        template_repo: TemplateRepository,
-        generated_contract_repo: GeneratedContractRepository,
+        session_factory: async_sessionmaker[AsyncSession],
         storage: FileStoragePort,
         reducto: ReductoPort,
         llm: SectionAnalysisLLMPort,
@@ -39,17 +38,15 @@ class Container:
         sqs_analysis_queue_url: str,
         sqs_ingestion_dlq_url: str = "",
         sqs_analysis_dlq_url: str = "",
-        reducto_pipeline_id: str = "",
         s3_bucket_name: str = "",
         aws_endpoint_url: str | None = None,
         heartbeat_interval: int = 60,
         heartbeat_extension: int = 120,
     ) -> None:
-        # Store repos and adapters
-        self.source_document_repo = source_document_repo
-        self.source_section_repo = source_section_repo
-        self.template_repo = template_repo
-        self.generated_contract_repo = generated_contract_repo
+        # Unit of Work
+        uow = SqlAlchemyContractUnitOfWork(session_factory)
+
+        # Store adapters (still needed for workers / direct access)
         self.storage = storage
         self.reducto = reducto
         self.llm = llm
@@ -66,34 +63,67 @@ class Container:
 
         # Compose services
         self.source_document_service = SourceDocumentService(
-            repo=source_document_repo,
+            uow=uow,
             storage=storage,
             publisher=publisher,
             sqs_ingestion_queue_url=sqs_ingestion_queue_url,
             s3_bucket_name=s3_bucket_name,
         )
         self.ingestion_service = IngestionService(
-            repo=source_document_repo,
-            section_repo=source_section_repo,
+            uow=uow,
             storage=storage,
             reducto=reducto,
             publisher=publisher,
-            reducto_pipeline_id=reducto_pipeline_id,
             sqs_analysis_queue_url=sqs_analysis_queue_url,
             s3_bucket_name=s3_bucket_name,
             aws_endpoint_url=aws_endpoint_url,
         )
         self.section_analysis_service = SectionAnalysisService(
-            doc_repo=source_document_repo,
-            section_repo=source_section_repo,
+            uow=uow,
             llm=llm,
         )
         self.review_service = ReviewService(
-            repo=source_document_repo,
+            repo=self._make_review_repo(session_factory),
         )
         self.template_service = TemplateService(
-            repo=template_repo,
+            repo=self._make_template_repo(session_factory),
         )
         self.generated_contract_service = GeneratedContractService(
-            repo=generated_contract_repo,
+            repo=self._make_generated_contract_repo(session_factory),
         )
+
+    # ------------------------------------------------------------------
+    # ReviewService, TemplateService, and GeneratedContractService have
+    # not yet been migrated to use the UoW.  Until that happens we give
+    # them a dedicated session so they keep working unchanged.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _make_review_repo(
+        sf: async_sessionmaker[AsyncSession],
+    ) -> SourceDocumentRepository:
+        from contract_intelligence.adapters.database.repositories import (
+            SqlAlchemySourceDocumentRepository,
+        )
+
+        return SqlAlchemySourceDocumentRepository(sf())
+
+    @staticmethod
+    def _make_template_repo(
+        sf: async_sessionmaker[AsyncSession],
+    ) -> TemplateRepository:
+        from contract_intelligence.adapters.database.repositories import (
+            SqlAlchemyTemplateRepository,
+        )
+
+        return SqlAlchemyTemplateRepository(sf())
+
+    @staticmethod
+    def _make_generated_contract_repo(
+        sf: async_sessionmaker[AsyncSession],
+    ) -> GeneratedContractRepository:
+        from contract_intelligence.adapters.database.repositories import (
+            SqlAlchemyGeneratedContractRepository,
+        )
+
+        return SqlAlchemyGeneratedContractRepository(sf())

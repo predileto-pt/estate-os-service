@@ -3,7 +3,17 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from shared.database.models import Base
@@ -11,7 +21,9 @@ from shared.database.models import Base
 
 class ApplicantModel(Base):
     __tablename__ = "applicant_applicants"
-    __table_args__ = (UniqueConstraint("nif_hash", "form_request_id", name="uq_applicants_nif_form_request"),)
+    __table_args__ = (
+        UniqueConstraint("nif_hash", "form_request_id", name="uq_applicants_nif_form_request"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     nif: Mapped[str] = mapped_column(String(512))
@@ -47,7 +59,9 @@ class ExtractedDataModel(Base):
     __tablename__ = "applicant_extracted_data"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    document_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("applicant_documents.id"), unique=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("applicant_documents.id"), unique=True
+    )
     extracted_content: Mapped[dict] = mapped_column(JSON)
     extraction_status: Mapped[str] = mapped_column(String(20))
 
@@ -71,7 +85,9 @@ class EventModel(Base):
     __tablename__ = "applicant_events"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    applicant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("applicant_applicants.id"), index=True)
+    applicant_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("applicant_applicants.id"), index=True
+    )
     event_type: Mapped[str] = mapped_column(String(30))
     payload: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
