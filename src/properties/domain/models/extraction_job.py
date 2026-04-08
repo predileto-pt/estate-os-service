@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import UUID
 
+from properties.domain.exceptions import InvalidJobTransitionError
+
 
 class ExtractionJobStatus(str, enum.Enum):
     PENDING = "pending"
@@ -29,6 +31,10 @@ class ExtractionJob:
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def mark_processing(self) -> None:
+        if self.status not in (ExtractionJobStatus.PENDING, ExtractionJobStatus.RETRYING):
+            raise InvalidJobTransitionError(
+                f"Cannot mark job {self.id} as processing from status {self.status.value}"
+            )
         self.status = ExtractionJobStatus.PROCESSING
         self.updated_at = datetime.now(timezone.utc)
 

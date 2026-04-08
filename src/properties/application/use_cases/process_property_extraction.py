@@ -18,7 +18,7 @@ from properties.application.ports.repositories.property_repository import (
     PropertyRepository,
 )
 from properties.domain.exceptions import ExtractionJobNotFoundError
-from properties.domain.models.extraction_job import ExtractionJob
+from properties.domain.models.extraction_job import ExtractionJob, ExtractionJobStatus
 from properties.domain.models.property import (
     ListingType,
     Property,
@@ -58,6 +58,14 @@ class ProcessPropertyExtraction:
         job = await self.extraction_job_repo.get_by_id(UUID(job_id))
         if job is None:
             raise ExtractionJobNotFoundError(job_id)
+
+        if job.status == ExtractionJobStatus.COMPLETED:
+            log.info(
+                "extraction.skip_already_completed",
+                job_id=job_id,
+                property_id=str(job.property_id) if job.property_id else None,
+            )
+            return job
 
         job.mark_processing()
         await self.extraction_job_repo.update(job)

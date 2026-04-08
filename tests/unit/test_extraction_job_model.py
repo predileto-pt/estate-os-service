@@ -1,6 +1,9 @@
 from datetime import datetime
 from uuid import uuid4
 
+import pytest
+
+from properties.domain.exceptions import InvalidJobTransitionError
 from properties.domain.models.extraction_job import (
     ExtractionJob,
     ExtractionJobStatus,
@@ -59,3 +62,27 @@ class TestExtractionJobStateTransitions:
         assert job.error_message is None
         assert isinstance(job.created_at, datetime)
         assert isinstance(job.updated_at, datetime)
+
+    def test_mark_processing_rejects_completed_job(self):
+        job = _make_job()
+        job.mark_processing()
+        job.mark_completed(uuid4())
+
+        with pytest.raises(InvalidJobTransitionError):
+            job.mark_processing()
+
+    def test_mark_processing_rejects_processing_job(self):
+        job = _make_job()
+        job.mark_processing()
+
+        with pytest.raises(InvalidJobTransitionError):
+            job.mark_processing()
+
+    def test_mark_processing_allows_retry_from_retrying(self):
+        job = _make_job()
+        job.mark_processing()
+        job.mark_failed("transient error")
+        job.mark_retrying()
+
+        job.mark_processing()
+        assert job.status == ExtractionJobStatus.PROCESSING

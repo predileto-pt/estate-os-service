@@ -434,3 +434,26 @@ class TestProcessBatchPropertyExtraction:
         # Property was still created
         props = await prop_repo.list_by_organization(TEST_ORGANIZATION_ID)
         assert len(props) == 1
+
+    async def test_completed_job_is_skipped_idempotently(
+        self, use_case, job_repo, storage, prop_repo
+    ):
+        """Re-running a completed job is a no-op — no second Property is created."""
+        job = _make_pending_job(num_docs=3)
+        await job_repo.save(job)
+        for key in job.document_keys:
+            await storage.upload(key, b"fake-pdf", "application/pdf")
+
+        first = await use_case.execute(job_id=str(job.id))
+        assert first.status == ExtractionJobStatus.COMPLETED
+        first_property_id = first.property_id
+
+        # Second run on the same already-completed job
+        result = await use_case.execute(job_id=str(job.id))
+
+        assert result.status == ExtractionJobStatus.COMPLETED
+        assert result.property_id == first_property_id
+
+        # Only ONE property exists
+        props = await prop_repo.list_by_organization(TEST_ORGANIZATION_ID)
+        assert len(props) == 1

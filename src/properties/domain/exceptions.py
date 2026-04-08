@@ -47,6 +47,12 @@ class ExtractionJobNotFoundError(DomainError):
         )
 
 
+class InvalidJobTransitionError(DomainError):
+    """Raised when an extraction job is asked to transition to an illegal status."""
+
+    pass
+
+
 class PropertyExtractionError(DomainError):
     def __init__(self, message: str = "Failed to extract property data") -> None:
         super().__init__(message)
