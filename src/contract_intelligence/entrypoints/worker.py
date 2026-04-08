@@ -7,6 +7,7 @@ from typing import Any
 
 import aioboto3
 import structlog
+from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from contract_intelligence.adapters.workers import (
     analysis_processor,
@@ -19,29 +20,26 @@ log = structlog.get_logger()
 
 
 async def _heartbeat(
-    session: aioboto3.Session,
+    sqs: Any,
     queue_url: str,
     receipt_handle: str,
-    endpoint_url: str | None = None,
     interval: int = 60,
     extension: int = 120,
 ) -> None:
-    """Periodically extend message visibility while processing."""
-    extensions = 0
-    kwargs: dict[str, Any] = {}
-    if endpoint_url:
-        kwargs["endpoint_url"] = endpoint_url
+    """Periodically extend message visibility while processing.
 
+    Reuses the worker's shared SQS client — no new client per heartbeat tick.
+    """
+    extensions = 0
     try:
         while True:
             await asyncio.sleep(interval)
             try:
-                async with session.client("sqs", **kwargs) as sqs:
-                    await sqs.change_message_visibility(
-                        QueueUrl=queue_url,
-                        ReceiptHandle=receipt_handle,
-                        VisibilityTimeout=extension,
-                    )
+                await sqs.change_message_visibility(
+                    QueueUrl=queue_url,
+                    ReceiptHandle=receipt_handle,
+                    VisibilityTimeout=extension,
+                )
                 extensions += 1
                 log.debug("heartbeat_extended", queue_url=queue_url, extensions=extensions)
             except Exception:
@@ -64,6 +62,9 @@ class SQSWorker:
         use_heartbeat: bool = False,
         heartbeat_interval: int = 60,
         heartbeat_extension: int = 120,
+        max_concurrency: int = 5,
+        max_messages_per_poll: int = 10,
+        drain_timeout: int = 30,
     ) -> None:
         self._session = session
         self._queue_url = queue_url
@@ -74,35 +75,92 @@ class SQSWorker:
         self._use_heartbeat = use_heartbeat
         self._heartbeat_interval = heartbeat_interval
         self._heartbeat_extension = heartbeat_extension
+        self._max_concurrency = max_concurrency
+        self._max_messages_per_poll = max_messages_per_poll
+        self._drain_timeout = drain_timeout
         self._running = True
+        self._semaphore = asyncio.Semaphore(max_concurrency)
+        self._in_flight: list[asyncio.Task] = []
+        self._sqs: Any = None
 
     async def run(self) -> None:
-        log.info(f"{self._worker_name}_started", queue_url=self._queue_url)
+        log.info(
+            f"{self._worker_name}_started",
+            queue_url=self._queue_url,
+            max_concurrency=self._max_concurrency,
+            max_messages_per_poll=self._max_messages_per_poll,
+        )
 
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, self._shutdown)
 
-        while self._running:
-            try:
-                messages = await self._poll()
-                for msg in messages:
-                    await self._process_message(msg)
-            except Exception:
-                log.exception(f"{self._worker_name}_error")
-                await asyncio.sleep(5)
+        kwargs: dict[str, Any] = {}
+        if self._endpoint_url:
+            kwargs["endpoint_url"] = self._endpoint_url
+
+        # Single SQS client reused for the entire worker lifetime — avoids
+        # per-call TLS handshake and credential resolution overhead. Safe to
+        # share across concurrent coroutines (asyncio is cooperative; aiohttp
+        # connection pool handles concurrent requests).
+        async with self._session.client("sqs", **kwargs) as sqs:
+            self._sqs = sqs
+
+            while self._running:
+                try:
+                    messages = await self._poll()
+                    if not messages:
+                        continue
+
+                    self._in_flight = [
+                        asyncio.create_task(self._bounded_process(msg)) for msg in messages
+                    ]
+                    await asyncio.gather(*self._in_flight, return_exceptions=True)
+                    self._in_flight = []
+                except Exception:
+                    log.exception(f"{self._worker_name}_error")
+                    await asyncio.sleep(5)
+
+            await self._drain()
+
+    async def _drain(self) -> None:
+        if not self._in_flight:
+            return
+        log.info(f"{self._worker_name}_draining", in_flight=len(self._in_flight))
+        done, pending = await asyncio.wait(self._in_flight, timeout=self._drain_timeout)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        log.info(
+            f"{self._worker_name}_drain_complete",
+            completed=len(done),
+            cancelled=len(pending),
+        )
+
+    async def _bounded_process(self, msg: dict[str, Any]) -> None:
+        async with self._semaphore:
+            await self._process_message(msg)
 
     async def _process_message(self, msg: dict[str, Any]) -> None:
-        heartbeat_task = None
+        clear_contextvars()
+        body = msg["body"] if isinstance(msg["body"], dict) else {}
+        bind_contextvars(
+            worker=self._worker_name,
+            message_id=msg.get("message_id"),
+            document_id=body.get("document_id"),
+            event_type=body.get("event_type"),
+        )
+
+        heartbeat_task: asyncio.Task | None = None
         start = time.monotonic()
 
         if self._use_heartbeat:
             heartbeat_task = asyncio.create_task(
                 _heartbeat(
-                    self._session,
+                    self._sqs,
                     self._queue_url,
                     msg["receipt_handle"],
-                    endpoint_url=self._endpoint_url,
                     interval=self._heartbeat_interval,
                     extension=self._heartbeat_extension,
                 )
@@ -114,44 +172,47 @@ class SQSWorker:
             log.info(
                 f"{self._worker_name}_message_processed",
                 processing_seconds=round(elapsed, 2),
+                status="success",
             )
-        except Exception:
-            log.exception(f"{self._worker_name}_message_error", raw_body=msg.get("body"))
+        except Exception as exc:
+            elapsed = time.monotonic() - start
+            log.exception(
+                f"{self._worker_name}_message_error",
+                processing_seconds=round(elapsed, 2),
+                status="error",
+                error_type=type(exc).__name__,
+                raw_body=msg.get("body"),
+            )
         finally:
             # Always delete the message — failed documents stay in their current
             # status (UPLOADED/PARSED) and can be re-queued manually.
-            await self._delete_message(msg["receipt_handle"])
+            try:
+                await self._delete_message(msg["receipt_handle"])
+            except Exception:
+                log.exception(f"{self._worker_name}_delete_failed")
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
                 await asyncio.gather(heartbeat_task, return_exceptions=True)
+            clear_contextvars()
 
     async def _poll(self) -> list[dict[str, Any]]:
-        kwargs: dict[str, Any] = {}
-        if self._endpoint_url:
-            kwargs["endpoint_url"] = self._endpoint_url
-
-        async with self._session.client("sqs", **kwargs) as sqs:
-            response = await sqs.receive_message(
-                QueueUrl=self._queue_url,
-                MaxNumberOfMessages=1,
-                WaitTimeSeconds=20,
-            )
-            messages = response.get("Messages", [])
-            return [
-                {
-                    "body": json.loads(msg["Body"]),
-                    "receipt_handle": msg["ReceiptHandle"],
-                }
-                for msg in messages
-            ]
+        response = await self._sqs.receive_message(
+            QueueUrl=self._queue_url,
+            MaxNumberOfMessages=self._max_messages_per_poll,
+            WaitTimeSeconds=20,
+        )
+        messages = response.get("Messages", [])
+        return [
+            {
+                "body": json.loads(msg["Body"]),
+                "receipt_handle": msg["ReceiptHandle"],
+                "message_id": msg.get("MessageId"),
+            }
+            for msg in messages
+        ]
 
     async def _delete_message(self, receipt_handle: str) -> None:
-        kwargs: dict[str, Any] = {}
-        if self._endpoint_url:
-            kwargs["endpoint_url"] = self._endpoint_url
-
-        async with self._session.client("sqs", **kwargs) as sqs:
-            await sqs.delete_message(QueueUrl=self._queue_url, ReceiptHandle=receipt_handle)
+        await self._sqs.delete_message(QueueUrl=self._queue_url, ReceiptHandle=receipt_handle)
 
     def _shutdown(self) -> None:
         log.info(f"{self._worker_name}_shutting_down")
