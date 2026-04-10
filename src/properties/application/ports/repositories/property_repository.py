@@ -33,6 +33,11 @@ class PropertyRepository(ABC):
     async def delete_image(self, prop: Property, image_id: UUID) -> Property: ...
 
     @abstractmethod
+    async def delete(self, property_id: UUID) -> None:
+        """Hard-delete a property and cascade owners, prices, and images."""
+        ...
+
+    @abstractmethod
     async def list_active(self) -> list[Property]: ...
 
     @abstractmethod

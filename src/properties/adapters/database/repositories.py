@@ -1,12 +1,13 @@
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from properties.adapters.database.models import (
     DocumentContentModel,
     ExtractionJobModel,
+    PropertyAmenityModel,
     PropertyImageModel,
     PropertyModel,
     PropertyOwnerModel,
@@ -283,6 +284,23 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
         await self._session.flush()
         return await self.get_by_id(prop.id)
 
+    async def delete(self, property_id: UUID) -> None:
+        pid = str(property_id)
+        # Delete child rows first to satisfy FK constraints (no ondelete=CASCADE).
+        # Order: amenities, owners, prices, images, then the property itself.
+        # extraction_jobs.property_id is nullable and handled by the
+        # ExtractionJobRepository.delete_by_property_id() before this is called.
+        for model_cls, fk_column in (
+            (PropertyAmenityModel, PropertyAmenityModel.property_id),
+            (PropertyOwnerModel, PropertyOwnerModel.property_id),
+            (PropertyPriceModel, PropertyPriceModel.property_id),
+            (PropertyImageModel, PropertyImageModel.property_id),
+        ):
+            await self._session.execute(delete(model_cls).where(fk_column == pid))
+
+        await self._session.execute(delete(PropertyModel).where(PropertyModel.id == pid))
+        await self._session.flush()
+
 
 # ── ExtractionJob ───────────────────────────────────────────────────────────
 
@@ -353,6 +371,27 @@ class SqlAlchemyExtractionJobRepository(ExtractionJobRepository):
         await self._session.flush()
         await self._session.refresh(model)
         return self._to_domain(model)
+
+    async def delete_by_property_id(self, property_id: UUID) -> None:
+        pid = str(property_id)
+        # Find the job IDs first so we can cascade delete document_contents
+        # (FK extraction_jobs.id has no ondelete=CASCADE).
+        result = await self._session.execute(
+            select(ExtractionJobModel.id).where(ExtractionJobModel.property_id == pid)
+        )
+        job_ids = [row[0] for row in result.all()]
+        if not job_ids:
+            return
+
+        await self._session.execute(
+            delete(DocumentContentModel).where(
+                DocumentContentModel.extraction_job_id.in_(job_ids)
+            )
+        )
+        await self._session.execute(
+            delete(ExtractionJobModel).where(ExtractionJobModel.id.in_(job_ids))
+        )
+        await self._session.flush()
 
 
 # ── DocumentContent ─────────────────────────────────────────────────────────

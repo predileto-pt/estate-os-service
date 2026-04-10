@@ -51,6 +51,9 @@ class InMemoryPropertyRepository(PropertyRepository):
         self._properties[prop.id] = prop
         return prop
 
+    async def delete(self, property_id: UUID) -> None:
+        self._properties.pop(property_id, None)
+
     async def update_image_orders(
         self, prop: Property, image_orders: list[tuple[UUID, int]]
     ) -> Property:

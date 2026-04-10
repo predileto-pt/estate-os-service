@@ -16,3 +16,6 @@ class DocumentStorage(ABC):
 
     @abstractmethod
     async def verify_exists(self, key: str) -> bool: ...
+
+    @abstractmethod
+    async def delete(self, key: str) -> None: ...

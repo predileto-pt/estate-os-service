@@ -21,3 +21,6 @@ class InMemoryDocumentStorage(DocumentStorage):
 
     async def verify_exists(self, key: str) -> bool:
         return key in self._files
+
+    async def delete(self, key: str) -> None:
+        self._files.pop(key, None)

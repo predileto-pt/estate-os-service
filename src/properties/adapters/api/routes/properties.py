@@ -210,3 +210,54 @@ async def get_property(
 
     urls = await _generate_image_download_urls(request, prop)
     return _property_response(prop, urls)
+
+
+@router.delete(
+    "/{property_id}",
+    status_code=204,
+    summary="Delete a property (hard delete)",
+    description=(
+        "Permanently delete a property and all related data: owners, prices, images "
+        "(including S3 objects), amenities, and extraction jobs. Only the organization's "
+        "OWNER or ADMIN can perform this action."
+    ),
+    responses={
+        204: {"description": "Property deleted"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not authorized — must be OWNER or ADMIN of the organization"},
+        404: {"description": "Property not found"},
+    },
+)
+async def delete_property(
+    property_id: UUID,
+    organization_id: UUID,
+    request: Request,
+    supabase_user_id: str = Depends(get_supabase_user_id),
+):
+    # Verify the requester is OWNER or ADMIN of the organization. We call the
+    # customers context via app.state but avoid importing its types directly,
+    # so the cross-context coupling stays at runtime only.
+    customer_container = request.app.state.container
+    try:
+        _user, _org, membership = await customer_container.get_user_profile.execute(
+            supabase_user_id=supabase_user_id
+        )
+    except Exception:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    if membership is None or str(membership.organization_id) != str(organization_id):
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+
+    role_value = membership.role.value if hasattr(membership.role, "value") else membership.role
+    if role_value not in ("owner", "admin"):
+        raise HTTPException(
+            status_code=403, detail="Only OWNER or ADMIN can delete properties"
+        )
+
+    delete_uc = request.app.state.property_container.delete_property
+    try:
+        await delete_uc.execute(property_id=property_id, organization_id=organization_id)
+    except PropertyNotFoundError:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    return None

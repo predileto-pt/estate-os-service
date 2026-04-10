@@ -125,6 +125,17 @@ def create_app(
         ],
     )
 
+    # Logfire auto-instrumentation: stitches FastAPI requests, SQLAlchemy
+    # queries, outbound HTTPX calls, and OpenAI calls into a single trace
+    # tree per request. No-op if logfire_token is empty.
+    if settings.logfire_token:
+        import logfire
+
+        logfire.instrument_fastapi(app, capture_headers=False)
+        logfire.instrument_sqlalchemy()
+        logfire.instrument_httpx()
+        logfire.instrument_openai()
+
     # Middleware (order matters — outermost first)
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(JWTAuthMiddleware)

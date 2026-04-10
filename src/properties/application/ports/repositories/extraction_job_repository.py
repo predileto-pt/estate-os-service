@@ -18,3 +18,8 @@ class ExtractionJobRepository(ABC):
 
     @abstractmethod
     async def update(self, job: ExtractionJob) -> ExtractionJob: ...
+
+    @abstractmethod
+    async def delete_by_property_id(self, property_id: UUID) -> None:
+        """Delete all extraction jobs (and their document contents) linked to a property."""
+        ...

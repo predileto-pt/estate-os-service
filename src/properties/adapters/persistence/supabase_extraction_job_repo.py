@@ -73,3 +73,27 @@ class SupabaseExtractionJobRepository(ExtractionJobRepository):
             await self._client.table("extraction_jobs").update(row).eq("id", str(job.id)).execute()
         )
         return self._to_domain(result.data[0])
+
+    async def delete_by_property_id(self, property_id: UUID) -> None:
+        pid = str(property_id)
+        # Find the job IDs first so we can cascade delete document_contents
+        # (FK extraction_jobs.id has no ondelete=CASCADE).
+        jobs_result = (
+            await self._client.table("extraction_jobs")
+            .select("id")
+            .eq("property_id", pid)
+            .execute()
+        )
+        job_ids = [row["id"] for row in jobs_result.data]
+        if not job_ids:
+            return
+
+        await (
+            self._client.table("document_contents")
+            .delete()
+            .in_("extraction_job_id", job_ids)
+            .execute()
+        )
+        await (
+            self._client.table("extraction_jobs").delete().in_("id", job_ids).execute()
+        )

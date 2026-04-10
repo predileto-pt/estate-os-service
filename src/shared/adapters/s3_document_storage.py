@@ -75,3 +75,12 @@ class S3DocumentStorage(DocumentStorage):
                 return True
             except Exception:
                 return False
+
+    async def delete(self, key: str) -> None:
+        async with self._session.client("s3", **self._config) as s3:
+            try:
+                await s3.delete_object(Bucket=self._bucket_name, Key=key)
+                log.info("s3.delete", key=key)
+            except Exception as exc:
+                # Best-effort: missing objects are fine, but log other errors
+                log.warning("s3.delete_failed", key=key, error=str(exc))

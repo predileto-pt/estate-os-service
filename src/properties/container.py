@@ -45,6 +45,7 @@ from properties.application.use_cases.retry_extraction_job import RetryExtractio
 from properties.application.use_cases.submit_property_extraction import (
     SubmitPropertyExtraction,
 )
+from properties.application.use_cases.delete_property import DeleteProperty
 from properties.application.use_cases.delete_property_image import DeletePropertyImage
 from properties.application.use_cases.generate_image_upload_urls import (
     GenerateImageUploadUrls,
@@ -156,6 +157,15 @@ class Container:
                 document_storage=document_storage,
                 extraction_job_repo=extraction_job_repo,
                 event_bus=event_bus,
+            )
+
+        # Property hard delete (requires document_storage to delete S3 images
+        # and extraction_job_repo to cascade jobs).
+        if document_storage and extraction_job_repo:
+            self.delete_property = DeleteProperty(
+                property_repo=property_repo,
+                extraction_job_repo=extraction_job_repo,
+                document_storage=document_storage,
             )
 
         if (

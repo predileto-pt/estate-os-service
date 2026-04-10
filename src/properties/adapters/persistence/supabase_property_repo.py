@@ -281,3 +281,17 @@ class SupabasePropertyRepository(PropertyRepository):
         image_rows = await self._load_images(str(prop.id))
         prop.images = [self._image_to_domain(r) for r in image_rows]
         return prop
+
+    async def delete(self, property_id: UUID) -> None:
+        pid = str(property_id)
+        # Delete child rows first to satisfy FK constraints (no ondelete=CASCADE).
+        # extraction_jobs.property_id is nullable and handled separately by
+        # ExtractionJobRepository.delete_by_property_id().
+        for table in (
+            "property_amenities",
+            "property_owners",
+            "property_prices",
+            "property_images",
+        ):
+            await self._client.table(table).delete().eq("property_id", pid).execute()
+        await self._client.table("properties").delete().eq("id", pid).execute()
