@@ -1,5 +1,7 @@
 from uuid import UUID
 
+import pytest
+
 from tests.conftest import TEST_ORGANIZATION_ID
 from properties.domain.models.property import (
     ListingType,
@@ -9,6 +11,13 @@ from properties.domain.models.property import (
 )
 
 OTHER_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000099"
+
+
+@pytest.fixture(autouse=True)
+def _auto_seed_member(seed_test_member):
+    # Applies to every test in this module so property routes can resolve
+    # the JWT's `sub` to a domain User+Membership in TEST_ORGANIZATION_ID.
+    return seed_test_member
 
 
 class TestCreateProperty:
@@ -103,7 +112,7 @@ class TestListProperties:
         assert response.status_code == 200
         assert response.json() == []
 
-    async def test_list_properties_only_own_org(self, client, auth_headers):
+    async def test_list_properties_other_org_forbidden(self, client, auth_headers):
         # Create property for default org
         await client.post(
             "/api/v1/admin/properties/",
@@ -116,13 +125,13 @@ class TestListProperties:
             headers=auth_headers,
         )
 
-        # List for different org
+        # Listing for an org the caller isn't a member of is now forbidden,
+        # not an empty success — the membership check runs before the handler.
         response = await client.get(
             f"/api/v1/admin/properties/?organization_id={OTHER_ORGANIZATION_ID}",
             headers=auth_headers,
         )
-        assert response.status_code == 200
-        assert response.json() == []
+        assert response.status_code == 403
 
 
 class TestListPropertiesSummary:

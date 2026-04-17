@@ -17,6 +17,11 @@ PUBLIC_PATHS = {
     "/openapi.json",
 }
 
+# Prefix-based public paths: any request whose path starts with one of these
+# bypasses JWT auth. Used for routers mounted at public roots (e.g. listings)
+# where individual path params (IDs, slugs) make exact-matching infeasible.
+PUBLIC_PREFIXES = ("/api/v1/listings/",)
+
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
     async def _decode_token(self, token: str) -> dict:
@@ -39,7 +44,8 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         )
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if request.url.path in PUBLIC_PATHS or request.method == "OPTIONS":
+        path = request.url.path
+        if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES) or request.method == "OPTIONS":
             return await call_next(request)
 
         auth_header = request.headers.get("authorization", "")

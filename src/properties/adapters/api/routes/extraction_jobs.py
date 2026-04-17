@@ -2,7 +2,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from shared.api.dependencies import get_supabase_user_id
+from customers.domain.models.membership import Membership
+from customers.domain.models.user import User
+from shared.api.dependencies import (
+    assert_org_member,
+    get_supabase_user_id,
+    require_org_member,
+)
 from properties.adapters.api.schemas import (
     ExtractionJobResponse,
     PresignedFileResponse,
@@ -80,6 +86,7 @@ async def submit_extraction(
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
+    await assert_org_member(request, supabase_user_id, body.organization_id)
     uc = request.app.state.property_container.submit_property_extraction
     try:
         job = await uc.execute(
@@ -114,6 +121,7 @@ async def submit_batch_extraction(
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
+    await assert_org_member(request, supabase_user_id, body.organization_id)
     uc = request.app.state.property_container.submit_batch_property_extraction
     try:
         job = await uc.execute(
@@ -147,7 +155,7 @@ async def retry_extraction_job(
     job_id: UUID,
     organization_id: UUID,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    _member: tuple[User, Membership] = Depends(require_org_member),
 ):
     get_uc = request.app.state.property_container.get_extraction_job
     try:
@@ -156,7 +164,7 @@ async def retry_extraction_job(
         raise HTTPException(status_code=404, detail="Extraction job not found")
 
     if str(job.organization_id) != str(organization_id):
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise HTTPException(status_code=404, detail="Extraction job not found")
 
     retry_uc = request.app.state.property_container.retry_extraction_job
     try:
@@ -176,7 +184,7 @@ async def retry_extraction_job(
 async def list_extraction_jobs(
     organization_id: UUID,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    _member: tuple[User, Membership] = Depends(require_org_member),
 ):
     uc = request.app.state.property_container.list_extraction_jobs
     jobs = await uc.execute(organization_id=str(organization_id))
@@ -197,7 +205,7 @@ async def get_extraction_job(
     job_id: UUID,
     organization_id: UUID,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    _member: tuple[User, Membership] = Depends(require_org_member),
 ):
     uc = request.app.state.property_container.get_extraction_job
     try:
@@ -206,6 +214,6 @@ async def get_extraction_job(
         raise HTTPException(status_code=404, detail="Extraction job not found")
 
     if str(job.organization_id) != str(organization_id):
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise HTTPException(status_code=404, detail="Extraction job not found")
 
     return _job_response(job)

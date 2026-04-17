@@ -2,7 +2,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from shared.api.dependencies import get_supabase_user_id
+from customers.domain.models.membership import Membership
+from customers.domain.models.user import User
+from shared.api.dependencies import require_org_member
 from shared.events.base import DomainEvent
 from shared.events.types import PROPERTY_CREATED
 from properties.adapters.api.schemas import PropertyAmenityResponse
@@ -16,11 +18,9 @@ async def _verify_property_ownership(
 ) -> None:
     get_prop_uc = request.app.state.property_container.get_property
     try:
-        prop = await get_prop_uc.execute(property_id=property_id)
+        await get_prop_uc.execute(property_id=property_id, organization_id=organization_id)
     except PropertyNotFoundError:
         raise HTTPException(status_code=404, detail="Property not found")
-    if str(prop.organization_id) != str(organization_id):
-        raise HTTPException(status_code=403, detail="Not authorized")
 
 
 @router.get(
@@ -37,7 +37,7 @@ async def get_property_amenities(
     property_id: UUID,
     organization_id: UUID,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    _member: tuple[User, Membership] = Depends(require_org_member),
 ):
     await _verify_property_ownership(request, property_id, organization_id)
 
@@ -82,7 +82,7 @@ async def discover_property_amenities(
     property_id: UUID,
     organization_id: UUID,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    _member: tuple[User, Membership] = Depends(require_org_member),
 ):
     await _verify_property_ownership(request, property_id, organization_id)
 
@@ -92,7 +92,7 @@ async def discover_property_amenities(
 
     try:
         prop = await request.app.state.property_container.get_property.execute(
-            property_id=property_id
+            property_id=property_id, organization_id=organization_id
         )
     except PropertyNotFoundError:
         raise HTTPException(status_code=404, detail="Property not found")

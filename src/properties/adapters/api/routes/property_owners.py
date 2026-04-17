@@ -2,7 +2,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
-from shared.api.dependencies import get_supabase_user_id
+from customers.domain.models.membership import Membership
+from customers.domain.models.user import User
+from shared.api.dependencies import (
+    assert_org_member,
+    get_supabase_user_id,
+    require_org_member,
+)
 from properties.adapters.api.routes.properties import _property_response
 from properties.adapters.api.schemas import (
     CreatePropertyOwnerRequest,
@@ -47,11 +53,9 @@ async def _verify_property_ownership(
 ) -> None:
     get_prop_uc = request.app.state.property_container.get_property
     try:
-        prop = await get_prop_uc.execute(property_id=property_id)
+        await get_prop_uc.execute(property_id=property_id, organization_id=organization_id)
     except PropertyNotFoundError:
         raise HTTPException(status_code=404, detail="Property not found")
-    if str(prop.organization_id) != str(organization_id):
-        raise HTTPException(status_code=403, detail="Not authorized")
 
 
 @router.post(
@@ -71,6 +75,7 @@ async def create_property_owner(
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
+    await assert_org_member(request, supabase_user_id, body.organization_id)
     await _verify_property_ownership(request, body.property_id, body.organization_id)
 
     create_uc = request.app.state.property_container.create_property_owner
@@ -114,6 +119,7 @@ async def extract_from_document(
     file: UploadFile = File(...),
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
+    await assert_org_member(request, supabase_user_id, organization_id)
     await _verify_property_ownership(request, property_id, organization_id)
 
     extract_uc = request.app.state.property_container.extract_property_owner_from_document
@@ -145,7 +151,7 @@ async def list_property_owners(
     property_id: UUID,
     organization_id: UUID,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    _member: tuple[User, Membership] = Depends(require_org_member),
 ):
     await _verify_property_ownership(request, property_id, organization_id)
 
@@ -169,7 +175,7 @@ async def get_property_owner(
     property_id: UUID,
     organization_id: UUID,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    _member: tuple[User, Membership] = Depends(require_org_member),
 ):
     await _verify_property_ownership(request, property_id, organization_id)
 
@@ -198,7 +204,7 @@ async def update_property_owner_contact(
     property_id: UUID,
     organization_id: UUID,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    _member: tuple[User, Membership] = Depends(require_org_member),
 ):
     await _verify_property_ownership(request, property_id, organization_id)
 

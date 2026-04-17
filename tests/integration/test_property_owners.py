@@ -1,6 +1,13 @@
+import pytest
+
 from tests.conftest import TEST_ORGANIZATION_ID
 
 OTHER_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000099"
+
+
+@pytest.fixture(autouse=True)
+def _auto_seed_member(seed_test_member):
+    return seed_test_member
 
 
 async def _create_property(client, auth_headers) -> str:
@@ -39,7 +46,9 @@ class TestCreatePropertyOwner:
             "property_id": property_id,
         }
 
-        response = await client.post("/api/v1/admin/property-owners/", json=payload, headers=auth_headers)
+        response = await client.post(
+            "/api/v1/admin/property-owners/", json=payload, headers=auth_headers
+        )
         assert response.status_code == 201
         data = response.json()
         # Response is now the full property with owners
@@ -57,7 +66,9 @@ class TestCreatePropertyOwner:
             "nif": "12345",
         }
 
-        response = await client.post("/api/v1/admin/property-owners/", json=payload, headers=auth_headers)
+        response = await client.post(
+            "/api/v1/admin/property-owners/", json=payload, headers=auth_headers
+        )
         assert response.status_code == 422
 
     async def test_create_property_owner_property_not_found(self, client, auth_headers):
@@ -66,7 +77,9 @@ class TestCreatePropertyOwner:
             "organization_id": TEST_ORGANIZATION_ID,
             "property_id": "00000000-0000-0000-0000-000000000099",
         }
-        response = await client.post("/api/v1/admin/property-owners/", json=payload, headers=auth_headers)
+        response = await client.post(
+            "/api/v1/admin/property-owners/", json=payload, headers=auth_headers
+        )
         assert response.status_code == 404
 
     async def test_create_property_owner_not_authorized(self, client, auth_headers):
@@ -77,7 +90,9 @@ class TestCreatePropertyOwner:
             "property_id": property_id,
         }
 
-        response = await client.post("/api/v1/admin/property-owners/", json=payload, headers=auth_headers)
+        response = await client.post(
+            "/api/v1/admin/property-owners/", json=payload, headers=auth_headers
+        )
         assert response.status_code == 403
 
     async def test_create_multiple_owners(self, client, auth_headers):
@@ -219,7 +234,9 @@ class TestUpdatePropertyOwnerContact:
             "organization_id": TEST_ORGANIZATION_ID,
             "property_id": property_id,
         }
-        resp = await client.post("/api/v1/admin/property-owners/", json=payload, headers=auth_headers)
+        resp = await client.post(
+            "/api/v1/admin/property-owners/", json=payload, headers=auth_headers
+        )
         owner_id = resp.json()["owners"][0]["id"]
         return property_id, owner_id
 

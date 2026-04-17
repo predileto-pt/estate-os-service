@@ -1,8 +1,13 @@
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
+
 import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from customers.adapters.inmemory.inmemory_email_service import InMemoryEmailService
+from customers.domain.models.membership import Membership, MembershipRole
+from customers.domain.models.user import User
 from customers.adapters.inmemory.inmemory_invitation_repo import (
     InMemoryInvitationRepository,
 )
@@ -206,3 +211,39 @@ async def client(app):
 def auth_headers():
     token = make_test_token()
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+async def seed_test_member(user_repo, membership_repo):
+    """Seed the JWT test user + Membership in TEST_ORGANIZATION_ID.
+
+    Property and extraction-job routes enforce org membership via
+    `require_org_member` / `assert_org_member`. Tests that hit those routes
+    with `auth_headers` must request this fixture (or autouse it) so the
+    JWT's `sub` resolves to a real domain User with a Membership.
+    """
+    now = datetime.now(timezone.utc)
+    test_user_id = UUID("00000000-0000-0000-0000-000000000001")
+    test_org_id = UUID(TEST_ORGANIZATION_ID)
+    user = User(
+        id=test_user_id,
+        supabase_user_id=TEST_SUPABASE_USER_ID,
+        email="test@example.com",
+        name="Test User",
+        phone=None,
+        organization_id=test_org_id,
+        google_metadata=None,
+        created_at=now,
+        updated_at=now,
+    )
+    await user_repo.save(user)
+    membership = Membership(
+        id=uuid4(),
+        user_id=test_user_id,
+        organization_id=test_org_id,
+        role=MembershipRole.OWNER,
+        created_at=now,
+        updated_at=now,
+    )
+    await membership_repo.save(membership)
+    return user, membership

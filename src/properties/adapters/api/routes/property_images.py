@@ -2,7 +2,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from shared.api.dependencies import get_supabase_user_id
+from customers.domain.models.membership import Membership
+from customers.domain.models.user import User
+from shared.api.dependencies import (
+    assert_org_member,
+    get_supabase_user_id,
+    require_org_member,
+)
 from properties.adapters.api.routes.properties import (
     _generate_image_download_urls,
     _property_response,
@@ -27,11 +33,9 @@ async def _verify_property_ownership(
 ) -> None:
     get_prop_uc = request.app.state.property_container.get_property
     try:
-        prop = await get_prop_uc.execute(property_id=property_id)
+        await get_prop_uc.execute(property_id=property_id, organization_id=organization_id)
     except PropertyNotFoundError:
         raise HTTPException(status_code=404, detail="Property not found")
-    if str(prop.organization_id) != str(organization_id):
-        raise HTTPException(status_code=403, detail="Not authorized")
 
 
 @router.post(
@@ -49,6 +53,7 @@ async def presign_image_uploads(
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
+    await assert_org_member(request, supabase_user_id, body.organization_id)
     await _verify_property_ownership(request, body.property_id, body.organization_id)
 
     generate_uc = request.app.state.property_container.generate_image_upload_urls
@@ -89,6 +94,7 @@ async def record_property_image(
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
+    await assert_org_member(request, supabase_user_id, body.organization_id)
     await _verify_property_ownership(request, body.property_id, body.organization_id)
 
     record_uc = request.app.state.property_container.record_property_image
@@ -127,7 +133,7 @@ async def delete_property_image(
     property_id: UUID,
     organization_id: UUID,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    _member: tuple[User, Membership] = Depends(require_org_member),
 ):
     await _verify_property_ownership(request, property_id, organization_id)
 
@@ -159,6 +165,7 @@ async def reorder_property_images(
     request: Request,
     supabase_user_id: str = Depends(get_supabase_user_id),
 ):
+    await assert_org_member(request, supabase_user_id, body.organization_id)
     await _verify_property_ownership(request, body.property_id, body.organization_id)
 
     reorder_uc = request.app.state.property_container.reorder_property_images

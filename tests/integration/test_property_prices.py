@@ -1,6 +1,13 @@
+import pytest
+
 from tests.conftest import TEST_ORGANIZATION_ID
 
 OTHER_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000099"
+
+
+@pytest.fixture(autouse=True)
+def _auto_seed_member(seed_test_member):
+    return seed_test_member
 
 
 async def _create_property(client, auth_headers) -> str:
@@ -27,7 +34,9 @@ class TestCreatePropertyPrice:
             "listing_type": "sale",
         }
 
-        response = await client.post("/api/v1/admin/property-prices/", json=payload, headers=auth_headers)
+        response = await client.post(
+            "/api/v1/admin/property-prices/", json=payload, headers=auth_headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert data["id"] == property_id
@@ -44,7 +53,9 @@ class TestCreatePropertyPrice:
             "listing_type": "sale",
         }
 
-        response = await client.post("/api/v1/admin/property-prices/", json=payload, headers=auth_headers)
+        response = await client.post(
+            "/api/v1/admin/property-prices/", json=payload, headers=auth_headers
+        )
         assert response.status_code == 422
 
     async def test_create_property_price_zero_amount(self, client, auth_headers):
@@ -56,7 +67,9 @@ class TestCreatePropertyPrice:
             "listing_type": "sale",
         }
 
-        response = await client.post("/api/v1/admin/property-prices/", json=payload, headers=auth_headers)
+        response = await client.post(
+            "/api/v1/admin/property-prices/", json=payload, headers=auth_headers
+        )
         assert response.status_code == 422
 
     async def test_create_property_price_property_not_found(self, client, auth_headers):
@@ -66,7 +79,9 @@ class TestCreatePropertyPrice:
             "amount": "250000.00",
             "listing_type": "sale",
         }
-        response = await client.post("/api/v1/admin/property-prices/", json=payload, headers=auth_headers)
+        response = await client.post(
+            "/api/v1/admin/property-prices/", json=payload, headers=auth_headers
+        )
         assert response.status_code == 404
 
     async def test_create_property_price_not_authorized(self, client, auth_headers):
@@ -78,7 +93,9 @@ class TestCreatePropertyPrice:
             "listing_type": "sale",
         }
 
-        response = await client.post("/api/v1/admin/property-prices/", json=payload, headers=auth_headers)
+        response = await client.post(
+            "/api/v1/admin/property-prices/", json=payload, headers=auth_headers
+        )
         assert response.status_code == 403
 
 

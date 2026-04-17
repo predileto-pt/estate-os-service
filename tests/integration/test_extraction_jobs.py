@@ -1,4 +1,11 @@
+import pytest
+
 from tests.conftest import TEST_ORGANIZATION_ID
+
+
+@pytest.fixture(autouse=True)
+def _auto_seed_member(seed_test_member):
+    return seed_test_member
 
 
 class TestPresignEndpoint:
