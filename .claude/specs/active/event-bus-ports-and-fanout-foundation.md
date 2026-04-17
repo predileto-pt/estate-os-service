@@ -1,6 +1,6 @@
 # Event bus ports, SNS fan-out, and context-owned workers — foundation
 
-**Status:** draft
+**Status:** in-progress
 **Owner:** Peter
 **Created:** 2026-04-17
 
@@ -651,9 +651,9 @@ LocalStack supports both SNS and SQS with `SNS → SQS` subscriptions. The test 
 
 One user-confirmation needed before implementation; two cosmetic implementation-time picks.
 
-**Needs user confirmation:**
+**Resolved (2026-04-17, at `/spec-implement` time):**
 
-- **Lambda entrypoints: delete or migrate?** Four Lambda files exist (`src/shared/entrypoints/lambda_events.py`, `src/bookings/entrypoints/lambda_applicant_screened.py`, `src/customers/entrypoints/lambda_events.py`, `src/customers/entrypoints/lambda_handler.py`). This spec's default is **delete** — long-running per-context workers supersede them. If any Lambda is production-load-bearing (check with whoever owns deployment), migrate instead: update the hard-coded event type string to the `.v1` form, point at the new per-context SQS queue, leave the Lambda infra intact. Confirm at `/spec-implement` time.
+- ~~Lambda entrypoints: delete or migrate?~~ → **Delete all four.** Confirmed by the owner; no production deployment currently routes traffic through these Lambda handlers. All four files — `src/shared/entrypoints/lambda_events.py`, `src/bookings/entrypoints/lambda_applicant_screened.py`, `src/customers/entrypoints/lambda_events.py`, `src/customers/entrypoints/lambda_handler.py` — are deleted in this spec's implementation.
 
 **Implementation-time picks (cosmetic):**
 

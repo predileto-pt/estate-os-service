@@ -10,9 +10,7 @@ class DomainEvent:
     event_type: str
     data: dict[str, Any]
     event_id: str = field(default_factory=lambda: str(uuid4()))
-    occurred_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    occurred_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> dict[str, Any]:
         return {
