@@ -21,7 +21,7 @@ class TestDiscoveryProcessor:
     async def test_property_created_event(self, container):
         property_id = str(uuid4())
         body = {
-            "event_type": "PROPERTY_CREATED",
+            "event_type": "PROPERTY_CREATED.v1",
             "data": {"property_id": property_id},
         }
 
@@ -33,7 +33,7 @@ class TestDiscoveryProcessor:
 
     async def test_missing_property_id(self, container):
         body = {
-            "event_type": "PROPERTY_CREATED",
+            "event_type": "PROPERTY_CREATED.v1",
             "data": {},
         }
 
@@ -59,7 +59,7 @@ class TestDiscoveryProcessor:
         )
 
         body = {
-            "event_type": "PROPERTY_CREATED",
+            "event_type": "PROPERTY_CREATED.v1",
             "data": {"property_id": str(uuid4())},
         }
 
@@ -72,7 +72,7 @@ class TestDiscoveryProcessor:
         )
 
         body = {
-            "event_type": "PROPERTY_CREATED",
+            "event_type": "PROPERTY_CREATED.v1",
             "data": {"property_id": str(uuid4())},
         }
 

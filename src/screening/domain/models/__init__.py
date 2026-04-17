@@ -5,12 +5,12 @@ from screening.domain.models.document import (
     DocumentType,
     IdDocumentType,
 )
-from screening.domain.models.domain_event import (
+from screening.domain.models.audit_event import (
     ApplicantScreened,
     ApplicantSubmitted,
     DocumentsExtracted,
-    DomainEvent,
     EventType,
+    ScreeningAuditEvent,
 )
 from screening.domain.models.extracted_data import ExtractedData, ExtractionStatus
 from screening.domain.models.intake_form_request import (
@@ -29,8 +29,8 @@ __all__ = [
     "ApplicantScreened",
     "ApplicantSubmitted",
     "DocumentsExtracted",
-    "DomainEvent",
     "EventType",
+    "ScreeningAuditEvent",
     "ExtractedData",
     "ExtractionStatus",
     "IntakeFormRequest",

@@ -9,11 +9,12 @@ from properties.application.ports.event_bus import EventBus
 from properties.application.ports.repositories.extraction_job_repository import (
     ExtractionJobRepository,
 )
-from properties.domain.events import PropertyExtractionRequested
 from properties.domain.models.extraction_job import (
     ExtractionJob,
     ExtractionJobStatus,
 )
+from shared.events.base import DomainEvent
+from shared.events.types import PROPERTY_EXTRACTION_REQUESTED_V1
 
 log = structlog.get_logger()
 
@@ -58,7 +59,12 @@ class SubmitPropertyExtraction:
         )
         await self.extraction_job_repo.save(job)
 
-        await self.event_bus.publish(PropertyExtractionRequested(job_id=job_id))
+        await self.event_bus.publish(
+            DomainEvent(
+                event_type=PROPERTY_EXTRACTION_REQUESTED_V1,
+                data={"job_id": job_id},
+            )
+        )
 
         log.info(
             "extraction.submitted",

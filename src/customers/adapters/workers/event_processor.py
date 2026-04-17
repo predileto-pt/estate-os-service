@@ -3,6 +3,8 @@ from typing import Any
 
 import structlog
 
+from shared.events.types import APPLICANT_SCREENED_V1
+
 log = structlog.get_logger()
 
 type EventHandler = Callable[[dict, Any], Coroutine[Any, Any, None]]
@@ -22,7 +24,7 @@ async def _handle_applicant_screened(data: dict, context: Any) -> None:
 
 
 HANDLERS: dict[str, EventHandler] = {
-    "APPLICANT_SCREENED": _handle_applicant_screened,
+    APPLICANT_SCREENED_V1: _handle_applicant_screened,
 }
 
 

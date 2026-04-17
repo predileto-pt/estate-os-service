@@ -1,7 +1,8 @@
 import json
 
 from properties.adapters.queue.sqs_event_bus import SQSEventBus
-from properties.domain.events import PropertyExtractionRequested
+from shared.events.base import DomainEvent
+from shared.events.types import PROPERTY_EXTRACTION_REQUESTED_V1
 
 
 async def test_publish_and_receive(localstack_url, sqs_queue_url, sqs_client):
@@ -13,7 +14,10 @@ async def test_publish_and_receive(localstack_url, sqs_queue_url, sqs_client):
         aws_secret_access_key="test",
     )
 
-    event = PropertyExtractionRequested(job_id="abc-123")
+    event = DomainEvent(
+        event_type=PROPERTY_EXTRACTION_REQUESTED_V1,
+        data={"job_id": "abc-123"},
+    )
     await event_bus.publish(event)
 
     response = sqs_client.receive_message(QueueUrl=sqs_queue_url, MaxNumberOfMessages=1)
@@ -21,7 +25,7 @@ async def test_publish_and_receive(localstack_url, sqs_queue_url, sqs_client):
     assert len(messages) == 1
 
     body = json.loads(messages[0]["Body"])
-    assert body["event_type"] == "PropertyExtractionRequested"
+    assert body["event_type"] == PROPERTY_EXTRACTION_REQUESTED_V1
     assert body["data"]["job_id"] == "abc-123"
 
 
@@ -35,7 +39,12 @@ async def test_publish_multiple_messages(localstack_url, sqs_queue_url, sqs_clie
     )
 
     for i in range(3):
-        await event_bus.publish(PropertyExtractionRequested(job_id=f"job-{i}"))
+        await event_bus.publish(
+            DomainEvent(
+                event_type=PROPERTY_EXTRACTION_REQUESTED_V1,
+                data={"job_id": f"job-{i}"},
+            )
+        )
 
     received = []
     for _ in range(3):

@@ -6,7 +6,7 @@ from customers.domain.models.membership import Membership
 from customers.domain.models.user import User
 from shared.api.dependencies import require_org_member
 from shared.events.base import DomainEvent
-from shared.events.types import PROPERTY_CREATED
+from shared.events.types import PROPERTY_CREATED_V1
 from properties.adapters.api.schemas import PropertyAmenityResponse
 from properties.domain.exceptions import PropertyNotFoundError
 
@@ -101,7 +101,7 @@ async def discover_property_amenities(
         raise HTTPException(status_code=422, detail="Property missing coordinates")
 
     await domain_event_publisher.publish(
-        DomainEvent(event_type=PROPERTY_CREATED, data={"property_id": str(property_id)})
+        DomainEvent(event_type=PROPERTY_CREATED_V1, data={"property_id": str(property_id)})
     )
 
     return {"status": "discovery_triggered", "property_id": str(property_id)}

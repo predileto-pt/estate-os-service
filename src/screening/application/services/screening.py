@@ -17,6 +17,7 @@ from screening.domain.exceptions import ApplicantNotFoundError
 from screening.domain.models.document import DocumentType
 from screening.domain.models.submission import SubmissionStatus
 from shared.events import DomainEvent, DomainEventPublisher
+from shared.events.types import APPLICANT_SCREENED_V1
 
 logger = structlog.get_logger()
 
@@ -147,7 +148,7 @@ class ScreeningService:
         if screened_event:
             await self._domain_event_publisher.publish(
                 DomainEvent(
-                    event_type="APPLICANT_SCREENED",
+                    event_type=APPLICANT_SCREENED_V1,
                     data=screened_event.model_dump(mode="json"),
                 )
             )

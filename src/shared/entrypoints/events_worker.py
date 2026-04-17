@@ -33,9 +33,9 @@ def _build_router() -> EventRouter:
     )
 
     router = EventRouter()
-    router.on(event_types.APPLICANT_SCREENED, cm_handle_applicant_screened)
-    router.on(event_types.APPLICANT_SCREENED, handle_applicant_screened)
-    router.on(event_types.PROPERTY_CREATED, handle_property_created)
+    router.on(event_types.APPLICANT_SCREENED_V1, cm_handle_applicant_screened)
+    router.on(event_types.APPLICANT_SCREENED_V1, handle_applicant_screened)
+    router.on(event_types.PROPERTY_CREATED_V1, handle_property_created)
     return router
 
 

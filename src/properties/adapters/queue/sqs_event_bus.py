@@ -4,7 +4,7 @@ import boto3
 import structlog
 
 from properties.application.ports.event_bus import EventBus
-from properties.domain.events import DomainEvent
+from shared.events.base import DomainEvent
 
 log = structlog.get_logger()
 

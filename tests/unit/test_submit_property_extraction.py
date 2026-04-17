@@ -8,8 +8,9 @@ from properties.adapters.inmemory.inmemory_extraction_job_repo import (
 from properties.application.use_cases.submit_property_extraction import (
     SubmitPropertyExtraction,
 )
-from properties.domain.events import PropertyExtractionRequested
 from properties.domain.models.extraction_job import ExtractionJobStatus
+from shared.events.base import DomainEvent
+from shared.events.types import PROPERTY_EXTRACTION_REQUESTED_V1
 
 TEST_USER_ID = "00000000-0000-0000-0000-000000000001"
 TEST_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000010"
@@ -62,8 +63,10 @@ class TestSubmitPropertyExtraction:
         assert job.listing_type == "sale"
         assert job.typology == "apartment"
         assert len(bus.events) == 1
-        assert isinstance(bus.events[0], PropertyExtractionRequested)
-        assert bus.events[0].job_id == job_id
+        event = bus.events[0]
+        assert isinstance(event, DomainEvent)
+        assert event.event_type == PROPERTY_EXTRACTION_REQUESTED_V1
+        assert event.data == {"job_id": job_id}
 
     async def test_invalid_s3_key_prefix(self, use_case, storage):
         job_id = "11111111-1111-1111-1111-111111111111"

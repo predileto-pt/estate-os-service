@@ -358,10 +358,17 @@ Constant names change too — `PROPERTY_CREATED` → `PROPERTY_CREATED_V1`. Ever
 
 ### DomainEvent consolidation
 
-Delete:
-- `src/properties/domain/events.py` (the base class + `PropertyExtractionRequested` + `BatchPropertyExtractionRequested`).
-- `src/customers/domain/events.py`.
-- `src/screening/domain/models/domain_event.py`.
+Ground-truth audit of the three "duplicate" files reveals two are genuine duplicates and one is a separately-named concept:
+
+**Delete entirely — genuine duplicates + dead code:**
+- `src/properties/domain/events.py` (the base class + `PropertyExtractionRequested` + `BatchPropertyExtractionRequested`). Every call site changes to canonical `DomainEvent(...)` constructors.
+- `src/customers/domain/events.py` — base class + 8 subclass events (`UserRegistered`, `SubscriptionCreated`, …, `MemberRoleChanged`). **Zero publish sites** in `src/` — entirely dead code, a relic of a pre-ADR-007 design. The accompanying dead stack (`src/customers/application/ports/event_bus.py`, `src/customers/adapters/inmemory/inmemory_event_bus.py`, `src/customers/adapters/queue/sqs_event_bus.py`) is deleted too.
+
+**Rename — internal audit-log, not cross-context events:**
+- `src/screening/domain/models/domain_event.py` holds what looked like a `DomainEvent` but is actually an internal event-sourcing / audit-log artifact. It's persisted via `EventRepository.save()` (`screening/application/services/{submission,extraction,screening}.py` call `_uow.events.save(event)`). It's never published to SQS/SNS — it's screening's own audit trail with its own schema (has `applicant_id`, `payload`, `id`, `created_at`; no `data` field).
+  - **File renamed** to `src/screening/domain/models/audit_event.py`.
+  - **Class renamed** `DomainEvent` → `ScreeningAuditEvent` (and the three subclasses keep their names since they're `ApplicantSubmitted` / `DocumentsExtracted` / `ApplicantScreened`, not duplicate names).
+  - `grep -rn "class DomainEvent" src/` acceptance criterion is satisfied: only `src/shared/events/base.py:9` remains.
 
 Every call site of the deleted subclass-style events (grep for `PropertyExtractionRequested(`, `BatchPropertyExtractionRequested(`, etc.) changes to:
 
@@ -598,8 +605,8 @@ LocalStack supports both SNS and SQS with `SNS → SQS` subscriptions. The test 
 - `src/screening/adapters/queue/sqs_publisher.py` — contains legacy `SQSMessagePublisher` + `SQSMessageConsumer`; both superseded by `src/shared/events/adapters/sqs_command_publisher.py` and `src/shared/events/adapters/sqs_message_consumer.py`.
 - `src/contract_intelligence/adapters/queue/sqs_publisher.py` — same fate.
 - `src/properties/domain/events.py` — subclass-based duplicate (`DomainEvent` + `PropertyExtractionRequested` + `BatchPropertyExtractionRequested`). Call sites rewritten to plain `DomainEvent(event_type=..., data=...)`.
-- `src/customers/domain/events.py` — subclass-based duplicate.
-- `src/screening/domain/models/domain_event.py` — subclass-based duplicate.
+- `src/customers/domain/events.py` — subclass-based duplicate. **Dead stack**: also delete `src/customers/application/ports/event_bus.py`, `src/customers/adapters/inmemory/inmemory_event_bus.py`, `src/customers/adapters/queue/sqs_event_bus.py` (no production code references them).
+- `src/screening/domain/models/domain_event.py` — **renamed**, not deleted (see §DomainEvent consolidation). Moved to `audit_event.py`; class `DomainEvent` → `ScreeningAuditEvent`. The file serves the internal audit-log concept, not cross-context events.
 - `src/customers/adapters/workers/events_worker.py` — per-context `EventsWorker` variant; replaced by the shared `SQSWorker`.
 - `src/customers/adapters/queue/sqs_consumer.py` — per-context `SQSMessageConsumer` variant; replaced by the shared one.
 - `src/customers/entrypoints/lambda_events.py` — audit + delete (Lambda path superseded by `customers/entrypoints/worker.py`).

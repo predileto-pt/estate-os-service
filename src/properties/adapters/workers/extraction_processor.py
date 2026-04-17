@@ -5,6 +5,10 @@ from properties.domain.exceptions import (
     ExtractionJobNotFoundError,
     InvalidJobTransitionError,
 )
+from shared.events.types import (
+    BATCH_PROPERTY_EXTRACTION_REQUESTED_V1,
+    PROPERTY_EXTRACTION_REQUESTED_V1,
+)
 
 log = structlog.get_logger()
 
@@ -15,7 +19,7 @@ async def process_event(body: dict, container: Container) -> None:
     data = body.get("data", {})
     job_id = data.get("job_id")
 
-    if event_type == "PropertyExtractionRequested":
+    if event_type == PROPERTY_EXTRACTION_REQUESTED_V1:
         if not job_id:
             log.warning("extraction.missing_job_id", body=body)
             return
@@ -23,7 +27,7 @@ async def process_event(body: dict, container: Container) -> None:
             await container.process_property_extraction.execute(job_id=job_id)
         except (InvalidJobTransitionError, ExtractionJobNotFoundError) as exc:
             log.warning("extraction.skip_invalid_state", job_id=job_id, reason=str(exc))
-    elif event_type == "BatchPropertyExtractionRequested":
+    elif event_type == BATCH_PROPERTY_EXTRACTION_REQUESTED_V1:
         if not job_id:
             log.warning("batch_extraction.missing_job_id", body=body)
             return
