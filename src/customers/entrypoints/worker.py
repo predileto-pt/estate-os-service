@@ -1,13 +1,9 @@
 """Customers domain-event worker CLI.
 
-Consumes the (currently shared) domain-events queue and dispatches
-APPLICANT_SCREENED.v1 events to `handle_applicant_screened` (send the
-screening-complete email to the org owner).
-
-After the SNS fan-out infrastructure lands, this CLI will switch to a
-per-context `customers-events-queue` subscribed to the relevant SNS
-topics. For now it keeps reading the shared queue so the legacy-to-new
-transition can ship gradually.
+Consumes the per-context `customers-events-queue`, subscribed to the
+APPLICANT_SCREENED.v1 SNS topic. Dispatches to
+`handle_applicant_screened`, which sends the screening-complete email
+to the org owner.
 
 Runs the shared `SQSWorker` (ADR-008).
 """
@@ -55,7 +51,7 @@ async def _run_events_worker() -> None:
 
     consumer = SQSMessageConsumer(
         session=session,
-        queue_url=settings.sqs_domain_events_queue_url,
+        queue_url=settings.sqs_customers_events_queue_url,
         endpoint_url=settings.aws_endpoint_url,
     )
     worker = SQSWorker(

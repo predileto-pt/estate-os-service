@@ -351,8 +351,8 @@ Images with presigned download URLs are returned inline in `PropertyResponse`.
 | `DocumentDataExtractor` | AI owner data from ID doc text | `OpenAIIdDocumentExtractor` |
 | `DocumentClassifier` | AI document classification from text | `OpenAITextDocumentClassifier` |
 | `DocumentStorage` | S3 file upload/download/presigned URLs | `S3DocumentStorage` |
-| `EventBus` | SQS internal pipeline commands | `SQSEventBus` |
-| `DomainEventPublisher` | Cross-context domain event publishing | `SQSDomainEventPublisher` |
+| `CommandPublisher` | SQS point-to-point command publishing | `SQSCommandPublisher` |
+| `EventPublisher` | Cross-context domain event broadcast (SNS fan-out) | `SNSEventPublisher` |
 | `PlacesService` | Nearby amenity discovery | `GooglePlacesService` |
 | `PropertyAmenityRepository` | CRUD for property amenities | `SupabasePropertyAmenityRepository` |
 

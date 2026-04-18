@@ -1,9 +1,8 @@
 """Properties domain-event worker CLI.
 
-Consumes cross-context domain events (currently the shared
-`sqs_domain_events_queue`; after SNS fan-out ships, a per-context
-`properties-events-queue`). Dispatches PROPERTY_CREATED.v1 to the
-amenity discovery handler.
+Consumes the per-context `properties-events-queue`, which is subscribed
+to the SNS topics this context cares about (PROPERTY_CREATED.v1 →
+amenity discovery).
 
 Distinct from `properties/entrypoints/worker.py`, which consumes the
 extraction command queue.
@@ -51,7 +50,7 @@ async def _run_events_worker() -> None:
 
     consumer = SQSMessageConsumer(
         session=session,
-        queue_url=settings.sqs_domain_events_queue_url,
+        queue_url=settings.sqs_properties_events_queue_url,
         endpoint_url=settings.aws_endpoint_url,
     )
     worker = SQSWorker(

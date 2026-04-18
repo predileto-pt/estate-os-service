@@ -1,9 +1,8 @@
 """Bookings domain-event worker CLI.
 
-Consumes APPLICANT_SCREENED.v1 and creates a booking applicant. Today
-reads from the shared `sqs_domain_events_queue`; the SNS fan-out spec
-will rewire it to a dedicated `bookings-events-queue` subscribed to
-just the APPLICANT_SCREENED.v1 topic.
+Consumes the per-context `bookings-events-queue`, subscribed to the
+APPLICANT_SCREENED.v1 SNS topic. Creates a booking applicant (unless
+risk is HIGH, in which case the record is never persisted).
 
 Runs the shared `SQSWorker` (ADR-008).
 """
@@ -48,7 +47,7 @@ async def _run_events_worker() -> None:
 
     consumer = SQSMessageConsumer(
         session=session,
-        queue_url=settings.sqs_domain_events_queue_url,
+        queue_url=settings.sqs_bookings_events_queue_url,
         endpoint_url=settings.aws_endpoint_url,
     )
     worker = SQSWorker(
