@@ -1,17 +1,14 @@
-from collections.abc import Callable, Coroutine
-from typing import Any
-
 import structlog
 
-from shared.events.types import APPLICANT_SCREENED_V1
+from shared.events.base import DomainEvent
 
 log = structlog.get_logger()
 
-type EventHandler = Callable[[dict, Any], Coroutine[Any, Any, None]]
 
-
-async def _handle_applicant_screened(data: dict, context: Any) -> None:
+async def handle_applicant_screened(event: DomainEvent, context) -> None:
+    """Handle APPLICANT_SCREENED.v1 — send screening-complete email to the org owner."""
     container = context["customer"]
+    data = event.data
     await container.email_service.send(
         to=data.get("owner_email", ""),
         subject="Screening Complete - " + data.get("name", "Applicant"),
@@ -21,17 +18,3 @@ async def _handle_applicant_screened(data: dict, context: Any) -> None:
         ),
     )
     log.info("screening_notification_sent", applicant_name=data.get("name"))
-
-
-HANDLERS: dict[str, EventHandler] = {
-    APPLICANT_SCREENED_V1: _handle_applicant_screened,
-}
-
-
-async def process_event(message_body: dict, container: Any) -> None:
-    event_type = message_body.get("event_type", "")
-    handler = HANDLERS.get(event_type)
-    if handler:
-        await handler(message_body.get("data", {}), container)
-    else:
-        log.warning("unknown_event_type", event_type=event_type)

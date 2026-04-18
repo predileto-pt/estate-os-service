@@ -1,24 +1,22 @@
-"""Customers domain-event worker CLI.
+"""Properties domain-event worker CLI.
 
-Consumes the (currently shared) domain-events queue and dispatches
-APPLICANT_SCREENED.v1 events to `handle_applicant_screened` (send the
-screening-complete email to the org owner).
+Consumes cross-context domain events (currently the shared
+`sqs_domain_events_queue`; after SNS fan-out ships, a per-context
+`properties-events-queue`). Dispatches PROPERTY_CREATED.v1 to the
+amenity discovery handler.
 
-After the SNS fan-out infrastructure lands, this CLI will switch to a
-per-context `customers-events-queue` subscribed to the relevant SNS
-topics. For now it keeps reading the shared queue so the legacy-to-new
-transition can ship gradually.
+Distinct from `properties/entrypoints/worker.py`, which consumes the
+extraction command queue.
 
 Runs the shared `SQSWorker` (ADR-008).
 """
 
-import argparse
 import asyncio
 
 import aioboto3
 import structlog
 
-from customers.adapters.workers.event_processor import handle_applicant_screened
+from properties.adapters.workers.discovery_processor import handle_property_created
 from shared.config import Settings, setup_logging
 from shared.entrypoints.bootstrap import (
     get_booking_container,
@@ -27,7 +25,7 @@ from shared.entrypoints.bootstrap import (
 )
 from shared.events.adapters.sqs_message_consumer import SQSMessageConsumer
 from shared.events.router import EventRouter
-from shared.events.types import APPLICANT_SCREENED_V1
+from shared.events.types import PROPERTY_CREATED_V1
 from shared.events.worker import SQSWorker
 
 log = structlog.get_logger()
@@ -43,13 +41,11 @@ async def _run_events_worker() -> None:
     )
 
     router = EventRouter()
-    router.on(APPLICANT_SCREENED_V1, handle_applicant_screened)
+    router.on(PROPERTY_CREATED_V1, handle_property_created)
 
-    # Context dict carries per-context containers so the handler can reach
-    # into the customers container for the email service.
     context = {
-        "customer": await get_container(),
         "property": await get_property_container(),
+        "customer": await get_container(),
         "booking": await get_booking_container(),
     }
 
@@ -62,7 +58,7 @@ async def _run_events_worker() -> None:
         consumer=consumer,
         router=router,
         context=context,
-        worker_name="customers_events_worker",
+        worker_name="properties_events_worker",
         use_heartbeat=True,
         heartbeat_interval=60,
         heartbeat_extension=120,
@@ -71,12 +67,7 @@ async def _run_events_worker() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Customers Domain-Event Worker")
-    parser.add_argument("--queue", choices=["events"], required=True)
-    args = parser.parse_args()
-
-    if args.queue == "events":
-        asyncio.run(_run_events_worker())
+    asyncio.run(_run_events_worker())
 
 
 if __name__ == "__main__":

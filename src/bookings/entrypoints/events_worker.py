@@ -1,24 +1,19 @@
-"""Customers domain-event worker CLI.
+"""Bookings domain-event worker CLI.
 
-Consumes the (currently shared) domain-events queue and dispatches
-APPLICANT_SCREENED.v1 events to `handle_applicant_screened` (send the
-screening-complete email to the org owner).
-
-After the SNS fan-out infrastructure lands, this CLI will switch to a
-per-context `customers-events-queue` subscribed to the relevant SNS
-topics. For now it keeps reading the shared queue so the legacy-to-new
-transition can ship gradually.
+Consumes APPLICANT_SCREENED.v1 and creates a booking applicant. Today
+reads from the shared `sqs_domain_events_queue`; the SNS fan-out spec
+will rewire it to a dedicated `bookings-events-queue` subscribed to
+just the APPLICANT_SCREENED.v1 topic.
 
 Runs the shared `SQSWorker` (ADR-008).
 """
 
-import argparse
 import asyncio
 
 import aioboto3
 import structlog
 
-from customers.adapters.workers.event_processor import handle_applicant_screened
+from bookings.adapters.events.handlers import handle_applicant_screened
 from shared.config import Settings, setup_logging
 from shared.entrypoints.bootstrap import (
     get_booking_container,
@@ -45,12 +40,10 @@ async def _run_events_worker() -> None:
     router = EventRouter()
     router.on(APPLICANT_SCREENED_V1, handle_applicant_screened)
 
-    # Context dict carries per-context containers so the handler can reach
-    # into the customers container for the email service.
     context = {
+        "booking": await get_booking_container(),
         "customer": await get_container(),
         "property": await get_property_container(),
-        "booking": await get_booking_container(),
     }
 
     consumer = SQSMessageConsumer(
@@ -62,7 +55,7 @@ async def _run_events_worker() -> None:
         consumer=consumer,
         router=router,
         context=context,
-        worker_name="customers_events_worker",
+        worker_name="bookings_events_worker",
         use_heartbeat=True,
         heartbeat_interval=60,
         heartbeat_extension=120,
@@ -71,12 +64,7 @@ async def _run_events_worker() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Customers Domain-Event Worker")
-    parser.add_argument("--queue", choices=["events"], required=True)
-    args = parser.parse_args()
-
-    if args.queue == "events":
-        asyncio.run(_run_events_worker())
+    asyncio.run(_run_events_worker())
 
 
 if __name__ == "__main__":

@@ -2,11 +2,13 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-from properties.adapters.workers.discovery_processor import process_event
+from properties.adapters.workers.discovery_processor import handle_property_created
 from properties.domain.exceptions import (
     PropertyMissingCoordinatesError,
     PropertyNotFoundError,
 )
+from shared.events.base import DomainEvent
+from shared.events.types import PROPERTY_CREATED_V1
 
 
 @pytest.fixture
@@ -17,64 +19,52 @@ def container():
     return c
 
 
-class TestDiscoveryProcessor:
-    async def test_property_created_event(self, container):
-        property_id = str(uuid4())
-        body = {
-            "event_type": "PROPERTY_CREATED.v1",
-            "data": {"property_id": property_id},
-        }
+@pytest.fixture
+def context(container):
+    return {"property": container}
 
-        await process_event(body, container)
+
+class TestDiscoveryProcessor:
+    async def test_property_created_event(self, container, context):
+        property_id = str(uuid4())
+        event = DomainEvent(
+            event_type=PROPERTY_CREATED_V1,
+            data={"property_id": property_id},
+        )
+
+        await handle_property_created(event, context)
 
         container.discover_property_amenities.execute.assert_called_once_with(
             property_id=property_id
         )
 
-    async def test_missing_property_id(self, container):
-        body = {
-            "event_type": "PROPERTY_CREATED.v1",
-            "data": {},
-        }
+    async def test_missing_property_id(self, container, context):
+        event = DomainEvent(event_type=PROPERTY_CREATED_V1, data={})
 
-        await process_event(body, container)
+        await handle_property_created(event, context)
 
         container.discover_property_amenities.execute.assert_not_called()
 
-    async def test_unknown_event_type_still_processes(self, container):
-        """Event type filtering is now done by the shared EventRouter.
-        The processor always calls handle_property_created with the data."""
-        body = {
-            "event_type": "UNKNOWN_EVENT",
-            "data": {"property_id": str(uuid4())},
-        }
-
-        await process_event(body, container)
-
-        container.discover_property_amenities.execute.assert_called_once()
-
-    async def test_missing_coordinates_handled_gracefully(self, container):
+    async def test_missing_coordinates_handled_gracefully(self, container, context):
         container.discover_property_amenities.execute = AsyncMock(
             side_effect=PropertyMissingCoordinatesError("test-id")
         )
-
-        body = {
-            "event_type": "PROPERTY_CREATED.v1",
-            "data": {"property_id": str(uuid4())},
-        }
+        event = DomainEvent(
+            event_type=PROPERTY_CREATED_V1,
+            data={"property_id": str(uuid4())},
+        )
 
         # Should not raise
-        await process_event(body, container)
+        await handle_property_created(event, context)
 
-    async def test_property_not_found_handled_gracefully(self, container):
+    async def test_property_not_found_handled_gracefully(self, container, context):
         container.discover_property_amenities.execute = AsyncMock(
             side_effect=PropertyNotFoundError("test-id")
         )
-
-        body = {
-            "event_type": "PROPERTY_CREATED.v1",
-            "data": {"property_id": str(uuid4())},
-        }
+        event = DomainEvent(
+            event_type=PROPERTY_CREATED_V1,
+            data={"property_id": str(uuid4())},
+        )
 
         # Should not raise
-        await process_event(body, container)
+        await handle_property_created(event, context)

@@ -677,6 +677,10 @@ One user-confirmation needed before implementation; two cosmetic implementation-
 - Whether `EventRouter` stays in `src/shared/events/router.py` or moves into `src/shared/events/worker.py`. Purely file layout.
 - Whether the SNS topic ARN prefix is a single Settings field (clean) or resolved from a dict map per event type (flexible). Default to the single prefix; move to a map only if a per-topic exception appears.
 
+## Deviations captured during implementation
+
+- **Contract-intelligence DLQ sub-command**: the original CLI had `--queue dlq` referencing `settings.sqs_contract_dlq_url`, which never existed on `Settings` (only `sqs_contract_ingestion_dlq_url` + `sqs_contract_analysis_dlq_url` exist). That was dead/broken code. Replaced with two sub-commands `--queue ingestion-dlq` and `--queue analysis-dlq`, each pointed at the real DLQ setting.
+
 ## Out of scope follow-ups
 
 - RabbitMQ / Kafka adapter. The ports are designed for them; implementation is a separate spec when we have the business need.
