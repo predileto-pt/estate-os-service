@@ -619,9 +619,9 @@ LocalStack supports both SNS and SQS with `SNS → SQS` subscriptions. The test 
 - `src/screening/domain/models/domain_event.py` — **renamed**, not deleted (see §DomainEvent consolidation). Moved to `audit_event.py`; class `DomainEvent` → `ScreeningAuditEvent`. The file serves the internal audit-log concept, not cross-context events.
 - `src/customers/adapters/workers/events_worker.py` — per-context `EventsWorker` variant; replaced by the shared `SQSWorker`.
 - `src/customers/adapters/queue/sqs_consumer.py` — per-context `SQSMessageConsumer` variant; replaced by the shared one.
-- `src/customers/entrypoints/lambda_events.py` — audit + delete (Lambda path superseded by `customers/entrypoints/worker.py`).
-- `src/customers/entrypoints/lambda_handler.py` — audit + delete if it's just an events-lambda wrapper.
+- `src/customers/entrypoints/lambda_events.py` — event Lambda, superseded by `customers/entrypoints/worker.py`. Its sole import (`customers.adapters.workers.event_processor.process_event`) was renamed in Commit 4+5.
 - `src/bookings/entrypoints/lambda_applicant_screened.py` — Lambda handler that hard-codes the legacy `"APPLICANT_SCREENED"` string. Superseded by `src/bookings/entrypoints/events_worker.py`.
+- (`src/customers/entrypoints/lambda_handler.py` was previously listed here — **spec correction**: that file is the HTTP/Mangum adapter (re-exports `app, handler` from `shared.entrypoints.lambda_handler`), not an event Lambda. Kept.)
 
 **Note on Lambda deletion:** the four Lambda entrypoints above are the default-delete choice for this spec. If any is load-bearing in production (check with whoever owns deployment), migrate instead — update the hard-coded event type string to the `.v1` form, point at the new per-context SQS queue, and leave the Lambda infrastructure alone. Flagged in `Open questions` below so the user can override during implementation.
 
@@ -649,7 +649,7 @@ LocalStack supports both SNS and SQS with `SNS → SQS` subscriptions. The test 
 - [ ] The four non-shared worker classes are deleted. `grep -rn "class SQSWorker\|class EventsWorker\|class DomainEventsWorker" src/` returns only `src/shared/events/worker.py:SQSWorker`.
 - [ ] The three per-context `SQSMessageConsumer` duplicates are deleted. `grep -rn "class SQSMessageConsumer" src/` returns only `src/shared/events/adapters/sqs_message_consumer.py`.
 - [ ] `src/shared/entrypoints/events_worker.py` is deleted. Handler registrations moved to per-context worker CLIs.
-- [ ] The four Lambda entrypoints (`src/shared/entrypoints/lambda_events.py`, `src/bookings/entrypoints/lambda_applicant_screened.py`, `src/customers/entrypoints/lambda_events.py`, `src/customers/entrypoints/lambda_handler.py`) are **either deleted or migrated** — `grep -rn 'event_type.*APPLICANT_SCREENED"' src/` must not find the un-suffixed legacy string in any surviving Lambda.
+- [ ] The three event-handler Lambda entrypoints (`src/shared/entrypoints/lambda_events.py`, `src/bookings/entrypoints/lambda_applicant_screened.py`, `src/customers/entrypoints/lambda_events.py`) are **either deleted or migrated** — `grep -rn 'event_type.*APPLICANT_SCREENED"' src/` must not find the un-suffixed legacy string in any surviving Lambda. The HTTP/Mangum adapter at `src/customers/entrypoints/lambda_handler.py` is kept (not an event Lambda).
 - [ ] Every event type constant in `src/shared/events/types.py` has the `_V1` Python name and `.v1` string value. Every import site renamed; every publish site updated.
 - [ ] Every domain-event-consuming context has its own worker CLI owning a distinct SQS queue with a DLQ + `maxReceiveCount=5` redrive policy. Specifically:
   - `python -m bookings.entrypoints.events_worker` (new file)
@@ -670,7 +670,7 @@ One user-confirmation needed before implementation; two cosmetic implementation-
 
 **Resolved (2026-04-17, at `/spec-implement` time):**
 
-- ~~Lambda entrypoints: delete or migrate?~~ → **Delete all four.** Confirmed by the owner; no production deployment currently routes traffic through these Lambda handlers. All four files — `src/shared/entrypoints/lambda_events.py`, `src/bookings/entrypoints/lambda_applicant_screened.py`, `src/customers/entrypoints/lambda_events.py`, `src/customers/entrypoints/lambda_handler.py` — are deleted in this spec's implementation.
+- ~~Lambda entrypoints: delete or migrate?~~ → **Delete the three event-handler Lambdas.** Confirmed by the owner; no production deployment currently routes event traffic through Lambda. Files deleted: `src/shared/entrypoints/lambda_events.py`, `src/bookings/entrypoints/lambda_applicant_screened.py`, `src/customers/entrypoints/lambda_events.py`. **Correction during implementation:** `src/customers/entrypoints/lambda_handler.py` was originally on the deletion list but is the HTTP/Mangum adapter (FastAPI → Lambda) for the HTTP API, not an event Lambda. Kept.
 
 **Implementation-time picks (cosmetic):**
 
