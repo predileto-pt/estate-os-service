@@ -29,7 +29,7 @@ from properties.domain.models.property_characteristics import (
     PropertyCharacteristics,
 )
 from shared.events.base import DomainEvent as SharedDomainEvent
-from shared.events.publisher import DomainEventPublisher
+from shared.events.ports import EventPublisher
 from shared.events.types import PROPERTY_CREATED_V1
 
 log = structlog.get_logger()
@@ -43,7 +43,7 @@ class ProcessPropertyExtraction:
         document_parser: DocumentParser,
         property_extractor: PropertyExtractorService,
         property_repo: PropertyRepository,
-        domain_event_publisher: DomainEventPublisher | None = None,
+        domain_event_publisher: EventPublisher | None = None,
     ) -> None:
         self.extraction_job_repo = extraction_job_repo
         self.document_storage = document_storage

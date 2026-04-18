@@ -4,7 +4,7 @@ services:
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=sqs,s3
+      - SERVICES=sqs,sns,s3
       - DEFAULT_REGION=eu-west-1
     volumes:
       - "./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh"

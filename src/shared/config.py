@@ -25,13 +25,35 @@ class Settings(BaseSettings):
     aws_endpoint_url: str | None = None
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
-    # Domain Events (single unified queue for cross-context events)
+
+    # Domain events (SNS fan-out — ADR-008). The publisher resolves the topic
+    # ARN per event type: `${prefix}${event_type.replace('.', '-')}`.
+    # Example: `arn:aws:sns:eu-west-1:123:domain-events-PROPERTY_CREATED-v1`.
+    sns_domain_events_topic_arn_prefix: str = ""
+
+    # Per-context domain-event SQS queues (each subscribed to the SNS topics
+    # it handles). Each has its own DLQ with `maxReceiveCount=5`.
+    sqs_customers_events_queue_url: str = ""
+    sqs_customers_events_dlq_url: str = ""
+    sqs_bookings_events_queue_url: str = ""
+    sqs_bookings_events_dlq_url: str = ""
+    sqs_properties_events_queue_url: str = ""
+    sqs_properties_events_dlq_url: str = ""
+
+    # Legacy single-queue domain events (pre-ADR-008). Kept during cutover so
+    # the per-context workers can still read from it while the per-context
+    # queues are provisioned. One-week drain + delete after cutover per
+    # §Rollout.
     sqs_domain_events_queue_url: str = ""
 
-    # Internal pipeline commands (context-specific)
+    # Command queues (point-to-point via `SQSCommandPublisher`). Every queue
+    # gets a DLQ with `maxReceiveCount=5`.
     sqs_property_extraction_queue_url: str = ""
+    sqs_property_extraction_dlq_url: str = ""
     sqs_applicant_extraction_queue_url: str = ""
+    sqs_applicant_extraction_dlq_url: str = ""
     sqs_applicant_screening_queue_url: str = ""
+    sqs_applicant_screening_dlq_url: str = ""
 
     # Applicant Screening Encryption (RSA + HMAC for NIF)
     encryption_public_key: str = ""

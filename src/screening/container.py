@@ -5,7 +5,7 @@ from screening.application.ports.unit_of_work import ScreeningUnitOfWork
 from screening.application.services.extraction import ExtractionService
 from screening.application.services.screening import ScreeningService
 from screening.application.services.submission import SubmissionService
-from shared.events import DomainEventPublisher
+from shared.events.ports import EventPublisher
 from shared.events.ports import CommandPublisher
 from shared.ports.document_storage import DocumentStorage
 
@@ -18,7 +18,7 @@ class Container:
         command_publisher: CommandPublisher,
         extractor: DocumentExtractor,
         assessor: ScreeningAssessor,
-        domain_event_publisher: DomainEventPublisher,
+        domain_event_publisher: EventPublisher,
         extraction_queue_url: str,
         screening_queue_url: str,
         max_documents: int = 5,

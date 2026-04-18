@@ -60,8 +60,7 @@ from properties.application.use_cases.discover_property_amenities import (
 from properties.application.use_cases.get_property_amenities import (
     GetPropertyAmenities,
 )
-from shared.events.ports import CommandPublisher
-from shared.events.publisher import DomainEventPublisher
+from shared.events.ports import CommandPublisher, EventPublisher
 
 
 class Container:
@@ -77,7 +76,7 @@ class Container:
         document_classifier: DocumentClassifier | None = None,
         document_parser: DocumentParser | None = None,
         document_content_repo: DocumentContentRepository | None = None,
-        domain_event_publisher: DomainEventPublisher | None = None,
+        domain_event_publisher: EventPublisher | None = None,
         places_service: PlacesService | None = None,
         amenity_repo: PropertyAmenityRepository | None = None,
     ) -> None:

@@ -21,7 +21,7 @@ from contract_intelligence.application.services.source_document_service import (
     SourceDocumentService,
 )
 from contract_intelligence.application.services.template_service import TemplateService
-from shared.events import DomainEventPublisher
+from shared.events.ports import EventPublisher
 from shared.events.ports import CommandPublisher
 
 
@@ -33,7 +33,7 @@ class Container:
         reducto: ReductoPort,
         llm: SectionAnalysisLLMPort,
         command_publisher: CommandPublisher,
-        domain_event_publisher: DomainEventPublisher,
+        domain_event_publisher: EventPublisher,
         sqs_ingestion_queue_url: str,
         sqs_analysis_queue_url: str,
         sqs_ingestion_dlq_url: str = "",

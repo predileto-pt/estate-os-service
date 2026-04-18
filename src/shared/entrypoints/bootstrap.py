@@ -46,7 +46,7 @@ from properties.adapters.persistence.supabase_property_repo import (
 from properties.adapters.places.google_places_service import GooglePlacesService
 from properties.adapters.storage.s3_document_storage import S3DocumentStorage
 from properties.container import Container as PropertyContainer
-from shared.adapters.sqs_event_publisher import SQSDomainEventPublisher
+from shared.events.adapters.sns_event_publisher import SNSEventPublisher
 from shared.events.adapters.sqs_command_publisher import SQSCommandPublisher
 
 from listings.adapters.database.listing_repository import SqlAlchemyListingRepository
@@ -142,9 +142,9 @@ async def get_property_container() -> PropertyContainer:
         session=session,
         endpoint_url=settings.aws_endpoint_url,
     )
-    domain_event_publisher = SQSDomainEventPublisher(
+    domain_event_publisher = SNSEventPublisher(
         session=session,
-        queue_url=settings.sqs_domain_events_queue_url,
+        topic_arn_prefix=settings.sns_domain_events_topic_arn_prefix,
         endpoint_url=settings.aws_endpoint_url,
     )
 
@@ -226,10 +226,10 @@ async def get_screening_container() -> ApplicantScreeningContainer:
         session=boto_session, endpoint_url=settings.aws_endpoint_url
     )
 
-    # Domain event publisher (shared cross-context queue)
-    domain_event_publisher = SQSDomainEventPublisher(
+    # Domain event publisher (SNS fan-out — ADR-008).
+    domain_event_publisher = SNSEventPublisher(
         session=boto_session,
-        queue_url=settings.sqs_domain_events_queue_url,
+        topic_arn_prefix=settings.sns_domain_events_topic_arn_prefix,
         endpoint_url=settings.aws_endpoint_url,
     )
 
@@ -308,10 +308,10 @@ async def get_contract_intelligence_container() -> ContractIntelligenceContainer
         endpoint_url=settings.aws_endpoint_url,
     )
 
-    # Domain event publisher (shared cross-context queue)
-    domain_event_publisher = SQSDomainEventPublisher(
+    # Domain event publisher (SNS fan-out — ADR-008).
+    domain_event_publisher = SNSEventPublisher(
         session=boto_session,
-        queue_url=settings.sqs_domain_events_queue_url,
+        topic_arn_prefix=settings.sns_domain_events_topic_arn_prefix,
         endpoint_url=settings.aws_endpoint_url,
     )
 
