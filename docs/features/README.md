@@ -23,15 +23,28 @@ For each feature, you'll find:
 
 ## Cross-context flows
 
-The contexts are isolated — they communicate only via SQS domain events and shared IDs.
+Contexts are isolated — they communicate only via the shared event bus (ADR-008) and shared IDs. Every envelope is a `shared.events.base.DomainEvent` with a versioned `event_type` string.
+
+**Domain events** (broadcast, `EventPublisher` → SNS topic per event type, per-context SQS queues subscribe):
 
 ```
-properties           publishes  PropertyCreated         → properties.discovery_processor (amenity discovery)
-                                PropertyExtractionRequested → properties.extraction_processor
-                                BatchPropertyExtractionRequested → properties.extraction_processor
-screening            publishes  ApplicantScreened        → bookings.applicant_service.create_from_screening
-contract_intelligence publishes (internal)               → contract_intelligence.ingestion_processor → analysis_processor
+properties  publishes  PROPERTY_CREATED.v1   → properties.discovery_processor (amenity discovery)
+screening   publishes  APPLICANT_SCREENED.v1 → customers.event_processor (screening-complete email)
+                                             → bookings.events.handlers (create booking applicant)
 ```
+
+**Commands** (point-to-point, `CommandPublisher` → dedicated SQS queue, one consumer):
+
+```
+properties → PROPERTY_EXTRACTION_REQUESTED.v1 / BATCH_PROPERTY_EXTRACTION_REQUESTED.v1
+                → properties.extraction_processor
+screening  → APPLICANT_EXTRACTION_REQUESTED.v1 → screening.extraction_processor
+           → APPLICANT_SCREENING_REQUESTED.v1  → screening.screening_processor
+contract_intelligence → DOCUMENT_INGESTION_REQUESTED.v1 → ingestion_processor
+                      → DOCUMENT_ANALYSIS_REQUESTED.v1  → analysis_processor
+```
+
+All handlers share one signature: `(event: DomainEvent, context: Any) -> None`. All handlers run on the shared `SQSWorker` (`src/shared/events/worker.py`).
 
 ## Reading order for new engineers
 

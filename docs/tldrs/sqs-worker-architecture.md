@@ -1,5 +1,7 @@
 # TLDR: SQS Worker Architecture — Why SQS, How It Works, and Where It Falls Short
 
+> **⚠️ Superseded by [ADR-008](../adr/008-event-bus-ports-and-fanout.md).** This document describes the pre-ADR-008 per-context `SQSWorker` classes and the single shared `sqs_domain_events_queue`. Post-ADR-008, every context uses one shared `SQSWorker` at `src/shared/events/worker.py` via provider-neutral ports; domain events fan out through SNS topics; commands go through `SQSCommandPublisher`. The ADR-006 reliability principles below (client reuse, heartbeat, drain, nack-on-error) still hold — they moved into the shared worker. Kept for historical context.
+
 ## Context
 
 estate-os-service runs two bounded contexts that process async work via SQS workers:

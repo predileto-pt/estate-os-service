@@ -42,10 +42,13 @@ Edit `.env` with your values:
 | `DATABASE_URL` | PostgreSQL connection for Alembic (`postgresql+asyncpg://...`) |
 | `RESEND_API_KEY` | [Resend](https://resend.com) API key |
 | `AWS_ENDPOINT_URL` | LocalStack endpoint (default: `http://localhost:4566`) |
-| `SQS_DOMAIN_EVENTS_QUEUE_URL` | Unified SQS queue for cross-context domain events |
-| `SQS_PROPERTY_EXTRACTION_QUEUE_URL` | SQS task queue for property extraction commands |
-| `SQS_APPLICANT_EXTRACTION_QUEUE_URL` | SQS task queue for applicant document extraction commands |
-| `SQS_APPLICANT_SCREENING_QUEUE_URL` | SQS task queue for applicant screening commands |
+| `SNS_DOMAIN_EVENTS_TOPIC_ARN_PREFIX` | SNS topic ARN prefix for domain events (ADR-008 fan-out). Publisher resolves topic ARNs as `${prefix}${event_type.replace('.', '-')}` |
+| `SQS_CUSTOMERS_EVENTS_QUEUE_URL` / `_DLQ_URL` | Per-context domain-event queue for customers (subscribed to `APPLICANT_SCREENED.v1` SNS topic) + DLQ |
+| `SQS_BOOKINGS_EVENTS_QUEUE_URL` / `_DLQ_URL` | Per-context queue for bookings + DLQ |
+| `SQS_PROPERTIES_EVENTS_QUEUE_URL` / `_DLQ_URL` | Per-context queue for properties + DLQ |
+| `SQS_PROPERTY_EXTRACTION_QUEUE_URL` / `_DLQ_URL` | Command queue for property extraction + DLQ |
+| `SQS_APPLICANT_EXTRACTION_QUEUE_URL` / `_DLQ_URL` | Command queue for applicant document extraction + DLQ |
+| `SQS_APPLICANT_SCREENING_QUEUE_URL` / `_DLQ_URL` | Command queue for applicant screening + DLQ |
 | `GOOGLE_MAPS_API_KEY` | Google Maps API key (Places API enabled) |
 | `CORS_ORIGINS` | Comma-separated allowed origins |
 
@@ -393,12 +396,13 @@ LocalStack creates these SQS queues:
 
 | Queue | Purpose |
 |-------|---------|
-| `domain-events` | **Unified domain events** — all cross-context events (APPLICANT_SCREENED, PROPERTY_CREATED, etc.) |
-| `property-extraction-queue` | Internal task queue — property document extraction commands |
-| `applicant-extraction-queue` | Internal task queue — applicant document extraction commands |
-| `applicant-screening-queue` | Internal task queue — applicant screening commands |
+| SNS topic per `.v1` event type | **Domain events** (`domain-events-PROPERTY_CREATED-v1`, `domain-events-APPLICANT_SCREENED-v1`, …). Publisher is `SNSEventPublisher`. |
+| `customers-events-queue` / `bookings-events-queue` / `properties-events-queue` | **Per-context domain-event consumers.** Each SQS queue subscribes to the SNS topics the context cares about. Each has its own DLQ with `maxReceiveCount=5`. |
+| `property-extraction-queue` / `applicant-extraction-queue` / `applicant-screening-queue` | **Command queues** — point-to-point work sent via `SQSCommandPublisher`. Each has its own DLQ. |
+| `contract-ingestion-queue` / `contract-analysis-queue` | Contract-intelligence command queues (+ DLQs). |
+| `domain-events` (legacy) | Kept during cutover per ADR-008 §Rollout; drained + deleted one week post-cutover. |
 
-The first queue carries **domain events** (things that happened, consumed by multiple contexts). The other three carry **pipeline commands** (work to be done, consumed by a single dedicated worker each). Commands stay on separate queues for independent scaling — extraction is I/O bound (Reducto API calls), screening is LLM bound (OpenAI).
+Domain events flow through **SNS fan-out** — one SNS topic per `.v1` event type, each context SQS queue subscribed to the topics it handles. Handler isolation is per-queue: a poison message in one context's queue only affects that context. Commands stay on dedicated SQS queues — point-to-point, one consumer per queue, independent scaling (extraction is I/O bound on Reducto, screening is LLM bound on OpenAI). See [ADR-008](docs/adr/008-event-bus-ports-and-fanout.md) for the full architecture.
 
 ### 2. Configure environment
 
@@ -407,11 +411,14 @@ cp .env.example .env
 # Edit .env — set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET, DATABASE_URL
 ```
 
-Key SQS env vars:
+Key SQS / SNS env vars:
 
 | Variable | Local Value |
 |----------|-------------|
-| `SQS_DOMAIN_EVENTS_QUEUE_URL` | `http://localhost:4566/000000000000/domain-events` |
+| `SNS_DOMAIN_EVENTS_TOPIC_ARN_PREFIX` | `arn:aws:sns:us-east-1:000000000000:domain-events-` |
+| `SQS_CUSTOMERS_EVENTS_QUEUE_URL` | `http://localhost:4566/000000000000/customers-events-queue` |
+| `SQS_BOOKINGS_EVENTS_QUEUE_URL` | `http://localhost:4566/000000000000/bookings-events-queue` |
+| `SQS_PROPERTIES_EVENTS_QUEUE_URL` | `http://localhost:4566/000000000000/properties-events-queue` |
 | `SQS_PROPERTY_EXTRACTION_QUEUE_URL` | `http://localhost:4566/000000000000/property-extraction-queue` |
 | `SQS_APPLICANT_EXTRACTION_QUEUE_URL` | `http://localhost:4566/000000000000/applicant-extraction-queue` |
 | `SQS_APPLICANT_SCREENING_QUEUE_URL` | `http://localhost:4566/000000000000/applicant-screening-queue` |
@@ -433,8 +440,13 @@ Use separate terminals or a process manager like [overmind](https://github.com/D
 # Terminal 1 — API server
 uv run uvicorn shared.main:app --reload --port 8000
 
-# Terminal 2 — Domain events worker (routes APPLICANT_SCREENED, PROPERTY_CREATED, etc.)
-uv run python -m shared.entrypoints.events_worker
+# Terminal 2 — Per-context domain-event workers (one terminal per context).
+#   customers  → APPLICANT_SCREENED.v1 (send screening-complete email)
+#   bookings   → APPLICANT_SCREENED.v1 (create booking applicant)
+#   properties → PROPERTY_CREATED.v1  (discover amenities)
+uv run python -m customers.entrypoints.worker --queue events
+uv run python -m bookings.entrypoints.events_worker
+uv run python -m properties.entrypoints.events_worker
 
 # Terminal 3 — Property extraction worker
 uv run python -m properties.entrypoints.worker --queue extraction
@@ -472,15 +484,15 @@ cd ../applicants-intake-form && npm run dev
 
 ### Manually publishing a test event
 
-To test the domain events worker without running the full pipeline:
+To test the per-context domain-event workers without running the full pipeline, publish to an SNS topic — the message fans out to every subscribed context queue:
 
 ```bash
-aws --endpoint-url=http://localhost:4566 sqs send-message \
-  --queue-url http://localhost:4566/000000000000/domain-events \
-  --message-body '{
-    "event_type": "APPLICANT_SCREENED",
+aws --endpoint-url=http://localhost:4566 sns publish \
+  --topic-arn arn:aws:sns:us-east-1:000000000000:domain-events-APPLICANT_SCREENED-v1 \
+  --message '{
+    "event_type": "APPLICANT_SCREENED.v1",
     "event_id": "test-event-001",
-    "occurred_at": "2026-03-30T12:00:00Z",
+    "occurred_at": "2026-04-18T12:00:00Z",
     "data": {
       "applicant_id": "00000000-0000-0000-0000-000000000001",
       "form_request_id": "<a-real-intake-form-request-id>",
@@ -501,12 +513,12 @@ aws --endpoint-url=http://localhost:4566 sqs send-message \
         "justification": "All checks passed.",
         "average_monthly_income": 3000.0
       },
-      "screened_at": "2026-03-30T12:00:00Z"
+      "screened_at": "2026-04-18T12:00:00Z"
     }
   }'
 ```
 
-Note the unified envelope format: `{event_type, event_id, occurred_at, data: {...}}`. All domain events follow this structure.
+Both the `customers` and `bookings` context queues are subscribed to this topic, so both workers will receive and process the event independently (per-handler DLQ isolation — ADR-008). The canonical envelope is `{event_type, event_id, occurred_at, data: {...}}` and every event type string ends with `.v1`.
 
 ## Workers
 
