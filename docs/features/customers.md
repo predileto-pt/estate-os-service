@@ -19,14 +19,16 @@ The `customers` bounded context manages multi-tenant accounts: users, organizati
 Value objects: `PhoneNumber`, `Address` (in `domain/models/value_objects.py`).
 Authorization rules: `domain/models/authorization.py` (`has_permission(role, permission)`).
 
-## Domain events
+## Events the context produces / consumes
 
-Defined in `domain/events.py` (frozen dataclasses, base `DomainEvent`):
+Every event uses the shared `DomainEvent` envelope from `shared.events.base` with versioned `event_type` strings defined in `src/shared/events/types.py`. Post-ADR-008 the context has **no unique event producers** — the event-type constants below are reserved for publish sites that will be added as customer workflows grow:
 
-- `UserRegistered`
-- `MemberInvited`, `MemberJoined`, `MemberRemoved`, `MemberRoleChanged`
-- `SubscriptionCreated`, `SubscriptionUpdated`
-- `NotificationSent`
+- `USER_REGISTERED.v1`
+- `MEMBER_INVITED.v1` / `MEMBER_JOINED.v1` / `MEMBER_REMOVED.v1` / `MEMBER_ROLE_CHANGED.v1`
+- `SUBSCRIPTION_CREATED.v1` / `SUBSCRIPTION_UPDATED.v1`
+- `NOTIFICATION_SENT.v1`
+
+The context **consumes** `APPLICANT_SCREENED.v1` (see §Workers).
 
 ## Feature catalog
 
@@ -154,7 +156,7 @@ Change a member's role. Raises `LastOwnerError` if it would demote the last OWNE
 - **Inputs:** `supabase_user_id`, `membership_id`, `new_role`
 - **Output:** `Membership`
 - **Permission:** `member.update`
-- **Events:** `MemberRoleChanged`
+- **Events:** `MEMBER_ROLE_CHANGED.v1`
 - **Source:** `src/customers/application/use_cases/update_member_role.py`
 
 ### RemoveMember
@@ -164,7 +166,7 @@ Remove a member from an organization. Raises `LastOwnerError` if it would remove
 - **Inputs:** `supabase_user_id`, `membership_id`
 - **Output:** `None`
 - **Permission:** `member.remove`
-- **Events:** `MemberRemoved`
+- **Events:** `MEMBER_REMOVED.v1`
 - **Source:** `src/customers/application/use_cases/remove_member.py`
 
 ### CreateSubscription
@@ -173,7 +175,7 @@ Create a subscription for an organization. Defaults to active status with curren
 
 - **Inputs:** `organization_id`, `plan`, `type`, `status?`, `stripe_subscription_id?`, `stripe_price_id?`, `current_period_start?`, `current_period_end?`
 - **Output:** `Subscription`
-- **Events:** `SubscriptionCreated`
+- **Events:** `SUBSCRIPTION_CREATED.v1`
 - **Source:** `src/customers/application/use_cases/manage_subscription.py`
 
 ### UpdateSubscription
@@ -182,7 +184,7 @@ Patch any subscription field. Used for Stripe webhooks and manual admin updates.
 
 - **Inputs:** `subscription_id`, `status?`, `stripe_subscription_id?`, `stripe_price_id?`, `current_period_start?`, `current_period_end?`
 - **Output:** `Subscription`
-- **Events:** `SubscriptionUpdated`
+- **Events:** `SUBSCRIPTION_UPDATED.v1`
 - **Source:** `src/customers/application/use_cases/manage_subscription.py`
 
 ### ListNotifications
@@ -207,12 +209,12 @@ Create an in-app notification for a user. Called by other use cases (e.g., after
 
 - **Inputs:** `user_id`, `title`, `message`, `channel?` (default `"in_app"`)
 - **Output:** `Notification`
-- **Events:** `NotificationSent`
+- **Events:** `NOTIFICATION_SENT.v1`
 - **Source:** `src/customers/application/use_cases/send_notification.py`
 
 ## Workers
 
-`src/customers/adapters/workers/event_processor.py` consumes the unified domain events queue. Currently handles `APPLICANT_SCREENED` (sends an email notification to the property owner). Handlers are registered in a `HANDLERS` dict for extensibility.
+`src/customers/adapters/workers/event_processor.py` exports `handle_applicant_screened` — the customers-side handler for `APPLICANT_SCREENED.v1` (sends a screening-complete email to the property owner). The handler runs on the shared `SQSWorker` (ADR-008), wired via `src/customers/entrypoints/worker.py --queue events`. The customers-events-queue is subscribed to the `domain-events-APPLICANT_SCREENED-v1` SNS topic.
 
 ## Container
 

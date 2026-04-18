@@ -44,10 +44,10 @@ from properties.adapters.persistence.supabase_property_repo import (
     SupabasePropertyRepository,
 )
 from properties.adapters.places.google_places_service import GooglePlacesService
-from properties.adapters.queue.sqs_event_bus import SQSEventBus
 from properties.adapters.storage.s3_document_storage import S3DocumentStorage
 from properties.container import Container as PropertyContainer
-from shared.adapters.sqs_event_publisher import SQSDomainEventPublisher
+from shared.events.adapters.sns_event_publisher import SNSEventPublisher
+from shared.events.adapters.sqs_command_publisher import SQSCommandPublisher
 
 from listings.adapters.database.listing_repository import SqlAlchemyListingRepository
 from listings.container import Container as ListingContainer
@@ -56,7 +56,6 @@ from screening.adapters.ai.langchain_screening import LangChainScreeningAssessor
 from screening.adapters.ai.langchain_translator import LangChainTranslator
 from screening.adapters.ai.reducto_extractor import ReductoDocumentExtractor
 from screening.adapters.database.unit_of_work import SqlAlchemyScreeningUnitOfWork
-from screening.adapters.queue.sqs_publisher import SQSMessageConsumer, SQSMessagePublisher
 from screening.application.crypto import (
     load_private_key_from_env,
     load_public_key_from_env,
@@ -69,9 +68,6 @@ from bookings.container import Container as BookingContainer
 
 from contract_intelligence.adapters.ai.reducto_client import ReductoClient
 from contract_intelligence.adapters.ai.section_analysis_client import SectionAnalysisLLMClient
-from contract_intelligence.adapters.queue.sqs_publisher import (
-    SQSMessagePublisher as ContractSQSPublisher,
-)
 from contract_intelligence.adapters.storage.s3_file_storage import (
     S3FileStorage as ContractS3FileStorage,
 )
@@ -130,14 +126,6 @@ async def get_property_container() -> PropertyContainer:
         openai_api_key=settings.openai_api_key,
     )
 
-    event_bus = SQSEventBus(
-        queue_url=settings.sqs_property_extraction_queue_url,
-        region=settings.aws_region,
-        endpoint_url=settings.aws_endpoint_url,
-        aws_access_key_id=settings.aws_access_key_id,
-        aws_secret_access_key=settings.aws_secret_access_key,
-    )
-
     document_classifier = OpenAITextDocumentClassifier(settings.openai_api_key)
     document_data_extractor = OpenAIIdDocumentExtractor(settings.openai_api_key)
 
@@ -146,9 +134,17 @@ async def get_property_container() -> PropertyContainer:
         aws_secret_access_key=settings.aws_secret_access_key,
         region_name=settings.aws_region,
     )
-    domain_event_publisher = SQSDomainEventPublisher(
+    # Shared command publisher + domain-event publisher. Properties' legacy
+    # per-context SQSEventBus is gone (ADR-008); extraction commands go out
+    # via the canonical envelope on the same shared SQSCommandPublisher every
+    # other context uses.
+    command_publisher = SQSCommandPublisher(
         session=session,
-        queue_url=settings.sqs_domain_events_queue_url,
+        endpoint_url=settings.aws_endpoint_url,
+    )
+    domain_event_publisher = SNSEventPublisher(
+        session=session,
+        topic_arn_prefix=settings.sns_domain_events_topic_arn_prefix,
         endpoint_url=settings.aws_endpoint_url,
     )
 
@@ -161,7 +157,8 @@ async def get_property_container() -> PropertyContainer:
         document_storage=document_storage,
         property_extractor=property_extractor,
         extraction_job_repo=SupabaseExtractionJobRepository(client),
-        event_bus=event_bus,
+        command_publisher=command_publisher,
+        extraction_queue_url=settings.sqs_property_extraction_queue_url,
         document_classifier=document_classifier,
         document_parser=document_parser,
         document_content_repo=SupabaseDocumentContentRepository(client),
@@ -223,15 +220,16 @@ async def get_screening_container() -> ApplicantScreeningContainer:
         aws_secret_access_key=settings.aws_secret_access_key,
     )
 
-    # SQS
+    # SQS — shared command publisher; sends canonical DomainEvent envelopes.
     boto_session = aioboto3.Session()
-    publisher = SQSMessagePublisher(boto_session, endpoint_url=settings.aws_endpoint_url)
-    consumer = SQSMessageConsumer(boto_session, endpoint_url=settings.aws_endpoint_url)
+    command_publisher = SQSCommandPublisher(
+        session=boto_session, endpoint_url=settings.aws_endpoint_url
+    )
 
-    # Domain event publisher (shared cross-context queue)
-    domain_event_publisher = SQSDomainEventPublisher(
+    # Domain event publisher (SNS fan-out — ADR-008).
+    domain_event_publisher = SNSEventPublisher(
         session=boto_session,
-        queue_url=settings.sqs_domain_events_queue_url,
+        topic_arn_prefix=settings.sns_domain_events_topic_arn_prefix,
         endpoint_url=settings.aws_endpoint_url,
     )
 
@@ -243,8 +241,7 @@ async def get_screening_container() -> ApplicantScreeningContainer:
     _screening_container = ApplicantScreeningContainer(
         uow=uow,
         document_storage=document_storage,
-        publisher=publisher,
-        consumer=consumer,
+        command_publisher=command_publisher,
         extractor=extractor,
         assessor=assessor,
         translator=translator,
@@ -306,15 +303,15 @@ async def get_contract_intelligence_container() -> ContractIntelligenceContainer
         endpoint_url=settings.aws_endpoint_url,
     )
 
-    publisher = ContractSQSPublisher(
+    command_publisher = SQSCommandPublisher(
         session=boto_session,
         endpoint_url=settings.aws_endpoint_url,
     )
 
-    # Domain event publisher (shared cross-context queue)
-    domain_event_publisher = SQSDomainEventPublisher(
+    # Domain event publisher (SNS fan-out — ADR-008).
+    domain_event_publisher = SNSEventPublisher(
         session=boto_session,
-        queue_url=settings.sqs_domain_events_queue_url,
+        topic_arn_prefix=settings.sns_domain_events_topic_arn_prefix,
         endpoint_url=settings.aws_endpoint_url,
     )
 
@@ -327,7 +324,7 @@ async def get_contract_intelligence_container() -> ContractIntelligenceContainer
         storage=storage,
         reducto=reducto,
         llm=llm,
-        publisher=publisher,
+        command_publisher=command_publisher,
         domain_event_publisher=domain_event_publisher,
         sqs_ingestion_queue_url=settings.sqs_contract_ingestion_queue_url,
         sqs_analysis_queue_url=settings.sqs_contract_analysis_queue_url,

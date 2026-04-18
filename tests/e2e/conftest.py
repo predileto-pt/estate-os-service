@@ -41,9 +41,9 @@ from properties.adapters.inmemory.inmemory_property_amenity_repo import (
 from properties.adapters.inmemory.inmemory_property_extractor import (
     InMemoryPropertyExtractor,
 )
-from properties.adapters.queue.sqs_event_bus import SQSEventBus
 from properties.adapters.storage.s3_document_storage import S3DocumentStorage
 from properties.container import Container as PropertyContainer
+from shared.events.adapters.sqs_command_publisher import SQSCommandPublisher
 from shared.main import create_app
 
 TEST_JWT_SECRET = "e2e-test-jwt-secret"
@@ -195,6 +195,8 @@ def e2e_container(session):
 
 @pytest.fixture
 def e2e_property_container(session, localstack_url, s3_bucket, sqs_queue_url):
+    import aioboto3
+
     document_storage = S3DocumentStorage(
         bucket_name=s3_bucket,
         region="us-east-1",
@@ -202,12 +204,14 @@ def e2e_property_container(session, localstack_url, s3_bucket, sqs_queue_url):
         aws_access_key_id="test",
         aws_secret_access_key="test",
     )
-    event_bus = SQSEventBus(
-        queue_url=sqs_queue_url,
-        region="us-east-1",
-        endpoint_url=localstack_url,
+    boto_session = aioboto3.Session(
         aws_access_key_id="test",
         aws_secret_access_key="test",
+        region_name="us-east-1",
+    )
+    command_publisher = SQSCommandPublisher(
+        session=boto_session,
+        endpoint_url=localstack_url,
     )
     return PropertyContainer(
         property_repo=SqlAlchemyPropertyRepository(session),
@@ -215,7 +219,8 @@ def e2e_property_container(session, localstack_url, s3_bucket, sqs_queue_url):
         document_storage=document_storage,
         property_extractor=InMemoryPropertyExtractor(),
         extraction_job_repo=SqlAlchemyExtractionJobRepository(session),
-        event_bus=event_bus,
+        command_publisher=command_publisher,
+        extraction_queue_url=sqs_queue_url,
         document_classifier=InMemoryDocumentClassifier(),
         document_parser=InMemoryDocumentParser(),
         document_content_repo=SqlAlchemyDocumentContentRepository(session),

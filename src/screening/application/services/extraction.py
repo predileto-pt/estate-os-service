@@ -4,11 +4,13 @@ import logfire
 import structlog
 
 from screening.application.ports.extractor import DocumentExtractor
-from screening.application.ports.messaging import MessagePublisher
 from screening.application.ports.unit_of_work import ScreeningUnitOfWork
 from screening.domain import events
 from screening.domain.exceptions import DocumentNotFoundError
 from screening.domain.models import DocumentStatus, ExtractedData, ExtractionStatus
+from shared.events.base import DomainEvent
+from shared.events.ports import CommandPublisher
+from shared.events.types import APPLICANT_SCREENING_REQUESTED_V1
 from shared.ports.document_storage import DocumentStorage
 
 logger = structlog.get_logger()
@@ -20,13 +22,13 @@ class ExtractionService:
         uow: ScreeningUnitOfWork,
         storage: DocumentStorage,
         extractor: DocumentExtractor,
-        publisher: MessagePublisher,
+        command_publisher: CommandPublisher,
         screening_queue_url: str,
     ) -> None:
         self._uow = uow
         self._storage = storage
         self._extractor = extractor
-        self._publisher = publisher
+        self._command_publisher = command_publisher
         self._screening_queue_url = screening_queue_url
 
     async def extract_document(self, document_id: UUID, applicant_id: UUID) -> None:
@@ -93,8 +95,11 @@ class ExtractionService:
 
         # Publish SQS message AFTER the transaction is committed
         if should_publish:
-            await self._publisher.publish(
+            await self._command_publisher.send(
                 self._screening_queue_url,
-                {"applicant_id": str(applicant_id)},
+                DomainEvent(
+                    event_type=APPLICANT_SCREENING_REQUESTED_V1,
+                    data={"applicant_id": str(applicant_id)},
+                ),
             )
             logger.info("all_documents_extracted", applicant_id=str(applicant_id))

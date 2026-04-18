@@ -37,11 +37,12 @@ screening_processor (SQS worker)
    ├─ LangGraph assessor (OpenAI) → risk + justification
    ├─ translator → justification in pt-PT
    ├─ saves ScreeningReport, marks Submission PROCESSED
-   └─ publishes APPLICANT_SCREENED domain event
+   └─ publishes APPLICANT_SCREENED.v1 (SNS fan-out via EventPublisher)
         │
         ▼
-consumed by:
-   - bookings.applicant_service.create_from_screening (creates BookingApplicant unless HIGH risk)
+consumed by (each on its own SQS queue subscribed to the topic):
+   - bookings.events.handlers.handle_applicant_screened (creates BookingApplicant unless HIGH risk)
+   - customers.adapters.workers.event_processor.handle_applicant_screened (sends screening-complete email)
    - customers.event_processor (sends email notification to property owner)
 ```
 
@@ -90,18 +91,18 @@ Accept an applicant submission. Validates that the form request exists, that all
 
 ### ScreeningService.screen_applicant
 
-**Worker.** Triggered by an SQS message with `{applicant_id}`. Loads the applicant + all extracted data, runs the LangGraph-based assessor (OpenAI under the hood) to produce a risk level and justification, translates the justification to Portuguese, persists the report, and emits an enriched `APPLICANT_SCREENED` domain event.
+**Worker.** Triggered by `APPLICANT_SCREENING_REQUESTED.v1` on the screening command queue. Loads the applicant + all extracted data, runs the LangGraph-based assessor (OpenAI under the hood) to produce a risk level and justification, translates the justification to Portuguese, persists the report, and emits an enriched `APPLICANT_SCREENED.v1` domain event.
 
 - **Inputs:** `applicant_id`, `force?` (default `False`)
 - **Output:** `None`
 - **Side effects:**
   - LLM: `ScreeningAssessor.assess` (LangGraph + OpenAI)
   - Translator: best-effort translation of justification to pt-PT (logs warning on failure, doesn't fail the screening)
-  - DB: writes `ScreeningReport`, updates `Submission.status` to `PROCESSED`, saves a domain event row
-  - Domain events: publishes `APPLICANT_SCREENED` with the full payload (applicant, documents, screening result, DTI ratio, income, identity flags)
+  - DB: writes `ScreeningReport`, updates `Submission.status` to `PROCESSED`, appends a `ScreeningAuditEvent` row
+  - Domain events: `EventPublisher.publish(APPLICANT_SCREENED.v1)` with the full payload (applicant, documents, screening result, DTI ratio, income, identity flags). SNS fan-out to `customers-events-queue` and `bookings-events-queue`.
 - **Idempotency:** skips if a report already exists, unless `force=True`
 - **Source:** `src/screening/application/services/screening.py`
-- **Worker entry:** `src/screening/adapters/workers/screening_processor.py`
+- **Worker entry:** `src/screening/adapters/workers/screening_processor.py:handle_applicant_screening_requested`
 
 ## Encryption
 

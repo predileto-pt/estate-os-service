@@ -1,20 +1,18 @@
-"""Customers domain-event worker CLI.
+"""Bookings domain-event worker CLI.
 
-Consumes the per-context `customers-events-queue`, subscribed to the
-APPLICANT_SCREENED.v1 SNS topic. Dispatches to
-`handle_applicant_screened`, which sends the screening-complete email
-to the org owner.
+Consumes the per-context `bookings-events-queue`, subscribed to the
+APPLICANT_SCREENED.v1 SNS topic. Creates a booking applicant (unless
+risk is HIGH, in which case the record is never persisted).
 
 Runs the shared `SQSWorker` (ADR-008).
 """
 
-import argparse
 import asyncio
 
 import aioboto3
 import structlog
 
-from customers.adapters.workers.event_processor import handle_applicant_screened
+from bookings.adapters.events.handlers import handle_applicant_screened
 from shared.config import Settings, setup_logging
 from shared.entrypoints.bootstrap import (
     get_booking_container,
@@ -41,24 +39,22 @@ async def _run_events_worker() -> None:
     router = EventRouter()
     router.on(APPLICANT_SCREENED_V1, handle_applicant_screened)
 
-    # Context dict carries per-context containers so the handler can reach
-    # into the customers container for the email service.
     context = {
+        "booking": await get_booking_container(),
         "customer": await get_container(),
         "property": await get_property_container(),
-        "booking": await get_booking_container(),
     }
 
     consumer = SQSMessageConsumer(
         session=session,
-        queue_url=settings.sqs_customers_events_queue_url,
+        queue_url=settings.sqs_bookings_events_queue_url,
         endpoint_url=settings.aws_endpoint_url,
     )
     worker = SQSWorker(
         consumer=consumer,
         router=router,
         context=context,
-        worker_name="customers_events_worker",
+        worker_name="bookings_events_worker",
         use_heartbeat=True,
         heartbeat_interval=60,
         heartbeat_extension=120,
@@ -67,12 +63,7 @@ async def _run_events_worker() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Customers Domain-Event Worker")
-    parser.add_argument("--queue", choices=["events"], required=True)
-    args = parser.parse_args()
-
-    if args.queue == "events":
-        asyncio.run(_run_events_worker())
+    asyncio.run(_run_events_worker())
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ The `bookings` bounded context manages property visit slots and applicant bookin
 
 ## Cross-context integration
 
-Bookings consume the `APPLICANT_SCREENED` event from `screening`. The handler creates a `BookingApplicant` (idempotent on `external_id`) unless the risk is HIGH, in which case it raises `ApplicantRiskTooHighError` and the applicant is never persisted in this context.
+Bookings consume the `APPLICANT_SCREENED.v1` event from `screening`. The bookings-events-queue subscribes to the `domain-events-APPLICANT_SCREENED-v1` SNS topic (ADR-008 fan-out) and `src/bookings/entrypoints/events_worker.py` runs the shared `SQSWorker` with `handle_applicant_screened` registered. The handler creates a `BookingApplicant` (idempotent on `external_id`) unless the risk is HIGH, in which case it raises `ApplicantRiskTooHighError` and the applicant is never persisted in this context.
 
 ## Feature catalog
 
@@ -44,7 +44,7 @@ Bookings consume the `APPLICANT_SCREENED` event from `screening`. The handler cr
 
 | Feature | Trigger | Purpose |
 |---------|---------|---------|
-| [ApplicantService.create_from_screening](#applicantservicecreate_from_screening) | event: `APPLICANT_SCREENED` | Create a booking-side applicant from the screening event |
+| [ApplicantService.create_from_screening](#applicantservicecreate_from_screening) | event: `APPLICANT_SCREENED.v1` | Create a booking-side applicant from the screening event |
 | [ApplicantService.find_by_external_id](#applicantservicefind_by_external_id) | internal | Resolve a `BookingApplicant` by screening UUID |
 | [ApplicantService.find_by_supabase_user_id](#applicantservicefind_by_supabase_user_id) | internal | Resolve a `BookingApplicant` by Supabase auth ID |
 
@@ -144,7 +144,7 @@ Agent cancels an applicant's booking. Verifies that `booking.organization_id == 
 
 ### ApplicantService.create_from_screening
 
-Consume the `APPLICANT_SCREENED` event payload and create a `BookingApplicant`. Idempotent — if a record with the given `external_id` exists, returns it. Raises `ApplicantRiskTooHighError` if the risk is `HIGH`.
+Consume the `APPLICANT_SCREENED.v1` event payload and create a `BookingApplicant`. Idempotent — if a record with the given `external_id` exists, returns it. Raises `ApplicantRiskTooHighError` if the risk is `HIGH`.
 
 - **Inputs:** `data: dict` (the event payload)
 - **Output:** `BookingApplicant`

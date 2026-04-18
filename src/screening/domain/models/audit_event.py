@@ -1,3 +1,18 @@
+"""Screening-internal audit-log events.
+
+These are NOT the cross-context `DomainEvent` at `src/shared/events/base.py`.
+They're a separate concern: events that get **persisted** (via
+`EventRepository.save`) as screening's own audit trail. Each record includes
+the `applicant_id`, the `event_type` (a local `EventType` enum), a free-form
+`payload`, and an `id`/`created_at` for ordering.
+
+Cross-context broadcast — the thing the bookings/customers workers subscribe
+to — uses `shared.events.base.DomainEvent` with event_type
+`APPLICANT_SCREENED.v1`. The two concepts sit side by side without
+colliding; this module owns the audit-log schema, the shared module owns
+the envelope for inter-context messaging.
+"""
+
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -12,7 +27,7 @@ class EventType(StrEnum):
 
 
 @dataclass(frozen=True)
-class DomainEvent:
+class ScreeningAuditEvent:
     applicant_id: UUID
     event_type: EventType
     payload: dict[str, Any] = field(default_factory=dict)
@@ -21,7 +36,7 @@ class DomainEvent:
 
 
 @dataclass(frozen=True)
-class ApplicantSubmitted(DomainEvent):
+class ApplicantSubmitted(ScreeningAuditEvent):
     event_type: EventType = field(default=EventType.APPLICANT_SUBMITTED, init=False)
     document_count: int = 0
 
@@ -30,7 +45,7 @@ class ApplicantSubmitted(DomainEvent):
 
 
 @dataclass(frozen=True)
-class DocumentsExtracted(DomainEvent):
+class DocumentsExtracted(ScreeningAuditEvent):
     event_type: EventType = field(default=EventType.DOCUMENTS_EXTRACTED, init=False)
     document_count: int = 0
 
@@ -39,7 +54,7 @@ class DocumentsExtracted(DomainEvent):
 
 
 @dataclass(frozen=True)
-class ApplicantScreened(DomainEvent):
+class ApplicantScreened(ScreeningAuditEvent):
     event_type: EventType = field(default=EventType.APPLICANT_SCREENED, init=False)
     risk_level: str = ""
 

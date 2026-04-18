@@ -4,7 +4,6 @@ import logfire
 import structlog
 from sqlalchemy.exc import IntegrityError
 
-from screening.application.ports.messaging import MessagePublisher
 from screening.application.ports.unit_of_work import ScreeningUnitOfWork
 from screening.domain import events
 from screening.domain.exceptions import DocumentLimitExceededError, DuplicateApplicantError
@@ -17,6 +16,9 @@ from screening.domain.models import (
     Submission,
     SubmissionStatus,
 )
+from shared.events.base import DomainEvent
+from shared.events.ports import CommandPublisher
+from shared.events.types import APPLICANT_EXTRACTION_REQUESTED_V1
 from shared.ports.document_storage import DocumentStorage
 
 logger = structlog.get_logger()
@@ -27,13 +29,13 @@ class SubmissionService:
         self,
         uow: ScreeningUnitOfWork,
         storage: DocumentStorage,
-        publisher: MessagePublisher,
+        command_publisher: CommandPublisher,
         extraction_queue_url: str,
         max_documents: int = 5,
     ) -> None:
         self._uow = uow
         self._storage = storage
-        self._publisher = publisher
+        self._command_publisher = command_publisher
         self._extraction_queue_url = extraction_queue_url
         self._max_documents = max_documents
 
@@ -167,11 +169,18 @@ class SubmissionService:
 
             await self._uow.commit()
 
-        # Publish SQS messages AFTER the transaction is committed
+        # Publish SQS messages AFTER the transaction is committed.
+        # One command per document — the extraction worker processes each.
         for document in doc_records:
-            await self._publisher.publish(
+            await self._command_publisher.send(
                 self._extraction_queue_url,
-                {"document_id": str(document.id), "applicant_id": str(applicant.id)},
+                DomainEvent(
+                    event_type=APPLICANT_EXTRACTION_REQUESTED_V1,
+                    data={
+                        "document_id": str(document.id),
+                        "applicant_id": str(applicant.id),
+                    },
+                ),
             )
 
         return applicant.id, submission.id, len(doc_records)

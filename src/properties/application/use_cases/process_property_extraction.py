@@ -29,8 +29,8 @@ from properties.domain.models.property_characteristics import (
     PropertyCharacteristics,
 )
 from shared.events.base import DomainEvent as SharedDomainEvent
-from shared.events.publisher import DomainEventPublisher
-from shared.events.types import PROPERTY_CREATED
+from shared.events.ports import EventPublisher
+from shared.events.types import PROPERTY_CREATED_V1
 
 log = structlog.get_logger()
 
@@ -43,7 +43,7 @@ class ProcessPropertyExtraction:
         document_parser: DocumentParser,
         property_extractor: PropertyExtractorService,
         property_repo: PropertyRepository,
-        domain_event_publisher: DomainEventPublisher | None = None,
+        domain_event_publisher: EventPublisher | None = None,
     ) -> None:
         self.extraction_job_repo = extraction_job_repo
         self.document_storage = document_storage
@@ -122,7 +122,7 @@ class ProcessPropertyExtraction:
                 try:
                     await self.domain_event_publisher.publish(
                         SharedDomainEvent(
-                            event_type=PROPERTY_CREATED, data={"property_id": str(prop.id)}
+                            event_type=PROPERTY_CREATED_V1, data={"property_id": str(prop.id)}
                         )
                     )
                 except Exception:

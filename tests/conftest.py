@@ -33,9 +33,6 @@ from properties.adapters.inmemory.inmemory_document_extractor import (
     InMemoryDocumentExtractor,
 )
 from properties.adapters.inmemory.inmemory_document_storage import InMemoryDocumentStorage
-from properties.adapters.inmemory.inmemory_event_bus import (
-    InMemoryEventBus as PropertyInMemoryEventBus,
-)
 from properties.adapters.inmemory.inmemory_extraction_job_repo import (
     InMemoryExtractionJobRepository,
 )
@@ -51,6 +48,7 @@ from properties.adapters.inmemory.inmemory_document_content_repo import (
 from properties.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
 from properties.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
 from properties.container import Container as PropertyContainer
+from shared.events.adapters.inmemory_event_bus import InMemoryCommandPublisher
 
 TEST_JWT_SECRET = "test-jwt-secret-for-testing-only"
 TEST_SUPABASE_USER_ID = "00000000-0000-0000-0000-000000000001"
@@ -150,8 +148,13 @@ def property_extractor_service():
 
 
 @pytest.fixture
-def property_event_bus():
-    return PropertyInMemoryEventBus()
+def command_publisher():
+    return InMemoryCommandPublisher()
+
+
+@pytest.fixture
+def extraction_queue_url():
+    return "test-extraction-queue"
 
 
 @pytest.fixture
@@ -176,7 +179,8 @@ def property_container(
     document_storage,
     extraction_job_repo,
     property_extractor_service,
-    property_event_bus,
+    command_publisher,
+    extraction_queue_url,
     document_classifier,
     document_parser,
     document_content_repo,
@@ -187,7 +191,8 @@ def property_container(
         document_storage=document_storage,
         property_extractor=property_extractor_service,
         extraction_job_repo=extraction_job_repo,
-        event_bus=property_event_bus,
+        command_publisher=command_publisher,
+        extraction_queue_url=extraction_queue_url,
         document_classifier=document_classifier,
         document_parser=document_parser,
         document_content_repo=document_content_repo,

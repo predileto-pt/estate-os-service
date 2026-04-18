@@ -9,8 +9,8 @@ from properties.application.ports.repositories.property_repository import (
     PropertyRepository,
 )
 from shared.events.base import DomainEvent as SharedDomainEvent
-from shared.events.publisher import DomainEventPublisher
-from shared.events.types import PROPERTY_CREATED
+from shared.events.ports import EventPublisher
+from shared.events.types import PROPERTY_CREATED_V1
 from properties.domain.models.property import (
     ListingType,
     Property,
@@ -25,7 +25,7 @@ class CreateProperty:
     def __init__(
         self,
         property_repo: PropertyRepository,
-        domain_event_publisher: DomainEventPublisher | None = None,
+        domain_event_publisher: EventPublisher | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.domain_event_publisher = domain_event_publisher
@@ -57,7 +57,7 @@ class CreateProperty:
             try:
                 await self.domain_event_publisher.publish(
                     SharedDomainEvent(
-                        event_type=PROPERTY_CREATED, data={"property_id": str(prop.id)}
+                        event_type=PROPERTY_CREATED_V1, data={"property_id": str(prop.id)}
                     )
                 )
             except Exception:

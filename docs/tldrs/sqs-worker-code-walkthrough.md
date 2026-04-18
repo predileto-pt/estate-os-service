@@ -1,6 +1,8 @@
 # TLDR: SQS Worker Code Walkthrough
 
-A line-by-line explanation of [src/contract_intelligence/entrypoints/worker.py](../../src/contract_intelligence/entrypoints/worker.py) after the ADR-006 changes. The screening worker is structurally identical.
+> **⚠️ Superseded by [ADR-008](../adr/008-event-bus-ports-and-fanout.md).** The per-context `SQSWorker` class walked through here has been deleted and replaced by `src/shared/events/worker.py:SQSWorker` — one class, used by every context, taking a `MessageConsumer` port + `EventRouter` instead of a raw `aioboto3.Session` + processor module. Handler signatures also changed from `process_event(body, container)` to `(event: DomainEvent, context) -> None`. Kept for historical context.
+
+A line-by-line explanation of the (now-deleted) pre-ADR-008 `SQSWorker` class from `src/contract_intelligence/entrypoints/worker.py` after the ADR-006 changes. The screening worker was structurally identical.
 
 ## Imports
 

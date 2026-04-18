@@ -19,13 +19,17 @@ The `properties` bounded context is the largest in the service. It manages prope
 
 Domain service: `domain/services/amenity_ranker.py` — brand-weighted ranking for amenities (boosts known PT brands like Continente, Pingo Doce, Lidl, Millennium, BCP).
 
-## Domain events
+## Events the context produces
 
-`domain/events.py` (frozen dataclasses, base `DomainEvent`):
+Every event uses the shared `DomainEvent` envelope from `shared.events.base` with a versioned `event_type` string.
 
-- `PropertyExtractionRequested`
-- `BatchPropertyExtractionRequested`
-- `PropertyCreated`
+| Event type string | Transport | Consumed by |
+|---|---|---|
+| `PROPERTY_EXTRACTION_REQUESTED.v1` | Command (SQS → `property-extraction-queue`) | `properties.extraction_processor.handle_property_extraction_requested` |
+| `BATCH_PROPERTY_EXTRACTION_REQUESTED.v1` | Command (same queue, event-type-keyed) | `properties.extraction_processor.handle_batch_property_extraction_requested` |
+| `PROPERTY_CREATED.v1` | Domain event (SNS fan-out) | `properties.discovery_processor.handle_property_created` (via properties-events-queue) |
+
+Constants live in `src/shared/events/types.py`. See [ADR-008](../adr/008-event-bus-ports-and-fanout.md) for transport semantics.
 
 ## Feature catalog
 
@@ -74,8 +78,8 @@ Domain service: `domain/services/amenity_ranker.py` — brand-weighted ranking f
 | [GetExtractionJob](#getextractionjob) | `GET /api/v1/admin/extraction-jobs/{job_id}` | Return job status |
 | [ListExtractionJobs](#listextractionjobs) | `GET /api/v1/admin/extraction-jobs` | List jobs for an organization |
 | [RetryExtractionJob](#retryextractionjob) | `POST /api/v1/admin/extraction-jobs/{job_id}/retry` | Retry a failed job |
-| [ProcessPropertyExtraction](#processpropertyextraction) | event: `PropertyExtractionRequested` | Worker: OCR + extract → create Property |
-| [ProcessBatchPropertyExtraction](#processbatchpropertyextraction) | event: `BatchPropertyExtractionRequested` | Worker: OCR + classify + extract Property + Owners |
+| [ProcessPropertyExtraction](#processpropertyextraction) | event: `PROPERTY_EXTRACTION_REQUESTED.v1` | Worker: OCR + extract → create Property |
+| [ProcessBatchPropertyExtraction](#processbatchpropertyextraction) | event: `BATCH_PROPERTY_EXTRACTION_REQUESTED.v1` | Worker: OCR + classify + extract Property + Owners |
 
 ### Amenity discovery
 
@@ -90,11 +94,11 @@ Domain service: `domain/services/amenity_ranker.py` — brand-weighted ranking f
 
 ### CreateProperty
 
-Create a property in `DRAFT` status. Optionally publishes `PropertyCreated` if a `discovery_event_bus` is wired in the container.
+Create a property in `DRAFT` status. Optionally publishes `PROPERTY_CREATED.v1` if an `EventPublisher` is wired in the container.
 
 - **Inputs:** `organization_id`, `address`, `listing_type`, `typology`, `description?`
 - **Output:** `Property`
-- **Events:** `PropertyCreated` (optional)
+- **Events:** `PROPERTY_CREATED.v1` (optional, broadcast via SNS)
 - **Source:** `src/properties/application/use_cases/create_property.py`
 
 ### GetProperty
@@ -223,11 +227,11 @@ Generate pre-signed S3 URLs for extraction documents. Returns a fresh `job_id` (
 
 ### SubmitPropertyExtraction
 
-Submit a single property document. Verifies the S3 keys exist, creates an `ExtractionJob` in `PENDING`, publishes `PropertyExtractionRequested`.
+Submit a single property document. Verifies the S3 keys exist, creates an `ExtractionJob` in `PENDING`, publishes `PROPERTY_EXTRACTION_REQUESTED.v1` to the extraction command queue.
 
 - **Inputs:** `job_id`, `user_id`, `organization_id`, `document_keys`, `listing_type`, `typology`
 - **Output:** `ExtractionJob`
-- **Events:** `PropertyExtractionRequested`
+- **Events:** `PROPERTY_EXTRACTION_REQUESTED.v1`
 - **Source:** `src/properties/application/use_cases/submit_property_extraction.py`
 
 ### SubmitBatchPropertyExtraction
@@ -236,7 +240,7 @@ Same as above but for mixed batches (property docs + multiple ID documents). Rou
 
 - **Inputs:** `job_id`, `user_id`, `organization_id`, `document_keys`, `listing_type`, `typology`
 - **Output:** `ExtractionJob`
-- **Events:** `BatchPropertyExtractionRequested`
+- **Events:** `BATCH_PROPERTY_EXTRACTION_REQUESTED.v1`
 - **Source:** `src/properties/application/use_cases/submit_batch_property_extraction.py`
 
 ### GetExtractionJob
@@ -261,33 +265,33 @@ Resubmit a failed job. Validates that the current status is `FAILED`. Routes to 
 
 - **Inputs:** `job_id`
 - **Output:** `ExtractionJob` (status `RETRYING`)
-- **Events:** `PropertyExtractionRequested` or `BatchPropertyExtractionRequested`
+- **Events:** `PROPERTY_EXTRACTION_REQUESTED.v1` or `BATCH_PROPERTY_EXTRACTION_REQUESTED.v1`
 - **Source:** `src/properties/application/use_cases/retry_extraction_job.py`
 
 ### ProcessPropertyExtraction
 
-**Worker.** Triggered by `PropertyExtractionRequested`. Downloads docs from S3, runs Reducto OCR, calls OpenAI to extract structured property data, attempts geocoding, then writes a `Property` in `DRAFT` status. On success, publishes `PropertyCreated` so amenity discovery can run.
+**Worker.** Triggered by `PROPERTY_EXTRACTION_REQUESTED.v1`. Downloads docs from S3, runs Reducto OCR, calls OpenAI to extract structured property data, attempts geocoding, then writes a `Property` in `DRAFT` status. On success, publishes `PROPERTY_CREATED.v1` so amenity discovery can run.
 
 - **Inputs:** `job_id`
 - **Output:** `ExtractionJob` (`COMPLETED` or `FAILED`)
 - **Pipeline:** `DocumentStorage.download` → `DocumentParser.parse_batch` (Reducto) → `PropertyExtractorService.extract` (OpenAI) → `extract_geolocation` (best-effort) → `PropertyRepository.save`
-- **Events published:** `PropertyCreated`
+- **Events published:** `PROPERTY_CREATED.v1`
 - **Source:** `src/properties/application/use_cases/process_property_extraction.py`
-- **Worker entry:** `src/properties/adapters/workers/extraction_processor.py`
+- **Worker entry:** `src/properties/adapters/workers/extraction_processor.py:handle_property_extraction_requested`
 
 ### ProcessBatchPropertyExtraction
 
-**Worker.** Triggered by `BatchPropertyExtractionRequested`. Adds document classification (property docs vs ID docs), routes ID docs through the owner extractor, deduplicates owners by NIF, creates the property and all owners in one go.
+**Worker.** Triggered by `BATCH_PROPERTY_EXTRACTION_REQUESTED.v1`. Adds document classification (property docs vs ID docs), routes ID docs through the owner extractor, deduplicates owners by NIF, creates the property and all owners in one go.
 
 - **Inputs:** `job_id`
 - **Output:** `ExtractionJob`
 - **Pipeline:** S3 download (or `DocumentContent` cache on retry) → Reducto OCR → `DocumentClassifier` → split into property texts and ID docs → OpenAI property extraction + per-doc owner extraction → geocoding → dedup → save
-- **Events published:** `PropertyCreated`
+- **Events published:** `PROPERTY_CREATED.v1`
 - **Source:** `src/properties/application/use_cases/process_batch_property_extraction.py`
 
 ### DiscoverPropertyAmenities
 
-Trigger amenity discovery for a property. Returns 202 immediately and publishes `PropertyCreated` so the discovery worker picks it up.
+Trigger amenity discovery for a property. Returns 202 immediately and publishes `PROPERTY_CREATED.v1` so the discovery worker picks it up.
 
 - **Inputs:** `property_id`
 - **Output:** 202 Accepted
@@ -304,10 +308,12 @@ Return discovered amenities. The discovery worker fetches up to 9 categories (ho
 
 ## Workers
 
-| Worker | Trigger | Action |
-|--------|---------|--------|
-| `extraction_processor.py` | `PropertyExtractionRequested` / `BatchPropertyExtractionRequested` | Runs `ProcessPropertyExtraction` or `ProcessBatchPropertyExtraction` |
-| `discovery_processor.py` | `PropertyCreated` | Runs amenity discovery via Google Places, ranks results, persists `PropertyAmenity` records |
+All three properties workers run on the shared `src/shared/events/worker.py:SQSWorker` (ADR-008). Handlers take `(event: DomainEvent, container) -> None`.
+
+| Worker | CLI | Queue / Topic | Handlers |
+|---|---|---|---|
+| `extraction_processor.py` | `python -m properties.entrypoints.worker --queue extraction` | `property-extraction-queue` (SQS command) | `handle_property_extraction_requested` (for `PROPERTY_EXTRACTION_REQUESTED.v1`) + `handle_batch_property_extraction_requested` (for `BATCH_PROPERTY_EXTRACTION_REQUESTED.v1`) |
+| `discovery_processor.py` | `python -m properties.entrypoints.events_worker` | `properties-events-queue` (subscribed to `domain-events-PROPERTY_CREATED-v1` SNS topic) | `handle_property_created` |
 
 The discovery worker runs up to 5 Google Places queries concurrently and uses `domain/services/amenity_ranker.py` to boost known Portuguese brands.
 
@@ -323,14 +329,14 @@ client                 API                          extraction worker           
   ├─ PUT to S3 ─────────┼──► S3                               │                           │
   ├─ POST /jobs ───────►│                                    │                           │
   │                     ├── ExtractionJob saved              │                           │
-  │                     ├── publish PropertyExtractionRequested ───►                     │
+  │                     ├── CommandPublisher.send(PROPERTY_EXTRACTION_REQUESTED.v1) ────►│
   │◄── 202 (job_id) ────┤                                    │                           │
   │                     │                                    ├── download from S3        │
   │                     │                                    ├── Reducto OCR             │
   │                     │                                    ├── OpenAI extract          │
   │                     │                                    ├── geocode                 │
   │                     │                                    ├── save Property           │
-  │                     │                                    ├── publish PropertyCreated ──►
+  │                     │                                    ├── EventPublisher.publish(PROPERTY_CREATED.v1) ──►
   │                     │                                    │                           ├── Google Places
   │                     │                                    │                           ├── rank + dedup
   │                     │                                    │                           ├── save amenities

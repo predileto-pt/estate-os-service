@@ -8,7 +8,10 @@ from shared.events.base import DomainEvent
 
 logger = structlog.get_logger()
 
-HandlerFn = Callable[[dict[str, Any], Any], Coroutine[Any, Any, None]]
+# Handlers take the full DomainEvent envelope, not just the payload dict.
+# `event.event_type`, `event.event_id`, `event.occurred_at` are first-class
+# inside handlers — no smuggling through structlog.contextvars.
+HandlerFn = Callable[[DomainEvent, Any], Coroutine[Any, Any, None]]
 
 
 class EventRouter:
@@ -26,7 +29,7 @@ class EventRouter:
 
         for handler in handlers:
             try:
-                await handler(event.data, context)
+                await handler(event, context)
             except Exception:
                 logger.exception(
                     "event_handler_failed",

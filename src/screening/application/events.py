@@ -20,7 +20,12 @@ class ScreeningResultPayload(BaseModel):
 
 
 class ApplicantScreenedEvent(BaseModel):
-    event_type: str = "APPLICANT_SCREENED"
+    """Payload model for APPLICANT_SCREENED.v1 domain events.
+
+    The envelope (`shared.events.base.DomainEvent`) owns `event_type`;
+    the payload model only describes the `data` contents.
+    """
+
     # Identity
     applicant_id: UUID
     form_request_id: UUID
