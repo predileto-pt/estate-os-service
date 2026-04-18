@@ -2,7 +2,6 @@ from properties.application.ports.document_classifier import DocumentClassifier
 from properties.application.ports.document_data_extractor import DocumentDataExtractor
 from properties.application.ports.document_parser import DocumentParser
 from properties.application.ports.document_storage import DocumentStorage
-from properties.application.ports.event_bus import EventBus
 from properties.application.ports.places_service import PlacesService
 from properties.application.ports.property_extractor import PropertyExtractorService
 from properties.application.ports.repositories.document_content_repository import (
@@ -61,6 +60,7 @@ from properties.application.use_cases.discover_property_amenities import (
 from properties.application.use_cases.get_property_amenities import (
     GetPropertyAmenities,
 )
+from shared.events.ports import CommandPublisher
 from shared.events.publisher import DomainEventPublisher
 
 
@@ -72,7 +72,8 @@ class Container:
         document_storage: DocumentStorage | None = None,
         property_extractor: PropertyExtractorService | None = None,
         extraction_job_repo: ExtractionJobRepository | None = None,
-        event_bus: EventBus | None = None,
+        command_publisher: CommandPublisher | None = None,
+        extraction_queue_url: str = "",
         document_classifier: DocumentClassifier | None = None,
         document_parser: DocumentParser | None = None,
         document_content_repo: DocumentContentRepository | None = None,
@@ -85,7 +86,8 @@ class Container:
         self.document_storage = document_storage
         self.property_extractor = property_extractor
         self.extraction_job_repo = extraction_job_repo
-        self.event_bus = event_bus
+        self.command_publisher = command_publisher
+        self.extraction_queue_url = extraction_queue_url
         self.document_classifier = document_classifier
         self.document_parser = document_parser
         self.document_content_repo = document_content_repo
@@ -152,11 +154,12 @@ class Container:
                 document_storage=document_storage,
             )
 
-        if document_storage and extraction_job_repo and event_bus:
+        if document_storage and extraction_job_repo and command_publisher:
             self.submit_property_extraction = SubmitPropertyExtraction(
                 document_storage=document_storage,
                 extraction_job_repo=extraction_job_repo,
-                event_bus=event_bus,
+                command_publisher=command_publisher,
+                extraction_queue_url=extraction_queue_url,
             )
 
         # Property hard delete (requires document_storage to delete S3 images
@@ -184,11 +187,12 @@ class Container:
                 domain_event_publisher=domain_event_publisher,
             )
 
-        if document_storage and extraction_job_repo and event_bus:
+        if document_storage and extraction_job_repo and command_publisher:
             self.submit_batch_property_extraction = SubmitBatchPropertyExtraction(
                 document_storage=document_storage,
                 extraction_job_repo=extraction_job_repo,
-                event_bus=event_bus,
+                command_publisher=command_publisher,
+                extraction_queue_url=extraction_queue_url,
             )
 
         if (
@@ -219,10 +223,11 @@ class Container:
                 extraction_job_repo=extraction_job_repo,
             )
 
-        if extraction_job_repo and event_bus:
+        if extraction_job_repo and command_publisher:
             self.retry_extraction_job = RetryExtractionJob(
                 extraction_job_repo=extraction_job_repo,
-                event_bus=event_bus,
+                command_publisher=command_publisher,
+                extraction_queue_url=extraction_queue_url,
             )
 
         # Discovery use cases

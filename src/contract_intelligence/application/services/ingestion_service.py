@@ -6,7 +6,6 @@ from uuid import UUID
 import structlog
 
 from contract_intelligence.application.dtos.ingestion import IngestResult
-from contract_intelligence.application.ports.messaging import MessagePublisherPort
 from contract_intelligence.application.ports.reducto import ReductoPort
 from contract_intelligence.application.ports.storage import FileStoragePort
 from contract_intelligence.application.ports.unit_of_work import ContractUnitOfWork
@@ -16,6 +15,9 @@ from contract_intelligence.domain.entities.source_document import (
     UploadStatus,
 )
 from contract_intelligence.domain.exceptions import SourceDocumentNotFoundError
+from shared.events.base import DomainEvent
+from shared.events.ports import CommandPublisher
+from shared.events.types import DOCUMENT_ANALYSIS_REQUESTED_V1
 
 logger = structlog.get_logger()
 
@@ -30,7 +32,7 @@ class IngestionService:
         sqs_analysis_queue_url: str,
         s3_bucket_name: str,
         aws_endpoint_url: str | None = None,
-        publisher: MessagePublisherPort | None = None,
+        command_publisher: CommandPublisher | None = None,
     ) -> None:
         self._uow = uow
         self._storage = storage
@@ -38,7 +40,7 @@ class IngestionService:
         self._sqs_analysis_queue_url = sqs_analysis_queue_url
         self._s3_bucket_name = s3_bucket_name
         self._aws_endpoint_url = aws_endpoint_url
-        self._publisher = publisher
+        self._command_publisher = command_publisher
 
     async def ingest(self, document_id: UUID) -> IngestResult:
         should_publish = False
@@ -130,10 +132,13 @@ class IngestionService:
                 raise
 
         # Publish to analysis queue AFTER commit
-        if should_publish and self._publisher and self._sqs_analysis_queue_url:
-            await self._publisher.publish(
+        if should_publish and self._command_publisher and self._sqs_analysis_queue_url:
+            await self._command_publisher.send(
                 self._sqs_analysis_queue_url,
-                {"document_id": str(document.id)},
+                DomainEvent(
+                    event_type=DOCUMENT_ANALYSIS_REQUESTED_V1,
+                    data={"document_id": str(document.id)},
+                ),
             )
 
         return ingest_result

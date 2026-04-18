@@ -11,7 +11,6 @@ from contract_intelligence.application.dtos.source_documents import (
     SourceDocumentRead,
     UploadSourceDocumentResponse,
 )
-from contract_intelligence.application.ports.messaging import MessagePublisherPort
 from contract_intelligence.application.ports.storage import FileStoragePort
 from contract_intelligence.application.ports.unit_of_work import ContractUnitOfWork
 from contract_intelligence.domain.entities.source_document import (
@@ -21,6 +20,9 @@ from contract_intelligence.domain.exceptions import (
     DuplicateDocumentHashError,
     SourceDocumentNotFoundError,
 )
+from shared.events.base import DomainEvent
+from shared.events.ports import CommandPublisher
+from shared.events.types import DOCUMENT_INGESTION_REQUESTED_V1
 
 
 class SourceDocumentService:
@@ -28,14 +30,14 @@ class SourceDocumentService:
         self,
         uow: ContractUnitOfWork,
         storage: FileStoragePort,
-        publisher: MessagePublisherPort,
+        command_publisher: CommandPublisher,
         *,
         sqs_ingestion_queue_url: str,
         s3_bucket_name: str,
     ) -> None:
         self._uow = uow
         self._storage = storage
-        self._publisher = publisher
+        self._command_publisher = command_publisher
         self._sqs_ingestion_queue_url = sqs_ingestion_queue_url
         self._s3_bucket_name = s3_bucket_name
 
@@ -70,9 +72,12 @@ class SourceDocumentService:
 
         # Publish SQS message AFTER commit so the DB record exists when the
         # worker picks up the message.
-        await self._publisher.publish(
+        await self._command_publisher.send(
             self._sqs_ingestion_queue_url,
-            {"document_id": str(document.id)},
+            DomainEvent(
+                event_type=DOCUMENT_INGESTION_REQUESTED_V1,
+                data={"document_id": str(document.id)},
+            ),
         )
 
         return UploadSourceDocumentResponse(
@@ -168,10 +173,14 @@ class SourceDocumentService:
             await self._uow.source_documents.update_status(document.id, document.upload_status)
             await self._uow.commit()
 
-        # Publish SQS message AFTER commit
-        await self._publisher.publish(
+        # Publish SQS message AFTER commit. Same event type as the fresh-upload
+        # path — the ingestion worker treats retry and first-time identically.
+        await self._command_publisher.send(
             self._sqs_ingestion_queue_url,
-            {"document_id": str(document.id)},
+            DomainEvent(
+                event_type=DOCUMENT_INGESTION_REQUESTED_V1,
+                data={"document_id": str(document.id)},
+            ),
         )
 
         return UploadSourceDocumentResponse(

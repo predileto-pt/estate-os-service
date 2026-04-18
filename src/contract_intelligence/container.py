@@ -2,7 +2,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from contract_intelligence.adapters.database.unit_of_work import SqlAlchemyContractUnitOfWork
 from contract_intelligence.application.ports.llm import SectionAnalysisLLMPort
-from contract_intelligence.application.ports.messaging import MessagePublisherPort
 from contract_intelligence.application.ports.reducto import ReductoPort
 from contract_intelligence.application.ports.repositories import (
     GeneratedContractRepository,
@@ -23,6 +22,7 @@ from contract_intelligence.application.services.source_document_service import (
 )
 from contract_intelligence.application.services.template_service import TemplateService
 from shared.events import DomainEventPublisher
+from shared.events.ports import CommandPublisher
 
 
 class Container:
@@ -32,7 +32,7 @@ class Container:
         storage: FileStoragePort,
         reducto: ReductoPort,
         llm: SectionAnalysisLLMPort,
-        publisher: MessagePublisherPort,
+        command_publisher: CommandPublisher,
         domain_event_publisher: DomainEventPublisher,
         sqs_ingestion_queue_url: str,
         sqs_analysis_queue_url: str,
@@ -50,7 +50,7 @@ class Container:
         self.storage = storage
         self.reducto = reducto
         self.llm = llm
-        self.publisher = publisher
+        self.command_publisher = command_publisher
         self.domain_event_publisher = domain_event_publisher
 
         # Config
@@ -65,7 +65,7 @@ class Container:
         self.source_document_service = SourceDocumentService(
             uow=uow,
             storage=storage,
-            publisher=publisher,
+            command_publisher=command_publisher,
             sqs_ingestion_queue_url=sqs_ingestion_queue_url,
             s3_bucket_name=s3_bucket_name,
         )
@@ -73,7 +73,7 @@ class Container:
             uow=uow,
             storage=storage,
             reducto=reducto,
-            publisher=publisher,
+            command_publisher=command_publisher,
             sqs_analysis_queue_url=sqs_analysis_queue_url,
             s3_bucket_name=s3_bucket_name,
             aws_endpoint_url=aws_endpoint_url,

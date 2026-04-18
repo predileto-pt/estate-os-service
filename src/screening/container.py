@@ -1,5 +1,4 @@
 from screening.application.ports.extractor import DocumentExtractor
-from screening.application.ports.messaging import MessageConsumer, MessagePublisher
 from screening.application.ports.screening import ScreeningAssessor
 from screening.application.ports.translator import Translator
 from screening.application.ports.unit_of_work import ScreeningUnitOfWork
@@ -7,6 +6,7 @@ from screening.application.services.extraction import ExtractionService
 from screening.application.services.screening import ScreeningService
 from screening.application.services.submission import SubmissionService
 from shared.events import DomainEventPublisher
+from shared.events.ports import CommandPublisher
 from shared.ports.document_storage import DocumentStorage
 
 
@@ -15,20 +15,18 @@ class Container:
         self,
         uow: ScreeningUnitOfWork,
         document_storage: DocumentStorage,
-        publisher: MessagePublisher,
+        command_publisher: CommandPublisher,
         extractor: DocumentExtractor,
         assessor: ScreeningAssessor,
         domain_event_publisher: DomainEventPublisher,
         extraction_queue_url: str,
         screening_queue_url: str,
         max_documents: int = 5,
-        consumer: MessageConsumer | None = None,
         translator: Translator | None = None,
     ) -> None:
         self.uow = uow
         self.document_storage = document_storage
-        self.publisher = publisher
-        self.consumer = consumer
+        self.command_publisher = command_publisher
         self.extractor = extractor
         self.assessor = assessor
         self.translator = translator
@@ -40,7 +38,7 @@ class Container:
         self.submission_service = SubmissionService(
             uow=uow,
             storage=document_storage,
-            publisher=publisher,
+            command_publisher=command_publisher,
             extraction_queue_url=extraction_queue_url,
             max_documents=max_documents,
         )
@@ -49,7 +47,7 @@ class Container:
             uow=uow,
             storage=document_storage,
             extractor=extractor,
-            publisher=publisher,
+            command_publisher=command_publisher,
             screening_queue_url=screening_queue_url,
         )
 

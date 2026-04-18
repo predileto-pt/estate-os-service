@@ -349,8 +349,12 @@ APPLICANT_SCREENING_REQUESTED_V1 = "APPLICANT_SCREENING_REQUESTED.v1"
 # Contract intelligence (new — same story)
 DOCUMENT_INGESTION_REQUESTED_V1 = "DOCUMENT_INGESTION_REQUESTED.v1"
 DOCUMENT_ANALYSIS_REQUESTED_V1 = "DOCUMENT_ANALYSIS_REQUESTED.v1"
-DOCUMENT_DLQ_RETRY_V1 = "DOCUMENT_DLQ_RETRY.v1"
 ```
+
+(Note: an earlier draft of this spec listed `DOCUMENT_DLQ_RETRY_V1`. Ground-truth
+audit during implementation showed `source_document_service.retry_document` re-publishes
+to the same ingestion queue as `upload_document` with the same payload shape — it's
+not a distinct event type. Removed.)
 
 **Events and commands live in the same module** and share the envelope + handler + worker infrastructure. The only real divergence is transport (`EventPublisher` via SNS vs `CommandPublisher` via direct SQS). A developer reading a handler can't tell which one fired it.
 
@@ -587,8 +591,9 @@ LocalStack supports both SNS and SQS with `SNS → SQS` subscriptions. The test 
   - `src/screening/application/services/extraction.py:96-97` — enqueues applicant screening. New: `APPLICANT_SCREENING_REQUESTED_V1`.
   - `src/contract_intelligence/application/services/ingestion_service.py:134` — enqueues downstream analysis. New: `DOCUMENT_ANALYSIS_REQUESTED_V1`.
   - `src/contract_intelligence/application/services/source_document_service.py:73` — enqueues ingestion on upload. New: `DOCUMENT_INGESTION_REQUESTED_V1`.
-  - `src/contract_intelligence/application/services/source_document_service.py:172` — enqueues DLQ retry. New: `DOCUMENT_DLQ_RETRY_V1`.
-  - Application-service constructors rename: `publisher: SQSMessagePublisher` → `command_publisher: CommandPublisher`. Container wiring in `src/screening/container.py` + `src/contract_intelligence/container.py` updates accordingly.
+  - `src/contract_intelligence/application/services/source_document_service.py:172` — re-enqueues a FAILED document for re-ingestion. New: `DOCUMENT_INGESTION_REQUESTED_V1` (same event type as the fresh-upload path — see note under §Event type versioning).
+  - `src/properties/application/use_cases/submit_property_extraction.py:61`, `submit_batch_property_extraction.py:61`, `retry_extraction_job.py:47-49` — properties also has its own command publisher (`SQSEventBus` + `EventBus` port + `InMemoryEventBus` adapter) that predates ADR-008 and uses raw `boto3.client.send_message`. Migrate all three publish sites to use the shared `CommandPublisher.send(queue_url, event)` path. Delete `src/properties/application/ports/event_bus.py`, `src/properties/adapters/queue/sqs_event_bus.py`, and `src/properties/adapters/inmemory/inmemory_event_bus.py` — replaced by `shared.events.ports.CommandPublisher` + the shared adapters. Every publish site was already constructing canonical `DomainEvent` envelopes (Commit 2) — only the transport glue changes.
+  - Application-service constructors rename: `publisher: SQSMessagePublisher` → `command_publisher: CommandPublisher`. Container wiring in `src/screening/container.py` + `src/contract_intelligence/container.py` + `src/properties/container.py` updates accordingly.
 - Command-queue processor files — rewired per the "Command-queue processor split" table:
   - `src/properties/adapters/workers/extraction_processor.py` — **split** (2 handlers).
   - `src/properties/adapters/workers/discovery_processor.py` — rename parameters to `(event, ctx)`, expose as handler.
@@ -603,7 +608,12 @@ LocalStack supports both SNS and SQS with `SNS → SQS` subscriptions. The test 
 - `src/shared/entrypoints/lambda_events.py` — Lambda handler that imported from the legacy worker. Long-running per-context workers supersede it. (If any production path still depends on it, surface during implementation and migrate instead.)
 - `src/shared/adapters/sqs_event_publisher.py` — replaced by `src/shared/events/adapters/sns_event_publisher.py`.
 - `src/screening/adapters/queue/sqs_publisher.py` — contains legacy `SQSMessagePublisher` + `SQSMessageConsumer`; both superseded by `src/shared/events/adapters/sqs_command_publisher.py` and `src/shared/events/adapters/sqs_message_consumer.py`.
+- `src/screening/application/ports/messaging.py` — legacy `MessagePublisher` + `MessageConsumer` ABCs; replaced by the shared `CommandPublisher` / `MessageConsumer` Protocols.
 - `src/contract_intelligence/adapters/queue/sqs_publisher.py` — same fate.
+- `src/contract_intelligence/application/ports/messaging.py` — legacy `MessagePublisherPort` ABC; replaced by the shared `CommandPublisher` Protocol.
+- `src/properties/application/ports/event_bus.py` — legacy properties-specific `EventBus` ABC; replaced by the shared `CommandPublisher` Protocol.
+- `src/properties/adapters/queue/sqs_event_bus.py` — legacy `SQSEventBus` using sync boto3; replaced by the shared `SQSCommandPublisher`.
+- `src/properties/adapters/inmemory/inmemory_event_bus.py` — legacy test double; replaced by `shared.events.adapters.inmemory_event_bus.InMemoryCommandPublisher`.
 - `src/properties/domain/events.py` — subclass-based duplicate (`DomainEvent` + `PropertyExtractionRequested` + `BatchPropertyExtractionRequested`). Call sites rewritten to plain `DomainEvent(event_type=..., data=...)`.
 - `src/customers/domain/events.py` — subclass-based duplicate. **Dead stack**: also delete `src/customers/application/ports/event_bus.py`, `src/customers/adapters/inmemory/inmemory_event_bus.py`, `src/customers/adapters/queue/sqs_event_bus.py` (no production code references them).
 - `src/screening/domain/models/domain_event.py` — **renamed**, not deleted (see §DomainEvent consolidation). Moved to `audit_event.py`; class `DomainEvent` → `ScreeningAuditEvent`. The file serves the internal audit-log concept, not cross-context events.
