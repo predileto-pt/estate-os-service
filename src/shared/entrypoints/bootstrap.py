@@ -120,6 +120,10 @@ async def get_container() -> Container:
     settings = Settings()
     client = await acreate_client(settings.supabase_url, settings.supabase_service_role_key)
 
+    # Identity container must be built first — organizations depends on
+    # its `register_user_port` callable binding.
+    identity = await get_identity_container()
+
     _container = Container(
         user_repo=_LegacyOrgSupabaseUserRepository(client),
         organization_repo=SupabaseOrganizationRepository(client),
@@ -129,6 +133,7 @@ async def get_container() -> Container:
         invitation_repo=SupabaseInvitationRepository(client),
         portal_user_repo=SupabasePortalUserRepository(client),
         email_service=ResendEmailService(settings.resend_api_key),
+        register_user_port=identity.register_user_port,
     )
     return _container
 

@@ -16,7 +16,7 @@ from identity.adapters.api.routes import (
     profile as identity_profile,
 )
 from organizations.adapters.api.routes import (
-    auth,
+    admin_auth,
     email,
     health,
     invitations,
@@ -167,12 +167,9 @@ def create_app(
     # Health (no prefix change)
     app.include_router(health.router, prefix="/api/v1")
 
-    # Identity auth routes — /auth/me + /auth/profile mounted under
-    # BOTH /api/v1/admin and /api/v1/portal. Portal registration lives
-    # at /api/v1/portal/auth/register (identity's portal_auth router).
-    # Admin registration (`/api/v1/admin/auth/register`) is still served
-    # by organizations' legacy `auth.router` pending RegisterAdminAccount.
-    app.include_router(auth.router, prefix="/api/v1/admin")
+    # Auth — split across identity (portal register, /me, /profile) and
+    # organizations (admin register — compound RegisterAdminAccount).
+    app.include_router(admin_auth.router, prefix="/api/v1/admin")
     app.include_router(identity_me.router, prefix="/api/v1/admin")
     app.include_router(identity_profile.router, prefix="/api/v1/admin")
     app.include_router(identity_portal_auth.router, prefix="/api/v1/portal")

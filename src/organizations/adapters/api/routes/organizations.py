@@ -3,11 +3,24 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from shared.api.dependencies import get_supabase_user_id
-from organizations.adapters.api.routes.auth import _organization_response
 from organizations.adapters.api.schemas import (
     OrganizationResponse,
     UpdateOrganizationRequest,
 )
+
+
+def _organization_response(organization) -> dict | None:
+    if not organization:
+        return None
+    return {
+        "id": organization.id,
+        "created_by": organization.created_by,
+        "name": organization.name,
+        "nif": organization.nif,
+        "address": organization.address,
+        "created_at": organization.created_at,
+        "updated_at": organization.updated_at,
+    }
 from organizations.domain.exceptions import (
     AuthorizationError,
     InsufficientPermissionError,

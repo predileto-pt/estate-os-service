@@ -1,3 +1,14 @@
+"""Organizations bounded context container.
+
+Owns Organization, Membership, Invitation, Subscription, Notification.
+
+Depends on the identity context via a single callable Protocol —
+`RegisterUserPort` — injected at construction time (no direct imports
+of identity's use cases or domain classes). Identity's `UserLookupById`
+is not currently consumed by any organizations use case; we re-inject
+it when invitation-email-rendering needs it.
+"""
+
 from organizations.application.ports.email_service import EmailService
 from organizations.application.ports.repositories.invitation_repository import (
     InvitationRepository,
@@ -11,16 +22,14 @@ from organizations.application.ports.repositories.notification_repository import
 from organizations.application.ports.repositories.organization_repository import (
     OrganizationRepository,
 )
-from organizations.application.ports.repositories.subscription_repository import (
-    SubscriptionRepository,
-)
 from organizations.application.ports.repositories.portal_user_repository import (
     PortalUserRepository,
 )
+from organizations.application.ports.repositories.subscription_repository import (
+    SubscriptionRepository,
+)
 from organizations.application.ports.repositories.user_repository import UserRepository
 from organizations.application.use_cases.get_organization import GetOrganization
-from organizations.application.use_cases.get_portal_user import GetPortalUser
-from organizations.application.use_cases.get_user_profile import GetUserProfile
 from organizations.application.use_cases.invite_member import InviteMember
 from organizations.application.use_cases.list_invitations import ListInvitations
 from organizations.application.use_cases.list_members import ListMembers
@@ -30,14 +39,15 @@ from organizations.application.use_cases.manage_subscription import (
     UpdateSubscription,
 )
 from organizations.application.use_cases.mark_notifications_read import MarkNotificationsRead
-from organizations.application.use_cases.register_portal_user import RegisterPortalUser
-from organizations.application.use_cases.register_user import RegisterUser
+from organizations.application.use_cases.register_admin_account import (
+    RegisterAdminAccount,
+    RegisterUserPort,
+)
 from organizations.application.use_cases.remove_member import RemoveMember
 from organizations.application.use_cases.revoke_invitation import RevokeInvitation
 from organizations.application.use_cases.send_notification import SendNotification
 from organizations.application.use_cases.update_member_role import UpdateMemberRole
 from organizations.application.use_cases.update_organization import UpdateOrganization
-from organizations.application.use_cases.update_user_profile import UpdateUserProfile
 
 
 class Container:
@@ -51,6 +61,7 @@ class Container:
         invitation_repo: InvitationRepository,
         portal_user_repo: PortalUserRepository,
         email_service: EmailService,
+        register_user_port: RegisterUserPort,
     ) -> None:
         self.user_repo = user_repo
         self.organization_repo = organization_repo
@@ -61,20 +72,16 @@ class Container:
         self.portal_user_repo = portal_user_repo
         self.email_service = email_service
 
-        # Use cases
-        self.register_user = RegisterUser(
-            user_repo=user_repo,
+        # Cross-context: compound admin registration uses identity's
+        # RegisterUser via the callable Protocol.
+        self.register_admin_account = RegisterAdminAccount(
+            register_user_port=register_user_port,
             organization_repo=organization_repo,
-            subscription_repo=subscription_repo,
             membership_repo=membership_repo,
+            subscription_repo=subscription_repo,
             invitation_repo=invitation_repo,
         )
-        self.get_user_profile = GetUserProfile(
-            user_repo=user_repo,
-            organization_repo=organization_repo,
-            membership_repo=membership_repo,
-        )
-        self.update_user_profile = UpdateUserProfile(user_repo=user_repo)
+
         self.get_organization = GetOrganization(
             organization_repo=organization_repo,
             user_repo=user_repo,
@@ -122,12 +129,4 @@ class Container:
             invitation_repo=invitation_repo,
             membership_repo=membership_repo,
             user_repo=user_repo,
-        )
-
-        # Portal user use cases
-        self.register_portal_user = RegisterPortalUser(
-            portal_user_repo=portal_user_repo,
-        )
-        self.get_portal_user = GetPortalUser(
-            portal_user_repo=portal_user_repo,
         )
