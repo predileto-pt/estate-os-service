@@ -3,8 +3,8 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from customers.domain.models.membership import Membership
-from customers.domain.models.user import User
+from identity.domain.models.user import User
+from organizations.domain.models.membership import Membership
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -20,6 +20,13 @@ async def get_supabase_user_id(
 
 
 async def get_current_user(request: Request) -> User:
+    """Return the `User` attached to the request by `IdentityMiddleware`.
+
+    Middleware resolves `request.state.user` from the Supabase `sub` before
+    the route handler runs. This dependency is a thin getter with a 401
+    fallback for paths where the middleware didn't populate state
+    (registration paths, where the handler hasn't created the user yet).
+    """
     user = getattr(request.state, "user", None)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
@@ -31,40 +38,53 @@ async def assert_org_member(
     supabase_user_id: str,
     organization_id: UUID,
 ) -> tuple[User, Membership]:
-    """Resolve the caller to (user, membership) in the given organization.
+    """Body-param variant of `require_org_member`.
 
-    Route-level authorization helper: confirms the authenticated Supabase
-    user has a domain `User` record and an active `Membership` in
-    `organization_id`. Raises 401 if no domain user, 403 if no membership.
-
-    Use this from routes where `organization_id` is sourced from the request
-    body or form. For routes where it's a path/query param, prefer
-    `require_org_member` which composes this as a FastAPI dependency.
+    For POST / PATCH routes that receive `organization_id` in the request
+    body (not path/query), call this explicitly from the handler. Same
+    behaviour as `require_org_member`: reads `request.state.{user, memberships}`
+    populated by `IdentityMiddleware` — zero DB hits. The `supabase_user_id`
+    argument is retained for backward signature compatibility; the lookup
+    uses `request.state` regardless.
     """
-    customer_container = request.app.state.container
-    user = await customer_container.user_repo.get_by_supabase_id(supabase_user_id)
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+    user = getattr(request.state, "user", None)
+    memberships = getattr(request.state, "memberships", None)
+    if user is None or memberships is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
-    membership = await customer_container.membership_repo.get_by_user_and_organization(
-        user_id=user.id, organization_id=organization_id
-    )
-    if not membership:
-        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    for m in memberships:
+        if str(m.organization_id) == str(organization_id):
+            return user, m
 
-    return user, membership
+    raise HTTPException(status_code=403, detail="Not a member of this organization")
 
 
 async def require_org_member(
     organization_id: UUID,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
 ) -> tuple[User, Membership]:
-    """FastAPI dependency that enforces org membership on a route.
+    """FastAPI dependency that enforces org membership on an admin route.
 
-    Picks `organization_id` off the request's path/query params and
-    delegates to `assert_org_member`. Use as
-    `_member: tuple[User, Membership] = Depends(require_org_member)` on
-    any admin route that takes `organization_id` as a query param.
+    Reads from `request.state.memberships` set by `IdentityMiddleware` —
+    zero DB round-trips inside the dependency (Q4 = 4.a). Returns the
+    `(User, Membership)` tuple for the caller's membership in the given
+    org.
+
+    Use as `_member: tuple[User, Membership] = Depends(require_org_member)`
+    on any admin route that takes `organization_id` as a path/query param.
+    Raises:
+      - 401 if `IdentityMiddleware` didn't populate `request.state.user`
+        (e.g. the endpoint is reachable through a path the middleware
+        skipped but the route still requires a known user).
+      - 403 if the user has no membership in `organization_id`.
     """
-    return await assert_org_member(request, supabase_user_id, organization_id)
+    user = getattr(request.state, "user", None)
+    memberships = getattr(request.state, "memberships", None)
+    if user is None or memberships is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    for m in memberships:
+        if str(m.organization_id) == str(organization_id):
+            return user, m
+
+    raise HTTPException(status_code=403, detail="Not a member of this organization")

@@ -44,7 +44,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/shared", "src/customers", "src/properties", "src/screening", "src/listings", "src/bookings", "src/contract_intelligence"]
+packages = ["src/shared", "src/identity", "src/organizations", "src/properties", "src/screening", "src/listings", "src/bookings", "src/contract_intelligence"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

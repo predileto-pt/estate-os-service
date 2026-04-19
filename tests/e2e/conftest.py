@@ -12,16 +12,16 @@ from sqlalchemy.pool import NullPool
 from testcontainers.localstack import LocalStackContainer
 from testcontainers.postgres import PostgresContainer
 
-from customers.adapters.database.repositories import (
+from identity.adapters.database.user_repo import SqlAlchemyUserRepository
+from organizations.adapters.database.repositories import (
     SqlAlchemyInvitationRepository,
     SqlAlchemyMembershipRepository,
     SqlAlchemyNotificationRepository,
     SqlAlchemyOrganizationRepository,
     SqlAlchemySubscriptionRepository,
-    SqlAlchemyUserRepository,
 )
-from customers.adapters.inmemory.inmemory_email_service import InMemoryEmailService
-from customers.container import Container
+from organizations.adapters.inmemory.inmemory_email_service import InMemoryEmailService
+from organizations.container import Container
 from properties.adapters.database.repositories import (
     SqlAlchemyDocumentContentRepository,
     SqlAlchemyExtractionJobRepository,
@@ -181,7 +181,14 @@ async def session(engine):
 
 
 @pytest.fixture
-def e2e_container(session):
+def e2e_identity_container(session):
+    from identity.container import Container as IdentityContainer
+
+    return IdentityContainer(user_repo=SqlAlchemyUserRepository(session))
+
+
+@pytest.fixture
+def e2e_container(session, e2e_identity_container):
     return Container(
         user_repo=SqlAlchemyUserRepository(session),
         organization_repo=SqlAlchemyOrganizationRepository(session),
@@ -190,6 +197,7 @@ def e2e_container(session):
         membership_repo=SqlAlchemyMembershipRepository(session),
         invitation_repo=SqlAlchemyInvitationRepository(session),
         email_service=InMemoryEmailService(),
+        register_user_port=e2e_identity_container.register_user_port,
     )
 
 

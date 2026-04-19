@@ -1,28 +1,29 @@
 import aioboto3
 from supabase import acreate_client
 
-from customers.adapters.email.resend_email_service import ResendEmailService
-from customers.adapters.persistence.supabase_invitation_repo import (
+from organizations.adapters.email.resend_email_service import ResendEmailService
+from organizations.adapters.persistence.supabase_invitation_repo import (
     SupabaseInvitationRepository,
 )
-from customers.adapters.persistence.supabase_membership_repo import (
+from organizations.adapters.persistence.supabase_membership_repo import (
     SupabaseMembershipRepository,
 )
-from customers.adapters.persistence.supabase_notification_repo import (
+from organizations.adapters.persistence.supabase_notification_repo import (
     SupabaseNotificationRepository,
 )
-from customers.adapters.persistence.supabase_organization_repo import (
+from organizations.adapters.persistence.supabase_organization_repo import (
     SupabaseOrganizationRepository,
 )
-from customers.adapters.persistence.supabase_subscription_repo import (
+from organizations.adapters.persistence.supabase_subscription_repo import (
     SupabaseSubscriptionRepository,
 )
-from customers.adapters.persistence.supabase_portal_user_repo import (
-    SupabasePortalUserRepository,
+from organizations.adapters.persistence.supabase_user_repo import (
+    SupabaseUserRepository as _OrgSupabaseUserRepository,
 )
-from customers.adapters.persistence.supabase_user_repo import SupabaseUserRepository
+from identity.adapters.persistence.supabase_user_repo import SupabaseUserRepository
+from identity.container import Container as IdentityContainer
 from shared.config import Settings
-from customers.container import Container
+from organizations.container import Container
 from properties.adapters.ai.openai_id_document_extractor import OpenAIIdDocumentExtractor
 from properties.adapters.ai.openai_text_document_classifier import (
     OpenAITextDocumentClassifier,
@@ -74,6 +75,7 @@ from contract_intelligence.adapters.storage.s3_file_storage import (
 from contract_intelligence.container import Container as ContractIntelligenceContainer
 
 _container: Container | None = None
+_identity_container: IdentityContainer | None = None
 _property_container: PropertyContainer | None = None
 _screening_container: ApplicantScreeningContainer | None = None
 _listing_container: ListingContainer | None = None
@@ -81,7 +83,34 @@ _booking_container: BookingContainer | None = None
 _contract_intelligence_container: ContractIntelligenceContainer | None = None
 
 
+async def get_identity_container() -> IdentityContainer:
+    """Identity context container.
+
+    Wires the identity `User` aggregate over the `SupabaseUserRepository`
+    adapter (prod). Exposes `register_user_port` and `user_lookup_by_id`
+    callable bindings for cross-context injection into the organizations
+    container.
+    """
+    global _identity_container
+    if _identity_container is not None:
+        return _identity_container
+
+    settings = Settings()
+    client = await acreate_client(settings.supabase_url, settings.supabase_service_role_key)
+    _identity_container = IdentityContainer(user_repo=SupabaseUserRepository(client))
+    return _identity_container
+
+
 async def get_container() -> Container:
+    """Organizations context container.
+
+    Keeps its own `UserRepository` adapter over the `users` table — the
+    org-side `User` is an internal mirror of `identity.User` used by
+    membership/invitation use cases that look up users by email/id. This
+    keeps the `grep "from identity" src/organizations/` acceptance
+    criterion tight (no identity.domain imports leaking into org
+    business code). `PortalUser` is gone (collapsed into `User`).
+    """
     global _container
     if _container is not None:
         return _container
@@ -89,15 +118,19 @@ async def get_container() -> Container:
     settings = Settings()
     client = await acreate_client(settings.supabase_url, settings.supabase_service_role_key)
 
+    # Identity container must be built first — organizations depends on
+    # its `register_user_port` callable binding.
+    identity = await get_identity_container()
+
     _container = Container(
-        user_repo=SupabaseUserRepository(client),
+        user_repo=_OrgSupabaseUserRepository(client),
         organization_repo=SupabaseOrganizationRepository(client),
         subscription_repo=SupabaseSubscriptionRepository(client),
         notification_repo=SupabaseNotificationRepository(client),
         membership_repo=SupabaseMembershipRepository(client),
         invitation_repo=SupabaseInvitationRepository(client),
-        portal_user_repo=SupabasePortalUserRepository(client),
         email_service=ResendEmailService(settings.resend_api_key),
+        register_user_port=identity.register_user_port,
     )
     return _container
 

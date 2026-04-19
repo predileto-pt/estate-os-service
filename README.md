@@ -268,41 +268,43 @@ Query parameters for listing: `listing_type`, `typology`, `min_price`, `max_pric
 ## Architecture
 
 ```
-src/customers/
+src/organizations/
 ├── domain/           # Entities, value objects, events, exceptions (no dependencies)
 ├── application/
 │   ├── ports/        # Abstract interfaces (repository ABCs, services)
 │   └── use_cases/    # Business logic orchestration
 ├── adapters/
 │   ├── api/          # Inbound: FastAPI routes, schemas, middleware
-│   ├── database/     # SQLAlchemy models and async engine (schema source of truth)
+│   ├── database/     # SQLAlchemy models (schema source of truth)
 │   ├── persistence/  # Outbound: Supabase repository implementations
 │   ├── email/        # Outbound: Resend email service
-│   ├── queue/        # Outbound: SQS event bus + consumer
-│   ├── workers/      # SQS polling workers (local dev) + event processor
+│   ├── workers/      # SQS event processors
 │   └── inmemory/     # Test doubles for all ports
 ├── entrypoints/
-│   ├── bootstrap.py  # DI wiring for workers/lambdas (Supabase client + repos)
-│   ├── lambda_events.py  # AWS Lambda handler for SQS events
-│   └── worker.py     # CLI entrypoint: python -m customers.entrypoints.worker
-├── config.py         # Pydantic Settings + structlog setup
+│   ├── lambda_handler.py  # FastAPI → AWS Lambda adapter (Mangum)
+│   └── worker.py     # CLI entrypoint: python -m organizations.entrypoints.worker
 ├── container.py      # Dependency injection wiring
-└── main.py           # FastAPI app factory
 ```
+
+Identity follows the same hexagonal structure — a smaller tree, owning just `User` + its ports + adapters + container.
 
 ### Bounded Contexts
 
-The service hosts five independent bounded contexts, each following the same hexagonal structure:
+The service hosts seven independent bounded contexts, each following hexagonal architecture:
 
 | Context | Package | Entities | Persistence |
 |---------|---------|----------|-------------|
-| **Customer Management** | `src/customers/` | User, Organization, Subscription, Notification, Membership, Invitation, PortalUser | Supabase client |
-| **Property Management** | `src/properties/` | Property, PropertyOwner, PropertyImage, PropertyAmenity, ExtractionJob, DocumentContent | Supabase client |
+| **Identity** | `src/identity/` | `User` (Supabase-backed; no organization FK — tenancy is in memberships) | Supabase PostgREST + SQLAlchemy |
+| **Organizations** | `src/organizations/` | `Organization`, `Membership`, `Invitation`, `Subscription`, `Notification` | Supabase PostgREST + SQLAlchemy |
+| **Property Management** | `src/properties/` | Property, PropertyOwner, PropertyImage, PropertyAmenity, ExtractionJob, DocumentContent | Supabase PostgREST |
 | **Applicant Screening** | `src/screening/` | Applicant, Document, ExtractedData, ScreeningReport, Submission, IntakeFormRequest | SQLAlchemy + Alembic |
 | **Properties Listing** | `src/listings/` | ListedProperty (read-only view of properties data) | SQLAlchemy (read-only) |
 | **Booking Management** | `src/bookings/` | Slot, Booking, BookingApplicant | SQLAlchemy + Alembic |
+| **Contract Intelligence** | `src/contract_intelligence/` | SourceDocument, TemplateVersion, GeneratedContract | SQLAlchemy + Alembic |
 
-All are wired in `shared/main.py` via `create_app()` and bootstrapped in `shared/entrypoints/bootstrap.py`. Contexts do not import from each other (cross-context access happens at the route level via `app.state`).
+Cross-context dependency rule: **organizations depends on identity** via two callable Protocols (`UserLookupById`, `RegisterUserPort`) injected at construction. No other cross-context dependencies — everything else is loose coupling through the shared event bus (ADR-008).
+
+All are wired in `shared/main.py` via `create_app()` and bootstrapped in `shared/entrypoints/bootstrap.py`. `IdentityMiddleware` populates `request.state.{user, memberships}` from identity + organizations on every authenticated request; admin routes enforce membership via `require_org_member` with zero additional DB hits.
 
 Shared infrastructure lives in `src/shared/` — config, middleware, database Base, app factory, bootstrap, S3 storage, and Lambda handler.
 

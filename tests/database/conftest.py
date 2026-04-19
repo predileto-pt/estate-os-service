@@ -9,13 +9,13 @@ from sqlalchemy.pool import NullPool
 
 from testcontainers.postgres import PostgresContainer
 
-from customers.adapters.database.repositories import (
+from identity.adapters.database.user_repo import SqlAlchemyUserRepository
+from organizations.adapters.database.repositories import (
     SqlAlchemyInvitationRepository,
     SqlAlchemyMembershipRepository,
     SqlAlchemyNotificationRepository,
     SqlAlchemyOrganizationRepository,
     SqlAlchemySubscriptionRepository,
-    SqlAlchemyUserRepository,
 )
 from properties.adapters.database.repositories import (
     SqlAlchemyDocumentContentRepository,

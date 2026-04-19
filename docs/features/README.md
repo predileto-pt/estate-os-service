@@ -14,7 +14,8 @@ For each feature, you'll find:
 
 | Context | Doc | Purpose |
 |---------|-----|---------|
-| `customers/` | [customers.md](customers.md) | Multi-tenant users, organizations, memberships, invitations, subscriptions, notifications |
+| `identity/` | [identity.md](identity.md) | `User` aggregate (Supabase-backed). Idempotent registration. No organization FK. |
+| `organizations/` | [organizations.md](organizations.md) | Multi-tenant orgs, memberships (the single source of truth for admin access), invitations, subscriptions, notifications |
 | `properties/` | [properties.md](properties.md) | Property records, owners, prices, images, AI extraction pipeline, amenity discovery |
 | `listings/` | [listings.md](listings.md) | Public read-only property listings |
 | `screening/` | [screening.md](screening.md) | Applicant document intake, OCR extraction, AI risk assessment |
@@ -29,7 +30,7 @@ Contexts are isolated — they communicate only via the shared event bus (ADR-00
 
 ```
 properties  publishes  PROPERTY_CREATED.v1   → properties.discovery_processor (amenity discovery)
-screening   publishes  APPLICANT_SCREENED.v1 → customers.event_processor (screening-complete email)
+screening   publishes  APPLICANT_SCREENED.v1 → organizations.event_processor (screening-complete email)
                                              → bookings.events.handlers (create booking applicant)
 ```
 
@@ -48,11 +49,12 @@ All handlers share one signature: `(event: DomainEvent, context: Any) -> None`. 
 
 ## Reading order for new engineers
 
-1. Start with **customers** — simplest CRUD patterns, RBAC, the prototypical use case structure.
-2. Move to **listings** — tiny, read-only, shows the read-model pattern.
-3. Then **properties** — the largest context, async pipelines, workers, S3, multiple integrations.
-4. **screening** and **bookings** together — the applicant flow end-to-end.
-5. **contract_intelligence** last — mostly experimental, half-implemented, longer pipeline.
+1. Start with **identity** — the single-aggregate context. Shows the callable-Protocol cross-context port pattern.
+2. Then **organizations** — multi-tenant CRUD, RBAC, compound registration that consumes identity's port.
+3. Move to **listings** — tiny, read-only, shows the read-model pattern.
+4. Then **properties** — the largest context, async pipelines, workers, S3, multiple integrations.
+5. **screening** and **bookings** together — the applicant flow end-to-end.
+6. **contract_intelligence** last — mostly experimental, half-implemented, longer pipeline.
 
 ## Architecture
 

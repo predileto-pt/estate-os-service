@@ -1,5 +1,6 @@
 from shared.database.models import Base
-import customers.adapters.database.models  # noqa: F401 — register models
+import identity.adapters.database.models  # noqa: F401 — register models
+import organizations.adapters.database.models  # noqa: F401 — register models
 import properties.adapters.database.models  # noqa: F401 — register models
 
 
@@ -17,7 +18,6 @@ EXPECTED_TABLES = {
     "document_contents",
     "property_images",
     "property_amenities",
-    "portal_users",
 }
 
 
@@ -47,7 +47,6 @@ def test_users_columns():
         "name",
         "phone_country_code",
         "phone_number",
-        "organization_id",
         "google_metadata",
         "created_at",
         "updated_at",

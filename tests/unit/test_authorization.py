@@ -1,5 +1,5 @@
-from customers.domain.models.authorization import has_permission
-from customers.domain.models.membership import MembershipRole
+from organizations.domain.models.authorization import has_permission
+from organizations.domain.models.membership import MembershipRole
 
 
 class TestHasPermission:
