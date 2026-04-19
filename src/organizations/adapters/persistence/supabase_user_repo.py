@@ -21,7 +21,6 @@ class SupabaseUserRepository(UserRepository):
             email=row["email"],
             name=row["name"],
             phone=phone,
-            organization_id=UUID(row["organization_id"]) if row.get("organization_id") else None,
             google_metadata=row.get("google_metadata"),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
@@ -35,7 +34,6 @@ class SupabaseUserRepository(UserRepository):
             "name": user.name,
             "phone_country_code": user.phone.country_code if user.phone else None,
             "phone_number": user.phone.number if user.phone else None,
-            "organization_id": str(user.organization_id) if user.organization_id else None,
             "google_metadata": user.google_metadata,
         }
 

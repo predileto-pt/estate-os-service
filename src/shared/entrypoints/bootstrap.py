@@ -17,11 +17,8 @@ from organizations.adapters.persistence.supabase_organization_repo import (
 from organizations.adapters.persistence.supabase_subscription_repo import (
     SupabaseSubscriptionRepository,
 )
-from organizations.adapters.persistence.supabase_portal_user_repo import (
-    SupabasePortalUserRepository,
-)
 from organizations.adapters.persistence.supabase_user_repo import (
-    SupabaseUserRepository as _LegacyOrgSupabaseUserRepository,
+    SupabaseUserRepository as _OrgSupabaseUserRepository,
 )
 from identity.adapters.persistence.supabase_user_repo import SupabaseUserRepository
 from identity.container import Container as IdentityContainer
@@ -107,11 +104,12 @@ async def get_identity_container() -> IdentityContainer:
 async def get_container() -> Container:
     """Organizations context container.
 
-    Temporarily still wires the legacy org-side User / PortalUser repos —
-    those are consumed by `register_user` / `register_portal_user` use
-    cases that will be deleted in a subsequent commit (replaced by
-    `RegisterAdminAccount` + identity's portal register). Once those use
-    cases are gone, the legacy User wiring will be dropped here too.
+    Keeps its own `UserRepository` adapter over the `users` table — the
+    org-side `User` is an internal mirror of `identity.User` used by
+    membership/invitation use cases that look up users by email/id. This
+    keeps the `grep "from identity" src/organizations/` acceptance
+    criterion tight (no identity.domain imports leaking into org
+    business code). `PortalUser` is gone (collapsed into `User`).
     """
     global _container
     if _container is not None:
@@ -125,13 +123,12 @@ async def get_container() -> Container:
     identity = await get_identity_container()
 
     _container = Container(
-        user_repo=_LegacyOrgSupabaseUserRepository(client),
+        user_repo=_OrgSupabaseUserRepository(client),
         organization_repo=SupabaseOrganizationRepository(client),
         subscription_repo=SupabaseSubscriptionRepository(client),
         notification_repo=SupabaseNotificationRepository(client),
         membership_repo=SupabaseMembershipRepository(client),
         invitation_repo=SupabaseInvitationRepository(client),
-        portal_user_repo=SupabasePortalUserRepository(client),
         email_service=ResendEmailService(settings.resend_api_key),
         register_user_port=identity.register_user_port,
     )

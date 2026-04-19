@@ -54,6 +54,7 @@ from contract_intelligence.adapters.api.routes import (
 
 def create_app(
     container=None,
+    identity_container=None,
     property_container=None,
     screening_container=None,
     listing_container=None,
@@ -216,6 +217,9 @@ def create_app(
     # DI container (set by tests; production uses lifespan)
     if container:
         app.state.container = container
+        app.state.organizations_container = container
+    if identity_container:
+        app.state.identity_container = identity_container
     if property_container:
         app.state.property_container = property_container
     if screening_container:

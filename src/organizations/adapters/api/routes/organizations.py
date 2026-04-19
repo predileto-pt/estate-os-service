@@ -7,6 +7,14 @@ from organizations.adapters.api.schemas import (
     OrganizationResponse,
     UpdateOrganizationRequest,
 )
+from organizations.domain.exceptions import (
+    AuthorizationError,
+    InsufficientPermissionError,
+    OrganizationNotFoundError,
+    UserNotFoundError,
+)
+
+router = APIRouter(prefix="/organizations", tags=["organizations"])
 
 
 def _organization_response(organization) -> dict | None:
@@ -21,14 +29,6 @@ def _organization_response(organization) -> dict | None:
         "created_at": organization.created_at,
         "updated_at": organization.updated_at,
     }
-from organizations.domain.exceptions import (
-    AuthorizationError,
-    InsufficientPermissionError,
-    OrganizationNotFoundError,
-    UserNotFoundError,
-)
-
-router = APIRouter(prefix="/organizations", tags=["organizations"])
 
 
 @router.get(

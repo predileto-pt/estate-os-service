@@ -22,9 +22,6 @@ from organizations.application.ports.repositories.notification_repository import
 from organizations.application.ports.repositories.organization_repository import (
     OrganizationRepository,
 )
-from organizations.application.ports.repositories.portal_user_repository import (
-    PortalUserRepository,
-)
 from organizations.application.ports.repositories.subscription_repository import (
     SubscriptionRepository,
 )
@@ -59,7 +56,6 @@ class Container:
         notification_repo: NotificationRepository,
         membership_repo: MembershipRepository,
         invitation_repo: InvitationRepository,
-        portal_user_repo: PortalUserRepository,
         email_service: EmailService,
         register_user_port: RegisterUserPort,
     ) -> None:
@@ -69,7 +65,6 @@ class Container:
         self.notification_repo = notification_repo
         self.membership_repo = membership_repo
         self.invitation_repo = invitation_repo
-        self.portal_user_repo = portal_user_repo
         self.email_service = email_service
 
         # Cross-context: compound admin registration uses identity's

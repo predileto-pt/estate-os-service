@@ -5,9 +5,11 @@ import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from identity.adapters.inmemory.inmemory_user_repo import (
+    InMemoryUserRepository as InMemoryIdentityUserRepository,
+)
+from identity.container import Container as IdentityContainer
 from organizations.adapters.inmemory.inmemory_email_service import InMemoryEmailService
-from organizations.domain.models.membership import Membership, MembershipRole
-from organizations.domain.models.user import User
 from organizations.adapters.inmemory.inmemory_invitation_repo import (
     InMemoryInvitationRepository,
 )
@@ -23,11 +25,10 @@ from organizations.adapters.inmemory.inmemory_organization_repo import (
 from organizations.adapters.inmemory.inmemory_subscription_repo import (
     InMemorySubscriptionRepository,
 )
-from organizations.adapters.inmemory.inmemory_portal_user_repo import (
-    InMemoryPortalUserRepository,
-)
 from organizations.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
 from organizations.container import Container
+from organizations.domain.models.membership import Membership, MembershipRole
+from organizations.domain.models.user import User
 from shared.main import create_app
 from properties.adapters.inmemory.inmemory_document_extractor import (
     InMemoryDocumentExtractor,
@@ -80,8 +81,11 @@ def notification_repo():
 
 
 @pytest.fixture
-def membership_repo():
-    return InMemoryMembershipRepository()
+def membership_repo(organization_repo):
+    # Passing organization_repo enables `list_by_user_id_with_org_names`
+    # to resolve org names in-process — used by IdentityMiddleware tests
+    # that seed memberships.
+    return InMemoryMembershipRepository(organization_repo=organization_repo)
 
 
 @pytest.fixture
@@ -105,8 +109,8 @@ def document_extractor():
 
 
 @pytest.fixture
-def portal_user_repo():
-    return InMemoryPortalUserRepository()
+def identity_container():
+    return IdentityContainer(user_repo=InMemoryIdentityUserRepository())
 
 
 @pytest.fixture
@@ -117,8 +121,8 @@ def container(
     notification_repo,
     membership_repo,
     invitation_repo,
-    portal_user_repo,
     email_service,
+    identity_container,
 ):
     return Container(
         user_repo=user_repo,
@@ -127,8 +131,8 @@ def container(
         notification_repo=notification_repo,
         membership_repo=membership_repo,
         invitation_repo=invitation_repo,
-        portal_user_repo=portal_user_repo,
         email_service=email_service,
+        register_user_port=identity_container.register_user_port,
     )
 
 
@@ -200,9 +204,13 @@ def property_container(
 
 
 @pytest.fixture
-def app(container, property_container, monkeypatch):
+def app(container, identity_container, property_container, monkeypatch):
     monkeypatch.setattr("shared.config.settings.supabase_jwt_secret", TEST_JWT_SECRET)
-    return create_app(container=container, property_container=property_container)
+    return create_app(
+        container=container,
+        identity_container=identity_container,
+        property_container=property_container,
+    )
 
 
 @pytest.fixture
