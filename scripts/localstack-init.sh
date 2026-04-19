@@ -36,6 +36,9 @@ echo "Creating SNS topics..."
 # The publisher resolves the topic ARN by `${prefix}${event_type with dots→dashes}`.
 # For LocalStack, the prefix is `arn:aws:sns:us-east-1:000000000000:domain-events-`.
 awslocal sns create-topic --name domain-events-PROPERTY_CREATED-v1
+awslocal sns create-topic --name domain-events-PROPERTY_UPDATED-v1
+awslocal sns create-topic --name domain-events-PROPERTY_DELETED-v1
+awslocal sns create-topic --name domain-events-PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT-v1
 awslocal sns create-topic --name domain-events-APPLICANT_SCREENED-v1
 awslocal sns create-topic --name domain-events-USER_REGISTERED-v1
 awslocal sns create-topic --name domain-events-SUBSCRIPTION_CREATED-v1
@@ -77,6 +80,7 @@ echo "Creating domain-event queue DLQs..."
 awslocal sqs create-queue --queue-name customers-events-dlq
 awslocal sqs create-queue --queue-name bookings-events-dlq
 awslocal sqs create-queue --queue-name properties-events-dlq
+awslocal sqs create-queue --queue-name listings-events-dlq
 
 echo "Creating per-context domain-event queues with redrive policies..."
 awslocal sqs create-queue --queue-name customers-events-queue \
@@ -85,6 +89,8 @@ awslocal sqs create-queue --queue-name bookings-events-queue \
   --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:bookings-events-dlq\",\"maxReceiveCount\":\"5\"}"}'
 awslocal sqs create-queue --queue-name properties-events-queue \
   --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:properties-events-dlq\",\"maxReceiveCount\":\"5\"}"}'
+awslocal sqs create-queue --queue-name listings-events-queue \
+  --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:listings-events-dlq\",\"maxReceiveCount\":\"5\"}"}'
 
 # Legacy shared queue — kept for the one-week cutover drain per §Rollout.
 awslocal sqs create-queue --queue-name domain-events
@@ -110,5 +116,13 @@ awslocal sns subscribe \
   --topic-arn arn:aws:sns:us-east-1:000000000000:domain-events-PROPERTY_CREATED-v1 \
   --protocol sqs \
   --notification-endpoint arn:aws:sqs:us-east-1:000000000000:properties-events-queue
+
+# listings — all PROPERTY_* events (projector upserts property_listings)
+for event_type in PROPERTY_CREATED PROPERTY_UPDATED PROPERTY_DELETED PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT; do
+  awslocal sns subscribe \
+    --topic-arn "arn:aws:sns:us-east-1:000000000000:domain-events-${event_type}-v1" \
+    --protocol sqs \
+    --notification-endpoint arn:aws:sqs:us-east-1:000000000000:listings-events-queue
+done
 
 echo "LocalStack initialization complete."
