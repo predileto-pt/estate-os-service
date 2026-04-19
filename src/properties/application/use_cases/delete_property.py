@@ -4,6 +4,7 @@ from uuid import UUID
 
 import structlog
 
+from properties.application.events.property_event import emit_property_deleted
 from properties.application.ports.document_storage import DocumentStorage
 from properties.application.ports.repositories.extraction_job_repository import (
     ExtractionJobRepository,
@@ -12,6 +13,7 @@ from properties.application.ports.repositories.property_repository import (
     PropertyRepository,
 )
 from properties.domain.exceptions import PropertyNotFoundError
+from shared.events.ports import EventPublisher
 
 log = structlog.get_logger()
 
@@ -34,10 +36,12 @@ class DeleteProperty:
         property_repo: PropertyRepository,
         extraction_job_repo: ExtractionJobRepository,
         document_storage: DocumentStorage,
+        domain_event_publisher: EventPublisher | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.extraction_job_repo = extraction_job_repo
         self.document_storage = document_storage
+        self.domain_event_publisher = domain_event_publisher
 
     async def execute(self, *, property_id: UUID, organization_id: UUID) -> None:
         prop = await self.property_repo.get_by_id(property_id)
@@ -63,8 +67,18 @@ class DeleteProperty:
         # 2. Delete extraction jobs (and their document_contents)
         await self.extraction_job_repo.delete_by_property_id(property_id)
 
-        # 3. Delete property + child rows
+        # 3. Bump the aggregate version one last time on the snapshot we
+        # already loaded — the projector uses this as the idempotency
+        # guard for the deletion event. We don't persist it because the
+        # row is about to be deleted anyway.
+        prop.aggregate_version += 1
+
+        # 4. Delete property + child rows
         await self.property_repo.delete(property_id)
+
+        # 5. Emit PROPERTY_DELETED.v1 after the delete commits, using the
+        # minimal {id, organization_id, aggregate_version} payload.
+        await emit_property_deleted(self.domain_event_publisher, prop)
 
         log.info(
             "property_deleted",

@@ -175,6 +175,7 @@ class Container:
                 property_repo=property_repo,
                 extraction_job_repo=extraction_job_repo,
                 document_storage=document_storage,
+                domain_event_publisher=domain_event_publisher,
             )
 
         if (
