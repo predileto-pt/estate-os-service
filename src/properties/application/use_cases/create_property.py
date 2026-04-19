@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 import structlog
 
+from properties.application.events.property_event import build_property_snapshot
 from properties.application.ports.repositories.property_repository import (
     PropertyRepository,
 )
@@ -51,13 +52,17 @@ class CreateProperty:
             created_at=now,
             updated_at=now,
         )
+        # First state transition: draft row committed at aggregate_version=1.
+        # Subsequent mutating use cases bump to 2, 3, ...
+        prop.bump_version()
         prop = await self.property_repo.save(prop)
 
         if self.domain_event_publisher:
             try:
                 await self.domain_event_publisher.publish(
                     SharedDomainEvent(
-                        event_type=PROPERTY_CREATED_V1, data={"property_id": str(prop.id)}
+                        event_type=PROPERTY_CREATED_V1,
+                        data=build_property_snapshot(prop),
                     )
                 )
             except Exception:
