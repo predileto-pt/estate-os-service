@@ -17,6 +17,14 @@ class Typology(StrEnum):
     RUIN = "ruin"
 
 
+class PropertyStatus(StrEnum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    SOLD = "sold"
+    RENTED = "rented"
+    WITHDRAWN = "withdrawn"
+
+
 @dataclass(frozen=True)
 class PropertyCharacteristics:
     area_in_m2: float | None = None
