@@ -1,6 +1,6 @@
 # Carried-state domain events + PropertyListing read-model projector
 
-**Status:** draft
+**Status:** in-progress
 **Owner:** Peter
 **Created:** 2026-04-17
 
