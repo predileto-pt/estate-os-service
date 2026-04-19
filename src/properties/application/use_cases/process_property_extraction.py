@@ -28,6 +28,7 @@ from properties.domain.models.property import (
 from properties.domain.models.property_characteristics import (
     PropertyCharacteristics,
 )
+from properties.application.events.property_event import build_property_snapshot
 from shared.events.base import DomainEvent as SharedDomainEvent
 from shared.events.ports import EventPublisher
 from shared.events.types import PROPERTY_CREATED_V1
@@ -116,13 +117,16 @@ class ProcessPropertyExtraction:
                 created_at=now,
                 updated_at=now,
             )
+            # First state transition: draft row committed at aggregate_version=1.
+            prop.bump_version()
             prop = await self.property_repo.save(prop)
 
             if self.domain_event_publisher:
                 try:
                     await self.domain_event_publisher.publish(
                         SharedDomainEvent(
-                            event_type=PROPERTY_CREATED_V1, data={"property_id": str(prop.id)}
+                            event_type=PROPERTY_CREATED_V1,
+                            data=build_property_snapshot(prop),
                         )
                     )
                 except Exception:

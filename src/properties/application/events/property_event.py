@@ -79,3 +79,44 @@ def build_deletion_payload(prop: Property) -> dict:
         "organization_id": str(prop.organization_id),
         "aggregate_version": prop.aggregate_version,
     }
+
+
+async def emit_property_updated(publisher, prop: Property) -> None:
+    """Publish `PROPERTY_UPDATED.v1` with a fresh snapshot.
+
+    Log-and-swallow on publish failure — matches the existing pattern in
+    `CreateProperty` where persistence is already committed and a failed
+    publish is a monitoring concern rather than a transaction abort.
+    """
+    import structlog
+
+    from shared.events.base import DomainEvent
+    from shared.events.types import PROPERTY_UPDATED_V1
+
+    log = structlog.get_logger()
+    if publisher is None:
+        return
+    try:
+        await publisher.publish(
+            DomainEvent(event_type=PROPERTY_UPDATED_V1, data=build_property_snapshot(prop))
+        )
+    except Exception:
+        log.exception("property.domain_event_failed", property_id=str(prop.id))
+
+
+async def emit_property_deleted(publisher, prop: Property) -> None:
+    """Publish `PROPERTY_DELETED.v1` with the minimal deletion payload."""
+    import structlog
+
+    from shared.events.base import DomainEvent
+    from shared.events.types import PROPERTY_DELETED_V1
+
+    log = structlog.get_logger()
+    if publisher is None:
+        return
+    try:
+        await publisher.publish(
+            DomainEvent(event_type=PROPERTY_DELETED_V1, data=build_deletion_payload(prop))
+        )
+    except Exception:
+        log.exception("property.domain_event_failed", property_id=str(prop.id))

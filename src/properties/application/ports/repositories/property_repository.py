@@ -44,3 +44,14 @@ class PropertyRepository(ABC):
     async def update_image_orders(
         self, prop: Property, image_orders: list[tuple[UUID, int]]
     ) -> Property: ...
+
+    @abstractmethod
+    async def bump_aggregate_version(self, property_id: UUID) -> Property:
+        """Atomically bump the property's aggregate_version + updated_at and
+        return the refreshed aggregate.
+
+        Called by every state-mutating use case AFTER its primary write
+        succeeds, so the emitted event's snapshot reflects the new version.
+        The version is the idempotency source for the listings projector.
+        """
+        ...

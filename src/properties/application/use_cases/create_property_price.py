@@ -2,17 +2,24 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+from properties.application.events.property_event import emit_property_updated
 from properties.application.ports.repositories.property_repository import (
     PropertyRepository,
 )
 from properties.domain.exceptions import PropertyNotFoundError
 from properties.domain.models.property import ListingType, Property
 from properties.domain.models.property_price import PropertyPrice
+from shared.events.ports import EventPublisher
 
 
 class CreatePropertyPrice:
-    def __init__(self, property_repo: PropertyRepository) -> None:
+    def __init__(
+        self,
+        property_repo: PropertyRepository,
+        domain_event_publisher: EventPublisher | None = None,
+    ) -> None:
         self.property_repo = property_repo
+        self.domain_event_publisher = domain_event_publisher
 
     async def execute(
         self,
@@ -34,4 +41,7 @@ class CreatePropertyPrice:
             created_at=now,
             updated_at=now,
         )
-        return await self.property_repo.save_price(prop, price)
+        await self.property_repo.save_price(prop, price)
+        refreshed = await self.property_repo.bump_aggregate_version(property_id)
+        await emit_property_updated(self.domain_event_publisher, refreshed)
+        return refreshed

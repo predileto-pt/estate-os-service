@@ -12,8 +12,14 @@ only in HOW they're published — domain events via SNS fan-out
 
 # --- Domain events (broadcast via SNS) ---
 
-# Properties
+# Properties — carried-state lifecycle events (see
+# `docs/features/listings.md` + the carried-state spec).
 PROPERTY_CREATED_V1 = "PROPERTY_CREATED.v1"
+PROPERTY_UPDATED_V1 = "PROPERTY_UPDATED.v1"
+PROPERTY_DELETED_V1 = "PROPERTY_DELETED.v1"
+
+# Read-model enrichment (listings side)
+PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1 = "PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1"
 
 # Applicant Screening
 APPLICANT_SCREENED_V1 = "APPLICANT_SCREENED.v1"

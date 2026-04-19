@@ -1,6 +1,7 @@
 from datetime import date, datetime, timezone
 from uuid import UUID, uuid4
 
+from properties.application.events.property_event import emit_property_updated
 from properties.application.ports.repositories.property_repository import (
     PropertyRepository,
 )
@@ -11,11 +12,17 @@ from properties.domain.models.property_owner import (
     DocumentType,
     PropertyOwner,
 )
+from shared.events.ports import EventPublisher
 
 
 class CreatePropertyOwner:
-    def __init__(self, property_repo: PropertyRepository) -> None:
+    def __init__(
+        self,
+        property_repo: PropertyRepository,
+        domain_event_publisher: EventPublisher | None = None,
+    ) -> None:
         self.property_repo = property_repo
+        self.domain_event_publisher = domain_event_publisher
 
     async def execute(
         self,
@@ -51,4 +58,7 @@ class CreatePropertyOwner:
             created_at=now,
             updated_at=now,
         )
-        return await self.property_repo.save_owner(prop, owner)
+        await self.property_repo.save_owner(prop, owner)
+        refreshed = await self.property_repo.bump_aggregate_version(property_id)
+        await emit_property_updated(self.domain_event_publisher, refreshed)
+        return refreshed
