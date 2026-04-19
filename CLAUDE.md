@@ -45,14 +45,26 @@ Hexagonal (ports & adapters) architecture with three layers:
 - **Application** (`application/`) — Orchestration layer. **Ports** define abstract interfaces (repository ABCs, service protocols). **Use cases** are individual classes with an async `execute()` method.
 - **Adapters** (`adapters/`) — Concrete implementations. Inbound: FastAPI routes and middleware. Outbound: Supabase repositories, Resend email, SQS event bus, OpenAI document extraction. Test doubles: in-memory implementations in `adapters/inmemory/`.
 
-## Two Bounded Contexts
+## Bounded Contexts
 
-| Context | Package | Container |
-|---------|---------|-----------|
-| **Customer Management** | `src/customers/` | `Container` on `app.state.container` |
-| **Property Management** | `src/properties/` | `Container` on `app.state.property_container` |
+| Context | Package | Container | Notes |
+|---|---|---|---|
+| **Identity** | `src/identity/` | `app.state.identity_container` | User aggregate only. No organization FK on `User`. |
+| **Organizations** | `src/organizations/` | `app.state.organizations_container` (alias: `app.state.container`) | Organization, Membership, Invitation, Subscription, Notification. Owns the `users` table read from org-side via its own `UserRepository` port (internal mirror of identity's User class). |
+| **Properties** | `src/properties/` | `app.state.property_container` | |
+| **Screening** | `src/screening/` | `app.state.screening_container` | Applicant screening + document extraction. |
+| **Bookings** | `src/bookings/` | `app.state.booking_container` | Slot + booking management. |
+| **Contract Intelligence** | `src/contract_intelligence/` | `app.state.contract_intelligence_container` | |
+| **Listings** | `src/listings/` | `app.state.listing_container` | Public-facing property listings. |
 
-Routes access use cases through `request.app.state.container.<use_case>` or `request.app.state.property_container.<use_case>`. Neither context imports from the other. Shared infrastructure lives in `src/shared/`.
+Cross-context dependency rules:
+
+- **Organizations depends on Identity** via two callable Protocols (`UserLookupById`, `RegisterUserPort`) injected at container construction. No imports of identity domain classes in organizations' business code. See `docs/features/organizations.md`.
+- **Identity does not import from any other context.** Enforced by `grep -rn "from organizations" src/identity/` → zero hits.
+- **Every other context (properties, screening, bookings, ...)** imports `identity.User` for route type hints via `require_org_member`, and `organizations.Membership` for the same. Neither property nor other-context imports leak into identity or organizations.
+- **Shared infrastructure** (`src/shared/`) — middleware, events, database engine, config — may call any bounded context's container directly. It's not a bounded context itself.
+
+Routes access use cases through `request.app.state.<context>_container.<use_case>`. The `IdentityMiddleware` populates `request.state.user` and `request.state.memberships` (a JOIN projection including org names) before the route handler runs; downstream `require_org_member` reads these with zero DB hits.
 
 ## Key Conventions
 
