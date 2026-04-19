@@ -19,6 +19,10 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ""
+    # Model used by `LangChainAddressParser` to resolve
+    # parish/municipality/district from a property's free-text address.
+    # Overridable via env so we can roll forward without a code deploy.
+    address_parser_model: str = "gpt-4o-mini"
 
     # AWS / LocalStack
     aws_region: str = "eu-west-1"
@@ -39,6 +43,8 @@ class Settings(BaseSettings):
     sqs_bookings_events_dlq_url: str = ""
     sqs_properties_events_queue_url: str = ""
     sqs_properties_events_dlq_url: str = ""
+    sqs_listings_events_queue_url: str = ""
+    sqs_listings_events_dlq_url: str = ""
 
     # Deprecated — pre-ADR-008 single shared queue. No code reads this any
     # more, but the field is kept so old `.env` files (which may still have

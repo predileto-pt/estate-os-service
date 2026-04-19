@@ -209,13 +209,25 @@ async def get_listing_container() -> ListingContainer:
 
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+    from listings.adapters.ai.langchain_address_parser import LangChainAddressParser
+    from listings.adapters.database.property_listing_repository import (
+        SqlAlchemyPropertyListingRepository,
+    )
+
     settings = Settings()
     engine = create_async_engine(settings.database_url, echo=False)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     session = session_factory()
 
+    address_parser = LangChainAddressParser(
+        model=settings.address_parser_model,
+        openai_api_key=settings.openai_api_key,
+    )
+
     _listing_container = ListingContainer(
         listing_repo=SqlAlchemyListingRepository(session),
+        property_listing_repo=SqlAlchemyPropertyListingRepository(session),
+        address_parser=address_parser,
     )
     return _listing_container
 
