@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from shared.api.dependencies import get_supabase_user_id
-from customers.adapters.api.schemas import (
+from organizations.adapters.api.schemas import (
     CreateNotificationRequest,
     MarkNotificationsReadRequest,
     NotificationResponse,
 )
-from customers.domain.exceptions import UserNotFoundError
+from organizations.domain.exceptions import UserNotFoundError
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 

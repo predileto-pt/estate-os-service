@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from customers.domain.models.subscription import Subscription
+from organizations.domain.models.subscription import Subscription
 
 
 class SubscriptionRepository(ABC):

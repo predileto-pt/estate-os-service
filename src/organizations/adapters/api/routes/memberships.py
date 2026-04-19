@@ -3,11 +3,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from shared.api.dependencies import get_supabase_user_id
-from customers.adapters.api.schemas import (
+from organizations.adapters.api.schemas import (
     MembershipResponse,
     UpdateMemberRoleRequest,
 )
-from customers.domain.exceptions import (
+from organizations.domain.exceptions import (
     AuthorizationError,
     InsufficientPermissionError,
     LastOwnerError,

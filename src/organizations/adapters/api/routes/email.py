@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Request
 
 from shared.api.dependencies import get_supabase_user_id
-from customers.adapters.api.schemas import SendEmailRequest
+from organizations.adapters.api.schemas import SendEmailRequest
 
 router = APIRouter(prefix="/email", tags=["email"])
 

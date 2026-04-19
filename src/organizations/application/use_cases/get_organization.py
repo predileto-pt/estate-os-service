@@ -1,18 +1,18 @@
 from uuid import UUID
 
-from customers.application.ports.repositories.membership_repository import (
+from organizations.application.ports.repositories.membership_repository import (
     MembershipRepository,
 )
-from customers.application.ports.repositories.organization_repository import (
+from organizations.application.ports.repositories.organization_repository import (
     OrganizationRepository,
 )
-from customers.application.ports.repositories.user_repository import UserRepository
-from customers.domain.exceptions import (
+from organizations.application.ports.repositories.user_repository import UserRepository
+from organizations.domain.exceptions import (
     AuthorizationError,
     OrganizationNotFoundError,
     UserNotFoundError,
 )
-from customers.domain.models.organization import Organization
+from organizations.domain.models.organization import Organization
 
 
 class GetOrganization:

@@ -1,7 +1,7 @@
 import resend
 import structlog
 
-from customers.application.ports.email_service import EmailService
+from organizations.application.ports.email_service import EmailService
 
 log = structlog.get_logger()
 

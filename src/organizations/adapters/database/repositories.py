@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from customers.adapters.database.models import (
+from organizations.adapters.database.models import (
     InvitationModel,
     InvitationStatusEnum,
     MembershipModel,
@@ -13,34 +13,35 @@ from customers.adapters.database.models import (
     SubscriptionModel,
     UserModel,
 )
-from customers.application.ports.repositories.invitation_repository import (
+from organizations.application.ports.repositories.invitation_repository import (
     InvitationRepository,
 )
-from customers.application.ports.repositories.membership_repository import (
+from organizations.application.ports.repositories.membership_repository import (
     MembershipRepository,
+    MembershipWithOrgName,
 )
-from customers.application.ports.repositories.notification_repository import (
+from organizations.application.ports.repositories.notification_repository import (
     NotificationRepository,
 )
-from customers.application.ports.repositories.organization_repository import (
+from organizations.application.ports.repositories.organization_repository import (
     OrganizationRepository,
 )
-from customers.application.ports.repositories.subscription_repository import (
+from organizations.application.ports.repositories.subscription_repository import (
     SubscriptionRepository,
 )
-from customers.application.ports.repositories.user_repository import UserRepository
-from customers.domain.models.invitation import Invitation, InvitationStatus
-from customers.domain.models.membership import Membership, MembershipRole
-from customers.domain.models.notification import Notification, NotificationStatus
-from customers.domain.models.organization import Organization
-from customers.domain.models.subscription import (
+from organizations.application.ports.repositories.user_repository import UserRepository
+from organizations.domain.models.invitation import Invitation, InvitationStatus
+from organizations.domain.models.membership import Membership, MembershipRole
+from organizations.domain.models.notification import Notification, NotificationStatus
+from organizations.domain.models.organization import Organization
+from organizations.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
     SubscriptionStatus,
     SubscriptionType,
 )
-from customers.domain.models.user import User
-from customers.domain.models.value_objects import PhoneNumber
+from organizations.domain.models.user import User
+from organizations.domain.models.value_objects import PhoneNumber
 
 
 # ── Organization ────────────────────────────────────────────────────────────
@@ -391,6 +392,31 @@ class SqlAlchemyMembershipRepository(MembershipRepository):
             select(MembershipModel).where(MembershipModel.user_id == str(user_id))
         )
         return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def list_by_user_id_with_org_names(
+        self, user_id: UUID
+    ) -> list[MembershipWithOrgName]:
+        # Single JOIN, avoids N+1 when /me renders the membership list.
+        stmt = (
+            select(MembershipModel, OrganizationModel.name)
+            .join(OrganizationModel, MembershipModel.organization_id == OrganizationModel.id)
+            .where(MembershipModel.user_id == str(user_id))
+        )
+        result = await self._session.execute(stmt)
+        out: list[MembershipWithOrgName] = []
+        for m, org_name in result.all():
+            out.append(
+                MembershipWithOrgName(
+                    id=UUID(m.id),
+                    user_id=UUID(m.user_id),
+                    organization_id=UUID(m.organization_id),
+                    role=MembershipRole(m.role),
+                    organization_name=org_name,
+                    created_at=m.created_at,
+                    updated_at=m.updated_at,
+                )
+            )
+        return out
 
     async def save(self, membership: Membership) -> Membership:
         model = self._to_model(membership)

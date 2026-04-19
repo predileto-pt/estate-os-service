@@ -2,11 +2,11 @@ from uuid import UUID
 
 from supabase import AsyncClient
 
-from customers.application.ports.repositories.portal_user_repository import (
+from organizations.application.ports.repositories.portal_user_repository import (
     PortalUserRepository,
 )
-from customers.domain.models.portal_user import PortalUser
-from customers.domain.models.value_objects import PhoneNumber
+from organizations.domain.models.portal_user import PortalUser
+from organizations.domain.models.value_objects import PhoneNumber
 
 
 class SupabasePortalUserRepository(PortalUserRepository):

@@ -3,20 +3,20 @@ from uuid import uuid4
 
 import pytest
 
-from customers.adapters.inmemory.inmemory_invitation_repo import (
+from organizations.adapters.inmemory.inmemory_invitation_repo import (
     InMemoryInvitationRepository,
 )
-from customers.adapters.inmemory.inmemory_membership_repo import (
+from organizations.adapters.inmemory.inmemory_membership_repo import (
     InMemoryMembershipRepository,
 )
-from customers.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
-from customers.application.use_cases.invite_member import InviteMember
-from customers.domain.exceptions import (
+from organizations.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
+from organizations.application.use_cases.invite_member import InviteMember
+from organizations.domain.exceptions import (
     InsufficientPermissionError,
     MembershipAlreadyExistsError,
 )
-from customers.domain.models.membership import Membership, MembershipRole
-from customers.domain.models.user import User
+from organizations.domain.models.membership import Membership, MembershipRole
+from organizations.domain.models.user import User
 
 
 @pytest.fixture

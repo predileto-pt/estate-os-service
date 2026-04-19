@@ -1,14 +1,14 @@
 from uuid import UUID
 
-from customers.application.ports.repositories.membership_repository import (
+from organizations.application.ports.repositories.membership_repository import (
     MembershipRepository,
 )
-from customers.application.ports.repositories.user_repository import UserRepository
-from customers.domain.exceptions import (
+from organizations.application.ports.repositories.user_repository import UserRepository
+from organizations.domain.exceptions import (
     AuthorizationError,
     UserNotFoundError,
 )
-from customers.domain.models.membership import Membership
+from organizations.domain.models.membership import Membership
 
 
 class ListMembers:

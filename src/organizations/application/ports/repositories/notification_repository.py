@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from customers.domain.models.notification import Notification
+from organizations.domain.models.notification import Notification
 
 
 class NotificationRepository(ABC):

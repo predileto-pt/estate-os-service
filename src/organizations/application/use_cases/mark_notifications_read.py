@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from customers.application.ports.repositories.notification_repository import (
+from organizations.application.ports.repositories.notification_repository import (
     NotificationRepository,
 )
 

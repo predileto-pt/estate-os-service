@@ -3,14 +3,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from shared.api.dependencies import get_supabase_user_id
-from customers.adapters.api.schemas import (
+from organizations.adapters.api.schemas import (
     CreateSubscriptionRequest,
     PlanResponse,
     SubscriptionResponse,
     UpdateSubscriptionRequest,
 )
-from customers.domain.exceptions import SubscriptionNotFoundError, UserNotFoundError
-from customers.domain.models.subscription import SubscriptionPlan
+from organizations.domain.exceptions import SubscriptionNotFoundError, UserNotFoundError
+from organizations.domain.models.subscription import SubscriptionPlan
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
 

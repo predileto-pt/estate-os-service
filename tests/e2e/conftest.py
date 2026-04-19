@@ -12,7 +12,7 @@ from sqlalchemy.pool import NullPool
 from testcontainers.localstack import LocalStackContainer
 from testcontainers.postgres import PostgresContainer
 
-from customers.adapters.database.repositories import (
+from organizations.adapters.database.repositories import (
     SqlAlchemyInvitationRepository,
     SqlAlchemyMembershipRepository,
     SqlAlchemyNotificationRepository,
@@ -20,8 +20,8 @@ from customers.adapters.database.repositories import (
     SqlAlchemySubscriptionRepository,
     SqlAlchemyUserRepository,
 )
-from customers.adapters.inmemory.inmemory_email_service import InMemoryEmailService
-from customers.container import Container
+from organizations.adapters.inmemory.inmemory_email_service import InMemoryEmailService
+from organizations.container import Container
 from properties.adapters.database.repositories import (
     SqlAlchemyDocumentContentRepository,
     SqlAlchemyExtractionJobRepository,

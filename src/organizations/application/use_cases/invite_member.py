@@ -4,21 +4,21 @@ from uuid import UUID, uuid4
 
 import structlog
 
-from customers.application.ports.repositories.invitation_repository import (
+from organizations.application.ports.repositories.invitation_repository import (
     InvitationRepository,
 )
-from customers.application.ports.repositories.membership_repository import (
+from organizations.application.ports.repositories.membership_repository import (
     MembershipRepository,
 )
-from customers.application.ports.repositories.user_repository import UserRepository
-from customers.domain.exceptions import (
+from organizations.application.ports.repositories.user_repository import UserRepository
+from organizations.domain.exceptions import (
     InsufficientPermissionError,
     MembershipAlreadyExistsError,
     UserNotFoundError,
 )
-from customers.domain.models.authorization import has_permission
-from customers.domain.models.invitation import Invitation, InvitationStatus
-from customers.domain.models.membership import MembershipRole
+from organizations.domain.models.authorization import has_permission
+from organizations.domain.models.invitation import Invitation, InvitationStatus
+from organizations.domain.models.membership import MembershipRole
 
 log = structlog.get_logger()
 

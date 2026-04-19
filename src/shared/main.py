@@ -4,9 +4,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from shared.api.middleware import JWTAuthMiddleware, RequestLoggingMiddleware
+from shared.api.middleware import (
+    IdentityMiddleware,
+    JWTAuthMiddleware,
+    RequestLoggingMiddleware,
+)
 from shared.config import settings, setup_logging
-from customers.adapters.api.routes import (
+from identity.adapters.api.routes import (
+    me as identity_me,
+    portal_auth as identity_portal_auth,
+    profile as identity_profile,
+)
+from organizations.adapters.api.routes import (
     auth,
     email,
     health,
@@ -14,9 +23,7 @@ from customers.adapters.api.routes import (
     memberships,
     notifications,
     organizations,
-    portal_auth,
     subscriptions,
-    users,
 )
 from properties.adapters.api.routes import (
     extraction_jobs,
@@ -59,15 +66,20 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if not hasattr(app.state, "container") or app.state.container is None:
             from shared.entrypoints.bootstrap import (
-                get_screening_container,
                 get_booking_container,
                 get_container,
                 get_contract_intelligence_container,
+                get_identity_container,
                 get_listing_container,
                 get_property_container,
+                get_screening_container,
             )
 
+            app.state.identity_container = await get_identity_container()
             app.state.container = await get_container()
+            # Alias used by IdentityMiddleware so the naming reads cleanly;
+            # the legacy `app.state.container` stays for existing route code.
+            app.state.organizations_container = app.state.container
             app.state.property_container = await get_property_container()
             app.state.screening_container = await get_screening_container()
             listing_cont = await get_listing_container()
@@ -136,8 +148,13 @@ def create_app(
         logfire.instrument_httpx()
         logfire.instrument_openai()
 
-    # Middleware (order matters — outermost first)
+    # Middleware (order matters — outermost first).
+    # Starlette middleware execution order: outermost added last runs first
+    # on request. Effective request order: RequestLogging → CORS →
+    # JWTAuth → IdentityMiddleware → route. CORS is outermost because
+    # pre-flight OPTIONS bypasses everything inner.
     app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(IdentityMiddleware)
     app.add_middleware(JWTAuthMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -150,9 +167,19 @@ def create_app(
     # Health (no prefix change)
     app.include_router(health.router, prefix="/api/v1")
 
-    # Admin routes (agency staff, org-scoped)
+    # Identity auth routes — /auth/me + /auth/profile mounted under
+    # BOTH /api/v1/admin and /api/v1/portal. Portal registration lives
+    # at /api/v1/portal/auth/register (identity's portal_auth router).
+    # Admin registration (`/api/v1/admin/auth/register`) is still served
+    # by organizations' legacy `auth.router` pending RegisterAdminAccount.
     app.include_router(auth.router, prefix="/api/v1/admin")
-    app.include_router(users.router, prefix="/api/v1/admin")
+    app.include_router(identity_me.router, prefix="/api/v1/admin")
+    app.include_router(identity_profile.router, prefix="/api/v1/admin")
+    app.include_router(identity_portal_auth.router, prefix="/api/v1/portal")
+    app.include_router(identity_me.router, prefix="/api/v1/portal")
+    app.include_router(identity_profile.router, prefix="/api/v1/portal")
+
+    # Admin routes (agency staff, org-scoped)
     app.include_router(organizations.router, prefix="/api/v1/admin")
     app.include_router(memberships.router, prefix="/api/v1/admin")
     app.include_router(invitations.router, prefix="/api/v1/admin")
@@ -165,9 +192,6 @@ def create_app(
     app.include_router(property_images.router, prefix="/api/v1/admin")
     app.include_router(property_amenities.router, prefix="/api/v1/admin")
     app.include_router(extraction_jobs.router, prefix="/api/v1/admin")
-
-    # Portal routes (property seekers, no org)
-    app.include_router(portal_auth.router, prefix="/api/v1/portal")
 
     # Public property listings (no auth)
     app.include_router(listings.router, prefix="/api/v1/listings")

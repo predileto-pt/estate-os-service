@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
 
-from customers.domain.models.value_objects import PhoneNumber
+from organizations.domain.models.value_objects import PhoneNumber
 
 
 @dataclass

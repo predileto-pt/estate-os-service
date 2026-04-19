@@ -2,11 +2,11 @@ from uuid import UUID
 
 from supabase import AsyncClient
 
-from customers.application.ports.repositories.invitation_repository import (
+from organizations.application.ports.repositories.invitation_repository import (
     InvitationRepository,
 )
-from customers.domain.models.invitation import Invitation, InvitationStatus
-from customers.domain.models.membership import MembershipRole
+from organizations.domain.models.invitation import Invitation, InvitationStatus
+from organizations.domain.models.membership import MembershipRole
 
 
 class SupabaseInvitationRepository(InvitationRepository):

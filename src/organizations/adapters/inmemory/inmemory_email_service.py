@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from customers.application.ports.email_service import EmailService
+from organizations.application.ports.email_service import EmailService
 
 
 @dataclass

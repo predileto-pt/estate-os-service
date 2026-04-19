@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from customers.application.ports.repositories.notification_repository import (
+from organizations.application.ports.repositories.notification_repository import (
     NotificationRepository,
 )
-from customers.domain.models.notification import Notification, NotificationStatus
+from organizations.domain.models.notification import Notification, NotificationStatus
 
 
 class InMemoryNotificationRepository(NotificationRepository):

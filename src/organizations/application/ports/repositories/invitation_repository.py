@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from customers.domain.models.invitation import Invitation
+from organizations.domain.models.invitation import Invitation
 
 
 class InvitationRepository(ABC):

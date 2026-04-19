@@ -2,10 +2,10 @@ from uuid import UUID
 
 from supabase import AsyncClient
 
-from customers.application.ports.repositories.organization_repository import (
+from organizations.application.ports.repositories.organization_repository import (
     OrganizationRepository,
 )
-from customers.domain.models.organization import Organization
+from organizations.domain.models.organization import Organization
 
 
 class SupabaseOrganizationRepository(OrganizationRepository):

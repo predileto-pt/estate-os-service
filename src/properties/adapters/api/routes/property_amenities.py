@@ -2,8 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from customers.domain.models.membership import Membership
-from customers.domain.models.user import User
+from organizations.domain.models.membership import Membership
+from identity.domain.models.user import User
 from shared.api.dependencies import require_org_member
 from shared.events.base import DomainEvent
 from shared.events.types import PROPERTY_CREATED_V1

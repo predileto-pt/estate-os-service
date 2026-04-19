@@ -1,6 +1,6 @@
 import pytest
 
-from customers.domain.models.value_objects import Address, PhoneNumber
+from organizations.domain.models.value_objects import Address, PhoneNumber
 
 
 class TestPhoneNumber:

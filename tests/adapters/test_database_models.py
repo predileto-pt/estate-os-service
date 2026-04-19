@@ -1,5 +1,5 @@
 from shared.database.models import Base
-import customers.adapters.database.models  # noqa: F401 — register models
+import organizations.adapters.database.models  # noqa: F401 — register models
 import properties.adapters.database.models  # noqa: F401 — register models
 
 

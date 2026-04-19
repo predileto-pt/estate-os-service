@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from shared.api.dependencies import get_supabase_user_id
-from customers.domain.exceptions import (
+from organizations.domain.exceptions import (
     PortalUserAlreadyExistsError,
     PortalUserNotFoundError,
 )
-from customers.domain.models.value_objects import PhoneNumber
+from organizations.domain.models.value_objects import PhoneNumber
 
 router = APIRouter(prefix="/auth", tags=["portal"])
 

@@ -1,7 +1,7 @@
 from uuid import UUID
 
-from customers.application.ports.repositories.user_repository import UserRepository
-from customers.domain.models.user import User
+from organizations.application.ports.repositories.user_repository import UserRepository
+from organizations.domain.models.user import User
 
 
 class InMemoryUserRepository(UserRepository):

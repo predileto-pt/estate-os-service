@@ -1,17 +1,17 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from customers.domain.models.membership import Membership, MembershipRole
-from customers.domain.models.notification import Notification, NotificationStatus
-from customers.domain.models.organization import Organization
-from customers.domain.models.subscription import (
+from organizations.domain.models.membership import Membership, MembershipRole
+from organizations.domain.models.notification import Notification, NotificationStatus
+from organizations.domain.models.organization import Organization
+from organizations.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
     SubscriptionStatus,
     SubscriptionType,
 )
-from customers.domain.models.user import User
-from customers.domain.models.value_objects import PhoneNumber
+from organizations.domain.models.user import User
+from organizations.domain.models.value_objects import PhoneNumber
 
 
 class TestUser:

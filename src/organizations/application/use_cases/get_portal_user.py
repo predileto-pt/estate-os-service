@@ -1,8 +1,8 @@
-from customers.application.ports.repositories.portal_user_repository import (
+from organizations.application.ports.repositories.portal_user_repository import (
     PortalUserRepository,
 )
-from customers.domain.exceptions import PortalUserNotFoundError
-from customers.domain.models.portal_user import PortalUser
+from organizations.domain.exceptions import PortalUserNotFoundError
+from organizations.domain.models.portal_user import PortalUser
 
 
 class GetPortalUser:

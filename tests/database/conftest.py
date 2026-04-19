@@ -9,7 +9,7 @@ from sqlalchemy.pool import NullPool
 
 from testcontainers.postgres import PostgresContainer
 
-from customers.adapters.database.repositories import (
+from organizations.adapters.database.repositories import (
     SqlAlchemyInvitationRepository,
     SqlAlchemyMembershipRepository,
     SqlAlchemyNotificationRepository,

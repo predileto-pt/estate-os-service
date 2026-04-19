@@ -1,17 +1,17 @@
 from uuid import UUID
 
-from customers.application.ports.repositories.invitation_repository import (
+from organizations.application.ports.repositories.invitation_repository import (
     InvitationRepository,
 )
-from customers.application.ports.repositories.membership_repository import (
+from organizations.application.ports.repositories.membership_repository import (
     MembershipRepository,
 )
-from customers.application.ports.repositories.user_repository import UserRepository
-from customers.domain.exceptions import (
+from organizations.application.ports.repositories.user_repository import UserRepository
+from organizations.domain.exceptions import (
     AuthorizationError,
     UserNotFoundError,
 )
-from customers.domain.models.invitation import Invitation
+from organizations.domain.models.invitation import Invitation
 
 
 class ListInvitations:

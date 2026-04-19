@@ -14,7 +14,7 @@ import asyncio
 import aioboto3
 import structlog
 
-from customers.adapters.workers.event_processor import handle_applicant_screened
+from organizations.adapters.workers.event_processor import handle_applicant_screened
 from shared.config import Settings, setup_logging
 from shared.entrypoints.bootstrap import (
     get_booking_container,

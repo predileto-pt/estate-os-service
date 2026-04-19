@@ -3,10 +3,10 @@ from uuid import UUID, uuid4
 
 import structlog
 
-from customers.application.ports.repositories.notification_repository import (
+from organizations.application.ports.repositories.notification_repository import (
     NotificationRepository,
 )
-from customers.domain.models.notification import Notification, NotificationStatus
+from organizations.domain.models.notification import Notification, NotificationStatus
 
 log = structlog.get_logger()
 

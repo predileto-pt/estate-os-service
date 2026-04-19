@@ -1,4 +1,4 @@
-from customers.domain.models.membership import MembershipRole
+from organizations.domain.models.membership import MembershipRole
 
 ROLE_PERMISSIONS: dict[MembershipRole, set[str]] = {
     MembershipRole.OWNER: {"*"},

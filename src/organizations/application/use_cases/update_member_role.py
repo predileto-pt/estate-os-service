@@ -2,18 +2,18 @@ from uuid import UUID
 
 import structlog
 
-from customers.application.ports.repositories.membership_repository import (
+from organizations.application.ports.repositories.membership_repository import (
     MembershipRepository,
 )
-from customers.application.ports.repositories.user_repository import UserRepository
-from customers.domain.exceptions import (
+from organizations.application.ports.repositories.user_repository import UserRepository
+from organizations.domain.exceptions import (
     InsufficientPermissionError,
     LastOwnerError,
     MembershipNotFoundError,
     UserNotFoundError,
 )
-from customers.domain.models.authorization import has_permission
-from customers.domain.models.membership import Membership, MembershipRole
+from organizations.domain.models.authorization import has_permission
+from organizations.domain.models.membership import Membership, MembershipRole
 
 log = structlog.get_logger()
 

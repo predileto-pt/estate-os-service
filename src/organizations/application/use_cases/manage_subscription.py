@@ -3,11 +3,11 @@ from uuid import UUID, uuid4
 
 import structlog
 
-from customers.application.ports.repositories.subscription_repository import (
+from organizations.application.ports.repositories.subscription_repository import (
     SubscriptionRepository,
 )
-from customers.domain.exceptions import SubscriptionNotFoundError
-from customers.domain.models.subscription import (
+from organizations.domain.exceptions import SubscriptionNotFoundError
+from organizations.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
     SubscriptionStatus,

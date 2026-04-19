@@ -4,23 +4,23 @@ from uuid import uuid4
 
 import pytest
 
-from customers.adapters.inmemory.inmemory_invitation_repo import (
+from organizations.adapters.inmemory.inmemory_invitation_repo import (
     InMemoryInvitationRepository,
 )
-from customers.adapters.inmemory.inmemory_membership_repo import (
+from organizations.adapters.inmemory.inmemory_membership_repo import (
     InMemoryMembershipRepository,
 )
-from customers.adapters.inmemory.inmemory_organization_repo import (
+from organizations.adapters.inmemory.inmemory_organization_repo import (
     InMemoryOrganizationRepository,
 )
-from customers.adapters.inmemory.inmemory_subscription_repo import (
+from organizations.adapters.inmemory.inmemory_subscription_repo import (
     InMemorySubscriptionRepository,
 )
-from customers.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
-from customers.application.use_cases.register_user import RegisterUser
-from customers.domain.models.invitation import Invitation, InvitationStatus
-from customers.domain.models.membership import MembershipRole
-from customers.domain.models.organization import Organization
+from organizations.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
+from organizations.application.use_cases.register_user import RegisterUser
+from organizations.domain.models.invitation import Invitation, InvitationStatus
+from organizations.domain.models.membership import MembershipRole
+from organizations.domain.models.organization import Organization
 
 
 @pytest.fixture

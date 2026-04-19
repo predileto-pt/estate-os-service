@@ -1,9 +1,9 @@
 from uuid import UUID
 
-from customers.application.ports.repositories.invitation_repository import (
+from organizations.application.ports.repositories.invitation_repository import (
     InvitationRepository,
 )
-from customers.domain.models.invitation import Invitation, InvitationStatus
+from organizations.domain.models.invitation import Invitation, InvitationStatus
 
 
 class InMemoryInvitationRepository(InvitationRepository):

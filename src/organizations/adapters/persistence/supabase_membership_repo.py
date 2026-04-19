@@ -2,10 +2,11 @@ from uuid import UUID
 
 from supabase import AsyncClient
 
-from customers.application.ports.repositories.membership_repository import (
+from organizations.application.ports.repositories.membership_repository import (
     MembershipRepository,
+    MembershipWithOrgName,
 )
-from customers.domain.models.membership import Membership, MembershipRole
+from organizations.domain.models.membership import Membership, MembershipRole
 
 
 class SupabaseMembershipRepository(MembershipRepository):
@@ -72,6 +73,32 @@ class SupabaseMembershipRepository(MembershipRepository):
             .execute()
         )
         return [self._to_domain(row) for row in result.data]
+
+    async def list_by_user_id_with_org_names(
+        self, user_id: UUID
+    ) -> list[MembershipWithOrgName]:
+        # PostgREST embedded resource join: single round-trip.
+        result = (
+            await self._client.table("memberships")
+            .select("*, organizations(name)")
+            .eq("user_id", str(user_id))
+            .execute()
+        )
+        out: list[MembershipWithOrgName] = []
+        for row in result.data:
+            org = row.get("organizations") or {}
+            out.append(
+                MembershipWithOrgName(
+                    id=UUID(row["id"]),
+                    user_id=UUID(row["user_id"]),
+                    organization_id=UUID(row["organization_id"]),
+                    role=MembershipRole(row["role"]),
+                    organization_name=org.get("name") if isinstance(org, dict) else None,
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"],
+                )
+            )
+        return out
 
     async def save(self, membership: Membership) -> Membership:
         result = await self._client.table("memberships").insert(self._to_row(membership)).execute()

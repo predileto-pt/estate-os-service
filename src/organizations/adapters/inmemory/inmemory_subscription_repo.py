@@ -1,9 +1,9 @@
 from uuid import UUID
 
-from customers.application.ports.repositories.subscription_repository import (
+from organizations.application.ports.repositories.subscription_repository import (
     SubscriptionRepository,
 )
-from customers.domain.models.subscription import Subscription
+from organizations.domain.models.subscription import Subscription
 
 
 class InMemorySubscriptionRepository(SubscriptionRepository):

@@ -3,12 +3,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from shared.api.dependencies import get_supabase_user_id
-from customers.adapters.api.routes.auth import _organization_response
-from customers.adapters.api.schemas import (
+from organizations.adapters.api.routes.auth import _organization_response
+from organizations.adapters.api.schemas import (
     OrganizationResponse,
     UpdateOrganizationRequest,
 )
-from customers.domain.exceptions import (
+from organizations.domain.exceptions import (
     AuthorizationError,
     InsufficientPermissionError,
     OrganizationNotFoundError,

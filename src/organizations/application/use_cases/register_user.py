@@ -3,31 +3,31 @@ from uuid import uuid4
 
 import structlog
 
-from customers.application.ports.repositories.invitation_repository import (
+from organizations.application.ports.repositories.invitation_repository import (
     InvitationRepository,
 )
-from customers.application.ports.repositories.membership_repository import (
+from organizations.application.ports.repositories.membership_repository import (
     MembershipRepository,
 )
-from customers.application.ports.repositories.organization_repository import (
+from organizations.application.ports.repositories.organization_repository import (
     OrganizationRepository,
 )
-from customers.application.ports.repositories.subscription_repository import (
+from organizations.application.ports.repositories.subscription_repository import (
     SubscriptionRepository,
 )
-from customers.application.ports.repositories.user_repository import UserRepository
-from customers.domain.exceptions import UserAlreadyExistsError
-from customers.domain.models.invitation import InvitationStatus
-from customers.domain.models.membership import Membership, MembershipRole
-from customers.domain.models.organization import Organization
-from customers.domain.models.subscription import (
+from organizations.application.ports.repositories.user_repository import UserRepository
+from organizations.domain.exceptions import UserAlreadyExistsError
+from organizations.domain.models.invitation import InvitationStatus
+from organizations.domain.models.membership import Membership, MembershipRole
+from organizations.domain.models.organization import Organization
+from organizations.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
     SubscriptionStatus,
     SubscriptionType,
 )
-from customers.domain.models.user import User
-from customers.domain.models.value_objects import PhoneNumber
+from organizations.domain.models.user import User
+from organizations.domain.models.value_objects import PhoneNumber
 
 log = structlog.get_logger()
 

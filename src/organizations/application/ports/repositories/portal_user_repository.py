@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from customers.domain.models.portal_user import PortalUser
+from organizations.domain.models.portal_user import PortalUser
 
 
 class PortalUserRepository(ABC):

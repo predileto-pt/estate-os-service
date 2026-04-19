@@ -2,8 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from customers.domain.models.membership import Membership
-from customers.domain.models.user import User
+from organizations.domain.models.membership import Membership
+from identity.domain.models.user import User
 from shared.api.dependencies import (
     assert_org_member,
     get_supabase_user_id,

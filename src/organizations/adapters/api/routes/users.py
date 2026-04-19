@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from shared.api.dependencies import get_supabase_user_id
-from customers.adapters.api.routes.auth import _organization_response, _user_response
-from customers.adapters.api.schemas import (
+from organizations.adapters.api.routes.auth import _organization_response, _user_response
+from organizations.adapters.api.schemas import (
     UpdateUserRequest,
     UserResponse,
     UserWithOrganizationResponse,
 )
-from customers.domain.exceptions import UserNotFoundError
-from customers.domain.models.value_objects import PhoneNumber
+from organizations.domain.exceptions import UserNotFoundError
+from organizations.domain.models.value_objects import PhoneNumber
 
 router = APIRouter(prefix="/users", tags=["users"])
 

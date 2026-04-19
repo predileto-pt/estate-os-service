@@ -1,43 +1,43 @@
-from customers.application.ports.email_service import EmailService
-from customers.application.ports.repositories.invitation_repository import (
+from organizations.application.ports.email_service import EmailService
+from organizations.application.ports.repositories.invitation_repository import (
     InvitationRepository,
 )
-from customers.application.ports.repositories.membership_repository import (
+from organizations.application.ports.repositories.membership_repository import (
     MembershipRepository,
 )
-from customers.application.ports.repositories.notification_repository import (
+from organizations.application.ports.repositories.notification_repository import (
     NotificationRepository,
 )
-from customers.application.ports.repositories.organization_repository import (
+from organizations.application.ports.repositories.organization_repository import (
     OrganizationRepository,
 )
-from customers.application.ports.repositories.subscription_repository import (
+from organizations.application.ports.repositories.subscription_repository import (
     SubscriptionRepository,
 )
-from customers.application.ports.repositories.portal_user_repository import (
+from organizations.application.ports.repositories.portal_user_repository import (
     PortalUserRepository,
 )
-from customers.application.ports.repositories.user_repository import UserRepository
-from customers.application.use_cases.get_organization import GetOrganization
-from customers.application.use_cases.get_portal_user import GetPortalUser
-from customers.application.use_cases.get_user_profile import GetUserProfile
-from customers.application.use_cases.invite_member import InviteMember
-from customers.application.use_cases.list_invitations import ListInvitations
-from customers.application.use_cases.list_members import ListMembers
-from customers.application.use_cases.list_notifications import ListNotifications
-from customers.application.use_cases.manage_subscription import (
+from organizations.application.ports.repositories.user_repository import UserRepository
+from organizations.application.use_cases.get_organization import GetOrganization
+from organizations.application.use_cases.get_portal_user import GetPortalUser
+from organizations.application.use_cases.get_user_profile import GetUserProfile
+from organizations.application.use_cases.invite_member import InviteMember
+from organizations.application.use_cases.list_invitations import ListInvitations
+from organizations.application.use_cases.list_members import ListMembers
+from organizations.application.use_cases.list_notifications import ListNotifications
+from organizations.application.use_cases.manage_subscription import (
     CreateSubscription,
     UpdateSubscription,
 )
-from customers.application.use_cases.mark_notifications_read import MarkNotificationsRead
-from customers.application.use_cases.register_portal_user import RegisterPortalUser
-from customers.application.use_cases.register_user import RegisterUser
-from customers.application.use_cases.remove_member import RemoveMember
-from customers.application.use_cases.revoke_invitation import RevokeInvitation
-from customers.application.use_cases.send_notification import SendNotification
-from customers.application.use_cases.update_member_role import UpdateMemberRole
-from customers.application.use_cases.update_organization import UpdateOrganization
-from customers.application.use_cases.update_user_profile import UpdateUserProfile
+from organizations.application.use_cases.mark_notifications_read import MarkNotificationsRead
+from organizations.application.use_cases.register_portal_user import RegisterPortalUser
+from organizations.application.use_cases.register_user import RegisterUser
+from organizations.application.use_cases.remove_member import RemoveMember
+from organizations.application.use_cases.revoke_invitation import RevokeInvitation
+from organizations.application.use_cases.send_notification import SendNotification
+from organizations.application.use_cases.update_member_role import UpdateMemberRole
+from organizations.application.use_cases.update_organization import UpdateOrganization
+from organizations.application.use_cases.update_user_profile import UpdateUserProfile
 
 
 class Container:

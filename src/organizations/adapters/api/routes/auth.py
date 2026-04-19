@@ -1,13 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 
-from shared.api.dependencies import get_supabase_user_id
-from customers.adapters.api.schemas import (
+from organizations.adapters.api.schemas import (
     RegisterRequest,
     UserResponse,
-    UserWithOrganizationResponse,
 )
-from customers.domain.exceptions import UserAlreadyExistsError, UserNotFoundError
-from customers.domain.models.value_objects import PhoneNumber
+from organizations.domain.exceptions import UserAlreadyExistsError
+from organizations.domain.models.value_objects import PhoneNumber
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -79,30 +77,6 @@ async def register(body: RegisterRequest, request: Request):
     return _user_response(user)
 
 
-@router.get(
-    "/me",
-    response_model=UserWithOrganizationResponse,
-    summary="Get authenticated user",
-    responses={
-        401: {"description": "Not authenticated"},
-        404: {"description": "User not found"},
-    },
-)
-async def get_me(
-    request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
-):
-    get_profile_uc = request.app.state.container.get_user_profile
-
-    try:
-        user, organization, membership = await get_profile_uc.execute(
-            supabase_user_id=supabase_user_id
-        )
-    except UserNotFoundError:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    return {
-        "user": _user_response(user),
-        "organization": _organization_response(organization),
-        "role": membership.role.value if membership else None,
-    }
+# GET /me moved to `identity.adapters.api.routes.me` — same endpoint
+# path, now served by identity and reading request.state populated by
+# IdentityMiddleware. Old handler removed in the identity-split commit.

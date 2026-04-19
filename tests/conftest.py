@@ -5,29 +5,29 @@ import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from customers.adapters.inmemory.inmemory_email_service import InMemoryEmailService
-from customers.domain.models.membership import Membership, MembershipRole
-from customers.domain.models.user import User
-from customers.adapters.inmemory.inmemory_invitation_repo import (
+from organizations.adapters.inmemory.inmemory_email_service import InMemoryEmailService
+from organizations.domain.models.membership import Membership, MembershipRole
+from organizations.domain.models.user import User
+from organizations.adapters.inmemory.inmemory_invitation_repo import (
     InMemoryInvitationRepository,
 )
-from customers.adapters.inmemory.inmemory_membership_repo import (
+from organizations.adapters.inmemory.inmemory_membership_repo import (
     InMemoryMembershipRepository,
 )
-from customers.adapters.inmemory.inmemory_notification_repo import (
+from organizations.adapters.inmemory.inmemory_notification_repo import (
     InMemoryNotificationRepository,
 )
-from customers.adapters.inmemory.inmemory_organization_repo import (
+from organizations.adapters.inmemory.inmemory_organization_repo import (
     InMemoryOrganizationRepository,
 )
-from customers.adapters.inmemory.inmemory_subscription_repo import (
+from organizations.adapters.inmemory.inmemory_subscription_repo import (
     InMemorySubscriptionRepository,
 )
-from customers.adapters.inmemory.inmemory_portal_user_repo import (
+from organizations.adapters.inmemory.inmemory_portal_user_repo import (
     InMemoryPortalUserRepository,
 )
-from customers.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
-from customers.container import Container
+from organizations.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
+from organizations.container import Container
 from shared.main import create_app
 from properties.adapters.inmemory.inmemory_document_extractor import (
     InMemoryDocumentExtractor,

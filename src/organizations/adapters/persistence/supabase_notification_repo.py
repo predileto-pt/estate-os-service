@@ -3,10 +3,10 @@ from uuid import UUID
 
 from supabase import AsyncClient
 
-from customers.application.ports.repositories.notification_repository import (
+from organizations.application.ports.repositories.notification_repository import (
     NotificationRepository,
 )
-from customers.domain.models.notification import Notification, NotificationStatus
+from organizations.domain.models.notification import Notification, NotificationStatus
 
 
 class SupabaseNotificationRepository(NotificationRepository):

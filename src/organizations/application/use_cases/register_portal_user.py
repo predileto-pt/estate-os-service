@@ -3,12 +3,12 @@ from uuid import uuid4
 
 import structlog
 
-from customers.application.ports.repositories.portal_user_repository import (
+from organizations.application.ports.repositories.portal_user_repository import (
     PortalUserRepository,
 )
-from customers.domain.exceptions import PortalUserAlreadyExistsError
-from customers.domain.models.portal_user import PortalUser
-from customers.domain.models.value_objects import PhoneNumber
+from organizations.domain.exceptions import PortalUserAlreadyExistsError
+from organizations.domain.models.portal_user import PortalUser
+from organizations.domain.models.value_objects import PhoneNumber
 
 log = structlog.get_logger()
 

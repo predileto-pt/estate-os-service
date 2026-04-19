@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from customers.domain.models.membership import MembershipRole
+from organizations.domain.models.membership import MembershipRole
 
 
 class InvitationStatus(str, Enum):

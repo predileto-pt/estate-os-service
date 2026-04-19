@@ -3,10 +3,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from customers.domain.models.invitation import InvitationStatus
-from customers.domain.models.membership import MembershipRole
-from customers.domain.models.notification import NotificationStatus
-from customers.domain.models.subscription import (
+from organizations.domain.models.invitation import InvitationStatus
+from organizations.domain.models.membership import MembershipRole
+from organizations.domain.models.notification import NotificationStatus
+from organizations.domain.models.subscription import (
     SubscriptionPlan,
     SubscriptionStatus,
     SubscriptionType,

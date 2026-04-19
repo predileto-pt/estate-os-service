@@ -1,28 +1,32 @@
 import aioboto3
 from supabase import acreate_client
 
-from customers.adapters.email.resend_email_service import ResendEmailService
-from customers.adapters.persistence.supabase_invitation_repo import (
+from organizations.adapters.email.resend_email_service import ResendEmailService
+from organizations.adapters.persistence.supabase_invitation_repo import (
     SupabaseInvitationRepository,
 )
-from customers.adapters.persistence.supabase_membership_repo import (
+from organizations.adapters.persistence.supabase_membership_repo import (
     SupabaseMembershipRepository,
 )
-from customers.adapters.persistence.supabase_notification_repo import (
+from organizations.adapters.persistence.supabase_notification_repo import (
     SupabaseNotificationRepository,
 )
-from customers.adapters.persistence.supabase_organization_repo import (
+from organizations.adapters.persistence.supabase_organization_repo import (
     SupabaseOrganizationRepository,
 )
-from customers.adapters.persistence.supabase_subscription_repo import (
+from organizations.adapters.persistence.supabase_subscription_repo import (
     SupabaseSubscriptionRepository,
 )
-from customers.adapters.persistence.supabase_portal_user_repo import (
+from organizations.adapters.persistence.supabase_portal_user_repo import (
     SupabasePortalUserRepository,
 )
-from customers.adapters.persistence.supabase_user_repo import SupabaseUserRepository
+from organizations.adapters.persistence.supabase_user_repo import (
+    SupabaseUserRepository as _LegacyOrgSupabaseUserRepository,
+)
+from identity.adapters.persistence.supabase_user_repo import SupabaseUserRepository
+from identity.container import Container as IdentityContainer
 from shared.config import Settings
-from customers.container import Container
+from organizations.container import Container
 from properties.adapters.ai.openai_id_document_extractor import OpenAIIdDocumentExtractor
 from properties.adapters.ai.openai_text_document_classifier import (
     OpenAITextDocumentClassifier,
@@ -74,6 +78,7 @@ from contract_intelligence.adapters.storage.s3_file_storage import (
 from contract_intelligence.container import Container as ContractIntelligenceContainer
 
 _container: Container | None = None
+_identity_container: IdentityContainer | None = None
 _property_container: PropertyContainer | None = None
 _screening_container: ApplicantScreeningContainer | None = None
 _listing_container: ListingContainer | None = None
@@ -81,7 +86,33 @@ _booking_container: BookingContainer | None = None
 _contract_intelligence_container: ContractIntelligenceContainer | None = None
 
 
+async def get_identity_container() -> IdentityContainer:
+    """Identity context container.
+
+    Wires the identity `User` aggregate over the `SupabaseUserRepository`
+    adapter (prod). Exposes `register_user_port` and `user_lookup_by_id`
+    callable bindings for cross-context injection into the organizations
+    container.
+    """
+    global _identity_container
+    if _identity_container is not None:
+        return _identity_container
+
+    settings = Settings()
+    client = await acreate_client(settings.supabase_url, settings.supabase_service_role_key)
+    _identity_container = IdentityContainer(user_repo=SupabaseUserRepository(client))
+    return _identity_container
+
+
 async def get_container() -> Container:
+    """Organizations context container.
+
+    Temporarily still wires the legacy org-side User / PortalUser repos —
+    those are consumed by `register_user` / `register_portal_user` use
+    cases that will be deleted in a subsequent commit (replaced by
+    `RegisterAdminAccount` + identity's portal register). Once those use
+    cases are gone, the legacy User wiring will be dropped here too.
+    """
     global _container
     if _container is not None:
         return _container
@@ -90,7 +121,7 @@ async def get_container() -> Container:
     client = await acreate_client(settings.supabase_url, settings.supabase_service_role_key)
 
     _container = Container(
-        user_repo=SupabaseUserRepository(client),
+        user_repo=_LegacyOrgSupabaseUserRepository(client),
         organization_repo=SupabaseOrganizationRepository(client),
         subscription_repo=SupabaseSubscriptionRepository(client),
         notification_repo=SupabaseNotificationRepository(client),
