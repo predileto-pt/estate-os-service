@@ -34,11 +34,11 @@ Split `customers` into a DDD-aligned `identity` + `organizations` pair of bounde
 
 ## Approach
 
-Two tracks, shipped as one release. Commits are ordered:
+Two tracks, shipped as one release. Commits are ordered (deviation from the first draft: baseline squash moved to the end because it requires fresh-Postgres + `pg_dump`-diff iteration and isn't on the critical path for the DDD split; identity-split migration lands on top of the existing 24-file migration history, then the whole chain is squashed in one final commit):
 
-- **Commit 1** — Alembic baseline squash (see §Database migration). Pure infra move, no code changes.
-- **Commit 2** — Mechanical `git mv src/customers/ src/organizations/` + import substitution with no content change. Keeps the review diff tractable (Q3 = 2-commit plan).
-- **Commits 3–N** — Identity extraction, repo splits, middleware, `User.organization_id` drop, test rewiring. Each commit lands one coherent slice.
+- **Commit 1** — Mechanical `git mv src/customers/ src/organizations/` + import substitution with no content change. Keeps the review diff tractable (Q3 = 2-commit plan).
+- **Commits 2–N-1** — Identity extraction, repo splits, middleware, `User.organization_id` drop, test rewiring. Each commit lands one coherent slice. The identity-split Alembic migration lands here on top of the existing migrations.
+- **Commit N (final)** — Alembic baseline squash (see §Database migration). Collapses the 25-file migration history into a single baseline. Pure infra cleanup after the real work is reviewed and green.
 
 ### Track 1 — DDD split: extract `identity`, rename `customers` → `organizations`
 
