@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import structlog
 
+from properties.application.events.property_event import build_property_snapshot
 from properties.application.ports.document_classifier import DocumentClassifier
 from properties.application.ports.document_data_extractor import DocumentDataExtractor
 from properties.application.ports.document_parser import DocumentParser
@@ -35,6 +36,9 @@ from properties.domain.models.property_owner import (
     DocumentType,
     PropertyOwner,
 )
+from shared.events.base import DomainEvent as SharedDomainEvent
+from shared.events.ports import EventPublisher
+from shared.events.types import PROPERTY_CREATED_V1
 
 log = structlog.get_logger()
 
@@ -50,6 +54,7 @@ class ProcessBatchPropertyExtraction:
         document_data_extractor: DocumentDataExtractor,
         property_repo: PropertyRepository,
         document_content_repo: DocumentContentRepository,
+        domain_event_publisher: EventPublisher | None = None,
     ) -> None:
         self.extraction_job_repo = extraction_job_repo
         self.document_storage = document_storage
@@ -59,6 +64,7 @@ class ProcessBatchPropertyExtraction:
         self.document_data_extractor = document_data_extractor
         self.property_repo = property_repo
         self.document_content_repo = document_content_repo
+        self.domain_event_publisher = domain_event_publisher
 
     async def execute(self, *, job_id: str) -> ExtractionJob:
         start = time.monotonic()
@@ -214,7 +220,22 @@ class ProcessBatchPropertyExtraction:
                 created_at=now,
                 updated_at=now,
             )
+            prop.bump_version()
             prop = await self.property_repo.save(prop)
+
+            if self.domain_event_publisher:
+                try:
+                    await self.domain_event_publisher.publish(
+                        SharedDomainEvent(
+                            event_type=PROPERTY_CREATED_V1,
+                            data=build_property_snapshot(prop),
+                        )
+                    )
+                except Exception:
+                    log.exception(
+                        "batch_extraction.domain_event_failed",
+                        property_id=str(prop.id),
+                    )
 
             for owner_data in owners_by_nif.values():
                 dob = owner_data.get("date_of_birth")

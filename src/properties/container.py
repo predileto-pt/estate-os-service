@@ -104,12 +104,14 @@ class Container:
         self.get_property = GetProperty(property_repo=property_repo)
         self.create_property_owner = CreatePropertyOwner(
             property_repo=property_repo,
+            domain_event_publisher=domain_event_publisher,
         )
         self.extract_property_owner_from_document = (
             ExtractPropertyOwnerFromDocument(
                 property_repo=property_repo,
                 document_extractor=document_extractor,
                 document_parser=document_parser,
+                domain_event_publisher=domain_event_publisher,
             )
             if document_parser
             else None
@@ -122,18 +124,22 @@ class Container:
         )
         self.update_property_owner_contact = UpdatePropertyOwnerContact(
             property_repo=property_repo,
+            domain_event_publisher=domain_event_publisher,
         )
         self.create_property_price = CreatePropertyPrice(
             property_repo=property_repo,
+            domain_event_publisher=domain_event_publisher,
         )
         self.list_property_prices = ListPropertyPrices(
             property_repo=property_repo,
         )
         self.delete_property_image = DeletePropertyImage(
             property_repo=property_repo,
+            domain_event_publisher=domain_event_publisher,
         )
         self.reorder_property_images = ReorderPropertyImages(
             property_repo=property_repo,
+            domain_event_publisher=domain_event_publisher,
         )
 
         # Image use cases (require document_storage)
@@ -145,6 +151,7 @@ class Container:
             self.record_property_image = RecordPropertyImage(
                 property_repo=property_repo,
                 document_storage=document_storage,
+                domain_event_publisher=domain_event_publisher,
             )
 
         # Extraction use cases (require optional dependencies)
@@ -168,6 +175,7 @@ class Container:
                 property_repo=property_repo,
                 extraction_job_repo=extraction_job_repo,
                 document_storage=document_storage,
+                domain_event_publisher=domain_event_publisher,
             )
 
         if (
@@ -212,6 +220,7 @@ class Container:
                 document_data_extractor=document_extractor,
                 property_repo=property_repo,
                 document_content_repo=document_content_repo,
+                domain_event_publisher=domain_event_publisher,
             )
 
         if extraction_job_repo:

@@ -5,6 +5,7 @@ from uuid import UUID
 
 import structlog
 
+from properties.application.events.property_event import emit_property_updated
 from properties.application.ports.document_storage import DocumentStorage
 from properties.application.ports.repositories.property_repository import (
     PropertyRepository,
@@ -12,6 +13,7 @@ from properties.application.ports.repositories.property_repository import (
 from properties.domain.exceptions import PropertyNotFoundError
 from properties.domain.models.property import Property
 from properties.domain.models.property_image import PropertyImage
+from shared.events.ports import EventPublisher
 
 log = structlog.get_logger()
 
@@ -23,9 +25,11 @@ class RecordPropertyImage:
         self,
         property_repo: PropertyRepository,
         document_storage: DocumentStorage,
+        domain_event_publisher: EventPublisher | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.document_storage = document_storage
+        self.domain_event_publisher = domain_event_publisher
 
     async def execute(
         self,
@@ -61,10 +65,12 @@ class RecordPropertyImage:
             updated_at=now,
         )
 
-        prop = await self.property_repo.save_image(prop, image)
+        await self.property_repo.save_image(prop, image)
+        refreshed = await self.property_repo.bump_aggregate_version(property_id)
         log.info(
             "property_images.recorded",
             property_id=str(property_id),
             image_id=str(image_id),
         )
-        return prop
+        await emit_property_updated(self.domain_event_publisher, refreshed)
+        return refreshed

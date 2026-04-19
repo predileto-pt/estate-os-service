@@ -1,8 +1,9 @@
 # Identity bounded context + membership-derived admin authz
 
-**Status:** in-progress
+**Status:** shipped
 **Owner:** Peter
 **Created:** 2026-04-18
+**Shipped:** 2026-04-19 (PR #2 — 9 commits. Outstanding follow-ups: repo file split, integration+e2e tests, Alembic baseline squash. All called out in the PR description.)
 
 ## Problem
 

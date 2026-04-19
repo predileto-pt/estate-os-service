@@ -29,7 +29,7 @@ class TestDiscoveryProcessor:
         property_id = str(uuid4())
         event = DomainEvent(
             event_type=PROPERTY_CREATED_V1,
-            data={"property_id": property_id},
+            data={"id": property_id},
         )
 
         await handle_property_created(event, context)
@@ -51,7 +51,7 @@ class TestDiscoveryProcessor:
         )
         event = DomainEvent(
             event_type=PROPERTY_CREATED_V1,
-            data={"property_id": str(uuid4())},
+            data={"id": str(uuid4())},
         )
 
         # Should not raise
@@ -63,7 +63,7 @@ class TestDiscoveryProcessor:
         )
         event = DomainEvent(
             event_type=PROPERTY_CREATED_V1,
-            data={"property_id": str(uuid4())},
+            data={"id": str(uuid4())},
         )
 
         # Should not raise

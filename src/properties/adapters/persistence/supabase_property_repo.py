@@ -295,3 +295,28 @@ class SupabasePropertyRepository(PropertyRepository):
         ):
             await self._client.table(table).delete().eq("property_id", pid).execute()
         await self._client.table("properties").delete().eq("id", pid).execute()
+
+    async def bump_aggregate_version(self, property_id: UUID) -> Property:
+        # PostgREST can't do column arithmetic in updates — read-modify-write.
+        # Two round-trips at worst; fine at our scale.
+        from datetime import datetime, timezone
+
+        from properties.domain.exceptions import PropertyNotFoundError
+
+        prop = await self.get_by_id(property_id)
+        if not prop:
+            raise PropertyNotFoundError(str(property_id))
+        new_version = prop.aggregate_version + 1
+        await (
+            self._client.table("properties")
+            .update(
+                {
+                    "aggregate_version": new_version,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            .eq("id", str(property_id))
+            .execute()
+        )
+        prop.aggregate_version = new_version
+        return prop

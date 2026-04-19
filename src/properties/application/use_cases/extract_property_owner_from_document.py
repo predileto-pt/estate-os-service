@@ -1,6 +1,7 @@
 from datetime import date, datetime, timezone
 from uuid import UUID, uuid4
 
+from properties.application.events.property_event import emit_property_updated
 from properties.application.ports.document_data_extractor import DocumentDataExtractor
 from properties.application.ports.document_parser import DocumentParser
 from properties.application.ports.repositories.property_repository import (
@@ -13,6 +14,7 @@ from properties.domain.models.property_owner import (
     DocumentType,
     PropertyOwner,
 )
+from shared.events.ports import EventPublisher
 
 
 class ExtractPropertyOwnerFromDocument:
@@ -21,10 +23,12 @@ class ExtractPropertyOwnerFromDocument:
         property_repo: PropertyRepository,
         document_extractor: DocumentDataExtractor,
         document_parser: DocumentParser,
+        domain_event_publisher: EventPublisher | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.document_extractor = document_extractor
         self.document_parser = document_parser
+        self.domain_event_publisher = domain_event_publisher
 
     async def execute(
         self,
@@ -64,4 +68,7 @@ class ExtractPropertyOwnerFromDocument:
         except (KeyError, ValueError) as e:
             raise DocumentExtractionError(f"Invalid extracted data: {e}") from e
 
-        return await self.property_repo.save_owner(prop, owner)
+        await self.property_repo.save_owner(prop, owner)
+        refreshed = await self.property_repo.bump_aggregate_version(property_id)
+        await emit_property_updated(self.domain_event_publisher, refreshed)
+        return refreshed

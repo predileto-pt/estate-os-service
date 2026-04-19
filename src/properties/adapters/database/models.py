@@ -113,6 +113,10 @@ class PropertyModel(Base):
     characteristics: Mapped[dict | None] = mapped_column(JSONB)
     latitude: Mapped[float | None] = mapped_column(Float)
     longitude: Mapped[float | None] = mapped_column(Float)
+    # Idempotency source for the property_listings projector.
+    aggregate_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 

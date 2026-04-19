@@ -49,6 +49,17 @@ class Property:
     prices: list[PropertyPrice] = field(default_factory=list)
     images: list[PropertyImage] = field(default_factory=list)
 
+    # Monotonic per-Property counter. Bumped in the same transaction as every
+    # state-mutating write. Used as the idempotency source for the
+    # `property_listings` projector — events with a lower
+    # `source_aggregate_version` than the stored value are dropped.
+    aggregate_version: int = 0
+
+    def bump_version(self) -> None:
+        """Increment the aggregate version. Called inside write-path use cases
+        on the same transaction as the state change they're broadcasting."""
+        self.aggregate_version += 1
+
     def add_price(self, price: PropertyPrice) -> None:
         price.property_id = self.id
         self.prices.append(price)

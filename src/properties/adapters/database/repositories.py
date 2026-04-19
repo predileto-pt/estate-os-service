@@ -301,6 +301,19 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
         await self._session.execute(delete(PropertyModel).where(PropertyModel.id == pid))
         await self._session.flush()
 
+    async def bump_aggregate_version(self, property_id: UUID) -> Property:
+        result = await self._session.execute(
+            select(PropertyModel).where(PropertyModel.id == str(property_id))
+        )
+        model = result.scalar_one_or_none()
+        if not model:
+            from properties.domain.exceptions import PropertyNotFoundError
+
+            raise PropertyNotFoundError(str(property_id))
+        model.aggregate_version = (model.aggregate_version or 0) + 1
+        await self._session.flush()
+        return await self.get_by_id(property_id)
+
 
 # ── ExtractionJob ───────────────────────────────────────────────────────────
 

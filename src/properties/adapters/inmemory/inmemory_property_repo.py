@@ -64,3 +64,12 @@ class InMemoryPropertyRepository(PropertyRepository):
         prop.images.sort(key=lambda i: i.display_order)
         self._properties[prop.id] = prop
         return prop
+
+    async def bump_aggregate_version(self, property_id: UUID) -> Property:
+        prop = self._properties.get(property_id)
+        if not prop:
+            from properties.domain.exceptions import PropertyNotFoundError
+
+            raise PropertyNotFoundError(str(property_id))
+        prop.aggregate_version += 1
+        return prop

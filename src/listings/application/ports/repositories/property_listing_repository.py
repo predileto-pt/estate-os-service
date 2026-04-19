@@ -1,0 +1,76 @@
+"""Repository port for the `property_listings` read-model table.
+
+Three distinct methods:
+
+- `upsert` — idempotent INSERT/UPDATE from a full carried-state event
+  payload. Guarded by `source_aggregate_version > current` — older
+  events are silently dropped so out-of-order redelivery is safe.
+- `delete_if_newer` — guarded delete. Same version guard as upsert.
+- `update_location` — patch just the enrichment columns after the LLM
+  parses the free-text address. Idempotent (always safe to reapply).
+- `get_by_id` — lookup for testing + the enrichment handler's
+  "increment attempts" path.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from datetime import datetime
+from uuid import UUID
+
+from listings.domain.property_listing import PropertyListing
+
+
+class PropertyListingRepository(ABC):
+    @abstractmethod
+    async def get_by_id(self, property_id: UUID) -> PropertyListing | None: ...
+
+    @abstractmethod
+    async def upsert_from_event(
+        self,
+        *,
+        event_data: dict,
+        source_occurred_at: datetime,
+    ) -> PropertyListing | None:
+        """Insert or update using the carried-state event payload.
+
+        Returns the row if the write succeeded; returns None if the
+        write was idempotency-dropped (incoming `source_aggregate_version`
+        is <= the stored value).
+        """
+
+    @abstractmethod
+    async def delete_if_newer(
+        self,
+        *,
+        property_id: UUID,
+        source_aggregate_version: int,
+        source_occurred_at: datetime,
+    ) -> bool:
+        """Delete the row iff `source_aggregate_version` > current stored
+        value. Returns True if the row was deleted, False if dropped.
+        """
+
+    @abstractmethod
+    async def update_location(
+        self,
+        *,
+        property_id: UUID,
+        parish: str | None,
+        municipality: str | None,
+        district: str | None,
+    ) -> PropertyListing | None:
+        """Patch parish/municipality/district on an existing row. Also
+        bumps `location_enrichment_attempts` and sets
+        `location_enriched_at = NOW()` on success. Returns None if the
+        row doesn't exist (already deleted).
+        """
+
+    @abstractmethod
+    async def increment_enrichment_attempts(
+        self, *, property_id: UUID
+    ) -> PropertyListing | None:
+        """Bump `location_enrichment_attempts` without setting
+        `location_enriched_at` — called when the LLM parse fails so a
+        monitor query can surface stuck rows.
+        """
