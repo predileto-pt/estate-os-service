@@ -31,6 +31,7 @@ class Subscription:
     plan: SubscriptionPlan
     type: SubscriptionType
     status: SubscriptionStatus
+    stripe_customer_id: str | None
     stripe_subscription_id: str | None
     stripe_price_id: str | None
     current_period_start: datetime | None
@@ -41,14 +42,23 @@ class Subscription:
     def update(
         self,
         *,
+        plan: SubscriptionPlan | None = None,
+        type: SubscriptionType | None = None,
         status: SubscriptionStatus | None = None,
+        stripe_customer_id: str | None = None,
         stripe_subscription_id: str | None = None,
         stripe_price_id: str | None = None,
         current_period_start: datetime | None = None,
         current_period_end: datetime | None = None,
     ) -> None:
+        if plan is not None:
+            self.plan = plan
+        if type is not None:
+            self.type = type
         if status is not None:
             self.status = status
+        if stripe_customer_id is not None:
+            self.stripe_customer_id = stripe_customer_id
         if stripe_subscription_id is not None:
             self.stripe_subscription_id = stripe_subscription_id
         if stripe_price_id is not None:

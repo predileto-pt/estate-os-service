@@ -94,6 +94,4 @@ class SupabaseExtractionJobRepository(ExtractionJobRepository):
             .in_("extraction_job_id", job_ids)
             .execute()
         )
-        await (
-            self._client.table("extraction_jobs").delete().in_("id", job_ids).execute()
-        )
+        await self._client.table("extraction_jobs").delete().in_("id", job_ids).execute()

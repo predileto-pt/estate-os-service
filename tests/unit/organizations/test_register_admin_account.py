@@ -28,8 +28,11 @@ from organizations.adapters.inmemory.inmemory_membership_repo import (
 from organizations.adapters.inmemory.inmemory_organization_repo import (
     InMemoryOrganizationRepository,
 )
-from organizations.adapters.inmemory.inmemory_subscription_repo import (
+from billing.adapters.inmemory.inmemory_subscription_repo import (
     InMemorySubscriptionRepository,
+)
+from billing.application.use_cases.seed_freemium_subscription import (
+    SeedFreemiumSubscriptionUseCase,
 )
 from organizations.application.use_cases.register_admin_account import (
     AdminAccountAlreadyExistsError,
@@ -68,18 +71,23 @@ def identity_register_user(identity_user_repo):
 
 
 @pytest.fixture
+def seed_freemium_subscription(subscription_repo):
+    return SeedFreemiumSubscriptionUseCase(subscription_repo=subscription_repo)
+
+
+@pytest.fixture
 def use_case(
     identity_register_user,
     organization_repo,
     membership_repo,
-    subscription_repo,
+    seed_freemium_subscription,
     invitation_repo,
 ):
     return RegisterAdminAccount(
         register_user_port=identity_register_user.execute,
+        seed_freemium_subscription=seed_freemium_subscription,
         organization_repo=organization_repo,
         membership_repo=membership_repo,
-        subscription_repo=subscription_repo,
         invitation_repo=invitation_repo,
     )
 
@@ -120,9 +128,7 @@ async def test_duplicate_account_raises_409_before_org_creation(
         organization_name="First Org",
     )
     initial_orgs = len(organization_repo._orgs) if hasattr(organization_repo, "_orgs") else 1
-    initial_subs = (
-        len(subscription_repo._subs) if hasattr(subscription_repo, "_subs") else 1
-    )
+    initial_subs = len(subscription_repo._subs) if hasattr(subscription_repo, "_subs") else 1
 
     # Retry with the same supabase_user_id — must 409 before creating a
     # second Organization.
@@ -146,9 +152,7 @@ async def test_duplicate_account_raises_409_before_org_creation(
 
 
 @pytest.mark.asyncio
-async def test_step3_retry_after_orphan_succeeds(
-    use_case, identity_register_user, membership_repo
-):
+async def test_step3_retry_after_orphan_succeeds(use_case, identity_register_user, membership_repo):
     """Simulate: step 1 of the first attempt committed the User, but
     step 3 failed and left no Organization/Membership. Caller retries.
     """

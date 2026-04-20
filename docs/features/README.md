@@ -15,7 +15,8 @@ For each feature, you'll find:
 | Context | Doc | Purpose |
 |---------|-----|---------|
 | `identity/` | [identity.md](identity.md) | `User` aggregate (Supabase-backed). Idempotent registration. No organization FK. |
-| `organizations/` | [organizations.md](organizations.md) | Multi-tenant orgs, memberships (the single source of truth for admin access), invitations, subscriptions, notifications |
+| `organizations/` | [organizations.md](organizations.md) | Multi-tenant orgs, memberships (the single source of truth for admin access), invitations, notifications |
+| `billing/` | [billing.md](billing.md) | `Subscription` aggregate + Stripe integration: Checkout, Customer Portal, webhooks, price catalog. Exposes `seed_freemium_subscription_port` consumed by organizations at registration. |
 | `properties/` | [properties.md](properties.md) | Property records, owners, prices, images, AI extraction pipeline, amenity discovery |
 | `listings/` | [listings.md](listings.md) | Public read-only property listings |
 | `screening/` | [screening.md](screening.md) | Applicant document intake, OCR extraction, AI risk assessment |

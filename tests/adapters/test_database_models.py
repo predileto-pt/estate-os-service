@@ -1,6 +1,7 @@
 from shared.database.models import Base
 import identity.adapters.database.models  # noqa: F401 — register models
 import organizations.adapters.database.models  # noqa: F401 — register models
+import billing.adapters.database.models  # noqa: F401 — register models
 import properties.adapters.database.models  # noqa: F401 — register models
 
 
@@ -8,6 +9,7 @@ EXPECTED_TABLES = {
     "organizations",
     "users",
     "subscriptions",
+    "stripe_webhook_events",
     "notifications",
     "memberships",
     "invitations",
@@ -61,6 +63,7 @@ def test_subscriptions_columns():
         "plan",
         "type",
         "status",
+        "stripe_customer_id",
         "stripe_subscription_id",
         "stripe_price_id",
         "current_period_start",

@@ -33,7 +33,7 @@ async def _create_property(client, auth_headers, org_id):
 @pytest.mark.e2e
 async def test_get_amenities_empty(client, auth_headers):
     user_data = await _register_user(client, auth_headers)
-    org_id = user_data["organization_id"]
+    org_id = user_data["organization"]["id"]
     prop = await _create_property(client, auth_headers, org_id)
 
     resp = await client.get(
@@ -47,7 +47,7 @@ async def test_get_amenities_empty(client, auth_headers):
 @pytest.mark.e2e
 async def test_get_amenities_not_authorized(client, auth_headers):
     user_data = await _register_user(client, auth_headers)
-    org_id = user_data["organization_id"]
+    org_id = user_data["organization"]["id"]
     prop = await _create_property(client, auth_headers, org_id)
 
     other_org_id = "00000000-0000-0000-0000-000000000099"
@@ -61,7 +61,7 @@ async def test_get_amenities_not_authorized(client, auth_headers):
 @pytest.mark.e2e
 async def test_discover_amenities_missing_coordinates(client, auth_headers):
     user_data = await _register_user(client, auth_headers)
-    org_id = user_data["organization_id"]
+    org_id = user_data["organization"]["id"]
     prop = await _create_property(client, auth_headers, org_id)
 
     resp = await client.post(

@@ -6,11 +6,6 @@ from pydantic import BaseModel, Field
 from organizations.domain.models.invitation import InvitationStatus
 from organizations.domain.models.membership import MembershipRole
 from organizations.domain.models.notification import NotificationStatus
-from organizations.domain.models.subscription import (
-    SubscriptionPlan,
-    SubscriptionStatus,
-    SubscriptionType,
-)
 
 
 # --- Auth ---
@@ -60,44 +55,6 @@ class OrganizationResponse(BaseModel):
     address: str | None
     created_at: datetime
     updated_at: datetime
-
-
-# --- Subscription ---
-class CreateSubscriptionRequest(BaseModel):
-    plan: SubscriptionPlan
-    type: SubscriptionType
-    status: SubscriptionStatus = SubscriptionStatus.ACTIVE
-    stripe_subscription_id: str | None = None
-    stripe_price_id: str | None = None
-    current_period_start: datetime | None = None
-    current_period_end: datetime | None = None
-
-
-class UpdateSubscriptionRequest(BaseModel):
-    status: SubscriptionStatus | None = None
-    stripe_subscription_id: str | None = None
-    stripe_price_id: str | None = None
-    current_period_start: datetime | None = None
-    current_period_end: datetime | None = None
-
-
-class SubscriptionResponse(BaseModel):
-    id: UUID
-    organization_id: UUID
-    plan: SubscriptionPlan
-    type: SubscriptionType
-    status: SubscriptionStatus
-    stripe_subscription_id: str | None
-    stripe_price_id: str | None
-    current_period_start: datetime | None
-    current_period_end: datetime | None
-    created_at: datetime
-    updated_at: datetime
-
-
-class PlanResponse(BaseModel):
-    name: str
-    label: str
 
 
 # --- Notification ---

@@ -53,7 +53,9 @@ def _membership(user):
     )
 
 
-def _fake_request(path, *, sub="sup-test", method="GET", identity_container=None, orgs_container=None):
+def _fake_request(
+    path, *, sub="sup-test", method="GET", identity_container=None, orgs_container=None
+):
     state = SimpleNamespace(supabase_user_id=sub)
     app_state = SimpleNamespace(
         identity_container=identity_container,

@@ -21,7 +21,7 @@ def _make_organization(**overrides) -> Organization:
     return Organization(**(defaults | overrides))
 
 
-def _make_user(organization_id, **overrides) -> User:
+def _make_user(organization_id=None, **overrides) -> User:
     now = datetime.now(timezone.utc)
     defaults = {
         "id": uuid4(),
@@ -29,7 +29,6 @@ def _make_user(organization_id, **overrides) -> User:
         "email": f"user-{uuid4().hex[:8]}@test.com",
         "name": "Test User",
         "phone": PhoneNumber(country_code="+351", number="912345678"),
-        "organization_id": organization_id,
         "google_metadata": None,
         "created_at": now,
         "updated_at": now,

@@ -17,7 +17,7 @@ async def _register_user(client, auth_headers):
 @pytest.mark.asyncio
 async def test_invite_member(client, auth_headers):
     user = await _register_user(client, auth_headers)
-    org_id = user["organization_id"]
+    org_id = user["organization"]["id"]
     response = await client.post(
         f"/api/v1/admin/invitations?organization_id={org_id}",
         json={"email": "invited@agency.pt", "role": "member"},
@@ -33,7 +33,7 @@ async def test_invite_member(client, auth_headers):
 @pytest.mark.asyncio
 async def test_list_invitations(client, auth_headers):
     user = await _register_user(client, auth_headers)
-    org_id = user["organization_id"]
+    org_id = user["organization"]["id"]
 
     # Invite someone
     await client.post(
@@ -55,7 +55,7 @@ async def test_list_invitations(client, auth_headers):
 @pytest.mark.asyncio
 async def test_revoke_invitation(client, auth_headers):
     user = await _register_user(client, auth_headers)
-    org_id = user["organization_id"]
+    org_id = user["organization"]["id"]
 
     # Invite someone
     invite_resp = await client.post(

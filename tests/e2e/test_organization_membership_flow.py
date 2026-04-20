@@ -18,7 +18,7 @@ async def _register_user(client, auth_headers):
 @pytest.mark.e2e
 async def test_invite_and_list_invitations(client, auth_headers):
     user = await _register_user(client, auth_headers)
-    org_id = user["organization_id"]
+    org_id = user["organization"]["id"]
 
     # Invite a member
     invite_resp = await client.post(
@@ -45,7 +45,7 @@ async def test_invite_and_list_invitations(client, auth_headers):
 @pytest.mark.e2e
 async def test_invite_and_revoke(client, auth_headers):
     user = await _register_user(client, auth_headers)
-    org_id = user["organization_id"]
+    org_id = user["organization"]["id"]
 
     # Invite
     invite_resp = await client.post(

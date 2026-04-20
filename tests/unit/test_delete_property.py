@@ -78,9 +78,7 @@ def use_case(property_repo, extraction_job_repo, storage):
 
 
 class TestDeleteProperty:
-    async def test_deletes_property_with_no_images_or_jobs(
-        self, use_case, property_repo
-    ):
+    async def test_deletes_property_with_no_images_or_jobs(self, use_case, property_repo):
         prop = _make_property()
         await property_repo.save(prop)
 
@@ -144,9 +142,7 @@ class TestDeleteProperty:
         with pytest.raises(PropertyNotFoundError):
             await use_case.execute(property_id=uuid4(), organization_id=ORG_ID)
 
-    async def test_wrong_organization_raises_not_found(
-        self, use_case, property_repo
-    ):
+    async def test_wrong_organization_raises_not_found(self, use_case, property_repo):
         prop = _make_property()
         await property_repo.save(prop)
 

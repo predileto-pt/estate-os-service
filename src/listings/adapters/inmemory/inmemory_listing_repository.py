@@ -32,13 +32,15 @@ class InMemoryListingRepository(ListingRepository):
         return self._properties.get(property_id)
 
     async def count_active(self, filters: PropertyFilters) -> int:
-        results = await self.list_active(PropertyFilters(
-            listing_type=filters.listing_type,
-            typology=filters.typology,
-            min_price=filters.min_price,
-            max_price=filters.max_price,
-            district=filters.district,
-            limit=999999,
-            offset=0,
-        ))
+        results = await self.list_active(
+            PropertyFilters(
+                listing_type=filters.listing_type,
+                typology=filters.typology,
+                min_price=filters.min_price,
+                max_price=filters.max_price,
+                district=filters.district,
+                limit=999999,
+                offset=0,
+            )
+        )
         return len(results)

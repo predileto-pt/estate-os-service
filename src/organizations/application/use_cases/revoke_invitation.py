@@ -12,7 +12,6 @@ from organizations.application.ports.repositories.user_repository import UserRep
 from organizations.domain.exceptions import (
     InsufficientPermissionError,
     InvitationNotFoundError,
-    UserNotFoundError,
 )
 from organizations.domain.models.authorization import has_permission
 from organizations.domain.models.invitation import Invitation, InvitationStatus
@@ -34,19 +33,15 @@ class RevokeInvitation:
     async def execute(
         self,
         *,
-        supabase_user_id: str,
+        requester_user_id: UUID,
         invitation_id: UUID,
     ) -> Invitation:
-        user = await self.user_repo.get_by_supabase_id(supabase_user_id)
-        if not user:
-            raise UserNotFoundError(supabase_user_id)
-
         invitation = await self.invitation_repo.get_by_id(invitation_id)
         if not invitation:
             raise InvitationNotFoundError(str(invitation_id))
 
         membership = await self.membership_repo.get_by_user_and_organization(
-            user.id, invitation.organization_id
+            requester_user_id, invitation.organization_id
         )
         if not membership or not has_permission(membership.role, "member.invite"):
             raise InsufficientPermissionError("member.invite")

@@ -87,11 +87,17 @@ def _to_response(prop: ListedProperty, image_urls: dict[str, str]) -> ListedProp
 )
 async def list_properties(
     request: Request,
-    listing_type: ListingType | None = Query(None, description="Filter by listing type (sale/purchase)"),
-    typology: Typology | None = Query(None, description="Filter by typology (house/apartment/land/ruin)"),
+    listing_type: ListingType | None = Query(
+        None, description="Filter by listing type (sale/purchase)"
+    ),
+    typology: Typology | None = Query(
+        None, description="Filter by typology (house/apartment/land/ruin)"
+    ),
     min_price: Decimal | None = Query(None, ge=0, description="Minimum price filter"),
     max_price: Decimal | None = Query(None, ge=0, description="Maximum price filter"),
-    district: str | None = Query(None, description="Filter by district/location (partial match on address)"),
+    district: str | None = Query(
+        None, description="Filter by district/location (partial match on address)"
+    ),
     limit: int = Query(20, ge=1, le=100, description="Number of results per page"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
 ) -> PaginatedListingResponse:

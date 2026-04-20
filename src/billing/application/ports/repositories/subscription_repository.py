@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from organizations.domain.models.subscription import Subscription
+from billing.domain.models.subscription import Subscription
 
 
 class SubscriptionRepository(ABC):
@@ -10,6 +10,9 @@ class SubscriptionRepository(ABC):
 
     @abstractmethod
     async def get_by_organization_id(self, organization_id: UUID) -> Subscription | None: ...
+
+    @abstractmethod
+    async def get_by_stripe_customer_id(self, stripe_customer_id: str) -> Subscription | None: ...
 
     @abstractmethod
     async def save(self, subscription: Subscription) -> Subscription: ...

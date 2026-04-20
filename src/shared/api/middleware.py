@@ -20,7 +20,9 @@ PUBLIC_PATHS = {
 # Prefix-based public paths: any request whose path starts with one of these
 # bypasses JWT auth. Used for routers mounted at public roots (e.g. listings)
 # where individual path params (IDs, slugs) make exact-matching infeasible.
-PUBLIC_PREFIXES = ("/api/v1/listings/",)
+# Stripe webhook uses the signature header for auth, not a JWT — the route
+# handler calls `BillingGateway.verify_webhook` to validate the payload.
+PUBLIC_PREFIXES = ("/api/v1/listings/", "/api/v1/billing/webhooks/")
 
 # Registration paths bypass the `IdentityMiddleware` User-exists + membership
 # checks (Q6 = 6.a). JWT is still verified by `JWTAuthMiddleware`; the route
@@ -93,11 +95,7 @@ class IdentityMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
-        if (
-            path in PUBLIC_PATHS
-            or path.startswith(PUBLIC_PREFIXES)
-            or request.method == "OPTIONS"
-        ):
+        if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES) or request.method == "OPTIONS":
             return await call_next(request)
 
         sub = getattr(request.state, "supabase_user_id", None)

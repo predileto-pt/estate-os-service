@@ -50,7 +50,8 @@ Hexagonal (ports & adapters) architecture with three layers:
 | Context | Package | Container | Notes |
 |---|---|---|---|
 | **Identity** | `src/identity/` | `app.state.identity_container` | User aggregate only. No organization FK on `User`. |
-| **Organizations** | `src/organizations/` | `app.state.organizations_container` (alias: `app.state.container`) | Organization, Membership, Invitation, Subscription, Notification. Owns the `users` table read from org-side via its own `UserRepository` port (internal mirror of identity's User class). |
+| **Organizations** | `src/organizations/` | `app.state.organizations_container` (alias: `app.state.container`) | Organization, Membership, Invitation, Notification. Owns the `users` table read from org-side via its own `UserRepository` port (internal mirror of identity's User class). |
+| **Billing** | `src/billing/` | `app.state.billing_container` | Subscription aggregate + Stripe integration (Checkout, Customer Portal, webhooks, price catalog, idempotency store). Exposes `seed_freemium_subscription_port` consumed by organizations during admin registration. |
 | **Properties** | `src/properties/` | `app.state.property_container` | |
 | **Screening** | `src/screening/` | `app.state.screening_container` | Applicant screening + document extraction. |
 | **Bookings** | `src/bookings/` | `app.state.booking_container` | Slot + booking management. |
@@ -59,8 +60,9 @@ Hexagonal (ports & adapters) architecture with three layers:
 
 Cross-context dependency rules:
 
-- **Organizations depends on Identity** via two callable Protocols (`UserLookupById`, `RegisterUserPort`) injected at container construction. No imports of identity domain classes in organizations' business code. See `docs/features/organizations.md`.
+- **Organizations depends on Identity and Billing** via callable Protocols injected at container construction: `RegisterUserPort` (identity) and `SeedFreemiumSubscription` (billing). No imports of identity or billing domain classes in organizations' business code — only the Protocol types. See `docs/features/organizations.md` and `docs/features/billing.md`.
 - **Identity does not import from any other context.** Enforced by `grep -rn "from organizations" src/identity/` → zero hits.
+- **Billing does not import from organizations.** Enforced by `grep -rn "from organizations" src/billing/` → zero hits.
 - **Every other context (properties, screening, bookings, ...)** imports `identity.User` for route type hints via `require_org_member`, and `organizations.Membership` for the same. Neither property nor other-context imports leak into identity or organizations.
 - **Shared infrastructure** (`src/shared/`) — middleware, events, database engine, config — may call any bounded context's container directly. It's not a bounded context itself.
 

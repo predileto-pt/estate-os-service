@@ -67,9 +67,7 @@ class PropertyListingRepository(ABC):
         """
 
     @abstractmethod
-    async def increment_enrichment_attempts(
-        self, *, property_id: UUID
-    ) -> PropertyListing | None:
+    async def increment_enrichment_attempts(self, *, property_id: UUID) -> PropertyListing | None:
         """Bump `location_enrichment_attempts` without setting
         `location_enriched_at` — called when the LLM parse fails so a
         monitor query can surface stuck rows.

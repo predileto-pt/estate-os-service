@@ -14,7 +14,6 @@ from organizations.application.ports.repositories.user_repository import UserRep
 from organizations.domain.exceptions import (
     InsufficientPermissionError,
     MembershipAlreadyExistsError,
-    UserNotFoundError,
 )
 from organizations.domain.models.authorization import has_permission
 from organizations.domain.models.invitation import Invitation, InvitationStatus
@@ -39,17 +38,13 @@ class InviteMember:
     async def execute(
         self,
         *,
-        supabase_user_id: str,
+        inviter_user_id: UUID,
         organization_id: UUID,
         email: str,
         role: MembershipRole,
     ) -> Invitation:
-        inviter = await self.user_repo.get_by_supabase_id(supabase_user_id)
-        if not inviter:
-            raise UserNotFoundError(supabase_user_id)
-
         membership = await self.membership_repo.get_by_user_and_organization(
-            inviter.id, organization_id
+            inviter_user_id, organization_id
         )
         if not membership or not has_permission(membership.role, "member.invite"):
             raise InsufficientPermissionError("member.invite")
@@ -69,7 +64,7 @@ class InviteMember:
             organization_id=organization_id,
             email=email,
             role=role,
-            invited_by=inviter.id,
+            invited_by=inviter_user_id,
             token=secrets.token_urlsafe(32),
             status=InvitationStatus.PENDING,
             expires_at=now + timedelta(days=INVITATION_EXPIRY_DAYS),

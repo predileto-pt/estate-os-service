@@ -10,7 +10,6 @@ from organizations.application.ports.repositories.user_repository import UserRep
 from organizations.domain.exceptions import (
     AuthorizationError,
     OrganizationNotFoundError,
-    UserNotFoundError,
 )
 from organizations.domain.models.organization import Organization
 
@@ -26,13 +25,9 @@ class GetOrganization:
         self.user_repo = user_repo
         self.membership_repo = membership_repo
 
-    async def execute(self, *, supabase_user_id: str, organization_id: UUID) -> Organization:
-        user = await self.user_repo.get_by_supabase_id(supabase_user_id)
-        if not user:
-            raise UserNotFoundError(supabase_user_id)
-
+    async def execute(self, *, requester_user_id: UUID, organization_id: UUID) -> Organization:
         membership = await self.membership_repo.get_by_user_and_organization(
-            user.id, organization_id
+            requester_user_id, organization_id
         )
         if not membership:
             raise AuthorizationError("Not authorized to access this organization")

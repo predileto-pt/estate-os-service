@@ -18,10 +18,12 @@ async def test_register(client, auth_headers):
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["email"] == "joao@agency.pt"
-    assert data["name"] == "João Silva"
-    assert data["phone"]["country_code"] == "+351"
-    assert data["supabase_user_id"] == TEST_SUPABASE_USER_ID
+    assert data["user"]["email"] == "joao@agency.pt"
+    assert data["user"]["name"] == "João Silva"
+    assert data["user"]["phone"]["country_code"] == "+351"
+    assert data["user"]["supabase_user_id"] == TEST_SUPABASE_USER_ID
+    assert data["organization"]["name"] == "Imobiliária Silva"
+    assert data["membership"]["role"] == "owner"
 
 
 @pytest.mark.asyncio
@@ -39,7 +41,7 @@ async def test_register_creates_membership(client, auth_headers, membership_repo
     data = response.json()
     from uuid import UUID
 
-    user_id = UUID(data["id"])
+    user_id = UUID(data["user"]["id"])
     memberships = await membership_repo.list_by_user(user_id)
     assert len(memberships) == 1
     assert memberships[0].role.value == "owner"
@@ -69,9 +71,9 @@ async def test_register_without_organization_name(client, auth_headers):
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["email"] == "google@test.com"
-    assert data["name"] == "Google User"
-    assert data["organization_id"] is not None
+    assert data["user"]["email"] == "google@test.com"
+    assert data["user"]["name"] == "Google User"
+    assert data["organization"]["id"] is not None
 
 
 @pytest.mark.asyncio
@@ -91,14 +93,17 @@ async def test_get_me(client, auth_headers):
     assert response.status_code == 200
     data = response.json()
     assert data["user"]["email"] == "joao@agency.pt"
-    assert data["organization"]["name"] == "Imobiliária Silva"
-    assert data["role"] == "owner"
+    assert len(data["memberships"]) == 1
+    assert data["memberships"][0]["organization_name"] == "Imobiliária Silva"
+    assert data["memberships"][0]["role"] == "owner"
 
 
 @pytest.mark.asyncio
 async def test_get_me_not_registered(client, auth_headers):
     response = await client.get("/api/v1/admin/auth/me", headers=auth_headers)
-    assert response.status_code == 404
+    # Middleware returns 401 when the supabase_user_id has no corresponding
+    # User row yet (pre-registration).
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio

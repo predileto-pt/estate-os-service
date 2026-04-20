@@ -24,6 +24,4 @@ class InMemoryAddressParser(AddressParser):
         parish = chunks[0] if len(chunks) >= 1 else None
         municipality = chunks[1] if len(chunks) >= 2 else None
         district = chunks[2] if len(chunks) >= 3 else None
-        return ParsedAddress(
-            parish=parish, municipality=municipality, district=district
-        )
+        return ParsedAddress(parish=parish, municipality=municipality, district=district)

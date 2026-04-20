@@ -38,9 +38,7 @@ class InMemoryMembershipRepository(MembershipRepository):
     async def list_by_user(self, user_id: UUID) -> list[Membership]:
         return [m for m in self._memberships.values() if m.user_id == user_id]
 
-    async def list_by_user_id_with_org_names(
-        self, user_id: UUID
-    ) -> list[MembershipWithOrgName]:
+    async def list_by_user_id_with_org_names(self, user_id: UUID) -> list[MembershipWithOrgName]:
         out: list[MembershipWithOrgName] = []
         for m in self._memberships.values():
             if m.user_id != user_id:

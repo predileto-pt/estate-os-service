@@ -1,9 +1,9 @@
 from uuid import UUID
 
-from organizations.application.ports.repositories.subscription_repository import (
+from billing.application.ports.repositories.subscription_repository import (
     SubscriptionRepository,
 )
-from organizations.domain.models.subscription import Subscription
+from billing.domain.models.subscription import Subscription
 
 
 class InMemorySubscriptionRepository(SubscriptionRepository):
@@ -16,6 +16,12 @@ class InMemorySubscriptionRepository(SubscriptionRepository):
     async def get_by_organization_id(self, organization_id: UUID) -> Subscription | None:
         for sub in self._subscriptions.values():
             if sub.organization_id == organization_id:
+                return sub
+        return None
+
+    async def get_by_stripe_customer_id(self, stripe_customer_id: str) -> Subscription | None:
+        for sub in self._subscriptions.values():
+            if sub.stripe_customer_id == stripe_customer_id:
                 return sub
         return None
 

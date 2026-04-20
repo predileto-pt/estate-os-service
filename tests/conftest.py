@@ -22,7 +22,7 @@ from organizations.adapters.inmemory.inmemory_notification_repo import (
 from organizations.adapters.inmemory.inmemory_organization_repo import (
     InMemoryOrganizationRepository,
 )
-from organizations.adapters.inmemory.inmemory_subscription_repo import (
+from billing.adapters.inmemory.inmemory_subscription_repo import (
     InMemorySubscriptionRepository,
 )
 from organizations.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
@@ -114,25 +114,76 @@ def identity_container():
 
 
 @pytest.fixture
+def billing_gateway():
+    from billing.adapters.inmemory.inmemory_billing_gateway import (
+        InMemoryBillingGateway,
+    )
+
+    return InMemoryBillingGateway()
+
+
+@pytest.fixture
+def stripe_webhook_events_repo():
+    from billing.adapters.inmemory.inmemory_stripe_webhook_events_repo import (
+        InMemoryStripeWebhookEventsRepository,
+    )
+
+    return InMemoryStripeWebhookEventsRepository()
+
+
+@pytest.fixture
+def price_catalog():
+    from billing.application.use_cases.price_catalog import PriceCatalog
+
+    return PriceCatalog(
+        pro_monthly="price_pro_monthly_test",
+        pro_yearly="price_pro_yearly_test",
+        enterprise_monthly="price_enterprise_monthly_test",
+        enterprise_yearly="price_enterprise_yearly_test",
+    )
+
+
+@pytest.fixture
+def billing_container(
+    subscription_repo,
+    billing_gateway,
+    stripe_webhook_events_repo,
+    price_catalog,
+):
+    from billing.container import Container as BillingContainer
+
+    return BillingContainer(
+        subscription_repo=subscription_repo,
+        billing_gateway=billing_gateway,
+        stripe_webhook_events_repo=stripe_webhook_events_repo,
+        price_catalog=price_catalog,
+        trial_period_days=7,
+        checkout_success_url="http://test/billing/return?session_id={CHECKOUT_SESSION_ID}",
+        checkout_cancel_url="http://test/dashboard/settings/subscriptions?checkout=cancelled",
+        portal_return_url="http://test/dashboard/settings/subscriptions",
+    )
+
+
+@pytest.fixture
 def container(
     user_repo,
     organization_repo,
-    subscription_repo,
     notification_repo,
     membership_repo,
     invitation_repo,
     email_service,
     identity_container,
+    billing_container,
 ):
     return Container(
         user_repo=user_repo,
         organization_repo=organization_repo,
-        subscription_repo=subscription_repo,
         notification_repo=notification_repo,
         membership_repo=membership_repo,
         invitation_repo=invitation_repo,
         email_service=email_service,
         register_user_port=identity_container.register_user_port,
+        seed_freemium_subscription=billing_container.seed_freemium_subscription_port,
     )
 
 
@@ -204,11 +255,12 @@ def property_container(
 
 
 @pytest.fixture
-def app(container, identity_container, property_container, monkeypatch):
+def app(container, identity_container, billing_container, property_container, monkeypatch):
     monkeypatch.setattr("shared.config.settings.supabase_jwt_secret", TEST_JWT_SECRET)
     return create_app(
         container=container,
         identity_container=identity_container,
+        billing_container=billing_container,
         property_container=property_container,
     )
 
@@ -227,14 +279,21 @@ def auth_headers():
 
 
 @pytest.fixture
-async def seed_test_member(user_repo, membership_repo):
+async def seed_test_member(user_repo, membership_repo, identity_container):
     """Seed the JWT test user + Membership in TEST_ORGANIZATION_ID.
 
     Property and extraction-job routes enforce org membership via
     `require_org_member` / `assert_org_member`. Tests that hit those routes
     with `auth_headers` must request this fixture (or autouse it) so the
     JWT's `sub` resolves to a real domain User with a Membership.
+
+    The User is mirrored into both the identity container (for the
+    middleware's `find_user.by_supabase_id` lookup) and the organizations
+    container's UserRepository (for org-side use cases that read users
+    by email/id).
     """
+    from identity.domain.models.user import User as IdentityUser
+
     now = datetime.now(timezone.utc)
     test_user_id = UUID("00000000-0000-0000-0000-000000000001")
     test_org_id = UUID(TEST_ORGANIZATION_ID)
@@ -244,12 +303,22 @@ async def seed_test_member(user_repo, membership_repo):
         email="test@example.com",
         name="Test User",
         phone=None,
-        organization_id=test_org_id,
         google_metadata=None,
         created_at=now,
         updated_at=now,
     )
     await user_repo.save(user)
+    identity_user = IdentityUser(
+        id=test_user_id,
+        supabase_user_id=TEST_SUPABASE_USER_ID,
+        email="test@example.com",
+        name="Test User",
+        phone=None,
+        google_metadata=None,
+        created_at=now,
+        updated_at=now,
+    )
+    await identity_container.user_repo.save(identity_user)
     membership = Membership(
         id=uuid4(),
         user_id=test_user_id,

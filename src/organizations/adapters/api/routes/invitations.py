@@ -2,7 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from shared.api.dependencies import get_supabase_user_id
+from identity.domain.models.user import User
+from shared.api.dependencies import get_current_user
 from organizations.adapters.api.schemas import (
     InvitationResponse,
     InviteMemberRequest,
@@ -12,7 +13,6 @@ from organizations.domain.exceptions import (
     InsufficientPermissionError,
     InvitationNotFoundError,
     MembershipAlreadyExistsError,
-    UserNotFoundError,
 )
 
 router = APIRouter(prefix="/invitations", tags=["invitations"])
@@ -46,19 +46,17 @@ async def invite_member(
     body: InviteMemberRequest,
     request: Request,
     organization_id: UUID,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    user: User = Depends(get_current_user),
 ):
     invite_uc = request.app.state.container.invite_member
 
     try:
         invitation = await invite_uc.execute(
-            supabase_user_id=supabase_user_id,
+            inviter_user_id=user.id,
             organization_id=organization_id,
             email=body.email,
             role=body.role,
         )
-    except UserNotFoundError:
-        raise HTTPException(status_code=404, detail="User not found")
     except (InsufficientPermissionError, AuthorizationError):
         raise HTTPException(status_code=403, detail="Not authorized")
     except MembershipAlreadyExistsError:
@@ -79,16 +77,14 @@ async def invite_member(
 async def list_invitations(
     request: Request,
     organization_id: UUID,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    user: User = Depends(get_current_user),
 ):
     list_invitations_uc = request.app.state.container.list_invitations
 
     try:
         invitations = await list_invitations_uc.execute(
-            supabase_user_id=supabase_user_id, organization_id=organization_id
+            requester_user_id=user.id, organization_id=organization_id
         )
-    except UserNotFoundError:
-        raise HTTPException(status_code=404, detail="User not found")
     except AuthorizationError:
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -108,17 +104,15 @@ async def list_invitations(
 async def revoke_invitation(
     invitation_id: UUID,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    user: User = Depends(get_current_user),
 ):
     revoke_uc = request.app.state.container.revoke_invitation
 
     try:
         await revoke_uc.execute(
-            supabase_user_id=supabase_user_id,
+            requester_user_id=user.id,
             invitation_id=invitation_id,
         )
-    except UserNotFoundError:
-        raise HTTPException(status_code=404, detail="User not found")
     except InvitationNotFoundError:
         raise HTTPException(status_code=404, detail="Invitation not found")
     except (InsufficientPermissionError, AuthorizationError):

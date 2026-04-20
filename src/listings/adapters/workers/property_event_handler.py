@@ -86,6 +86,4 @@ async def handle_property_event(event: DomainEvent, context: dict) -> None:
         # Same log-and-swallow as write-side emissions. A missed
         # enrichment leaves parish/municipality/district NULL; the next
         # PROPERTY_UPDATED event will re-queue enrichment anyway.
-        log.exception(
-            "property_listings.enrichment_publish_failed", property_id=data["id"]
-        )
+        log.exception("property_listings.enrichment_publish_failed", property_id=data["id"])

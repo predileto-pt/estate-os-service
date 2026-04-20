@@ -12,10 +12,11 @@ from shared.database.models import Base
 import bookings.adapters.database.models  # noqa: F401 — register models for autogenerate
 import contract_intelligence.adapters.database.models  # noqa: F401 — register models for autogenerate
 import identity.adapters.database.models  # noqa: F401 — register models for autogenerate
-import listings.adapters.database.property_listing_model  # noqa: F401 — register models for autogenerate
 import organizations.adapters.database.models  # noqa: F401 — register models for autogenerate
+import billing.adapters.database.models  # noqa: F401 — register models for autogenerate (after organizations; SubscriptionModel.organization_id FKs to organizations.id)
 import properties.adapters.database.models  # noqa: F401 — register models for autogenerate
 import screening.adapters.database.models  # noqa: F401 — register models for autogenerate
+import listings.adapters.database.property_listing_model  # noqa: F401 — register models for autogenerate (after properties, since listings read-model extends those tables)
 
 config = context.config
 

@@ -10,7 +10,6 @@ from organizations.application.ports.repositories.user_repository import UserRep
 from organizations.domain.exceptions import (
     InsufficientPermissionError,
     OrganizationNotFoundError,
-    UserNotFoundError,
 )
 from organizations.domain.models.authorization import has_permission
 from organizations.domain.models.organization import Organization
@@ -31,17 +30,13 @@ class UpdateOrganization:
         self,
         *,
         organization_id: UUID,
-        supabase_user_id: str,
+        requester_user_id: UUID,
         name: str | None = None,
         nif: str | None = None,
         address: str | None = None,
     ) -> Organization:
-        user = await self.user_repo.get_by_supabase_id(supabase_user_id)
-        if not user:
-            raise UserNotFoundError(supabase_user_id)
-
         membership = await self.membership_repo.get_by_user_and_organization(
-            user.id, organization_id
+            requester_user_id, organization_id
         )
         if not membership or not has_permission(membership.role, "organization.update"):
             raise InsufficientPermissionError("organization.update")

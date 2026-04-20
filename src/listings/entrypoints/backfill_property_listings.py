@@ -61,9 +61,11 @@ async def _backfill() -> None:
     # Walk orgs → properties. `list_by_user` on the membership repo
     # gives us org_ids the way prod code already does — reusing the
     # established surface rather than adding a new "list all orgs" port.
-    orgs = await orgs_container.organization_repo.list_all() \
-        if hasattr(orgs_container.organization_repo, "list_all") \
+    orgs = (
+        await orgs_container.organization_repo.list_all()
+        if hasattr(orgs_container.organization_repo, "list_all")
         else []
+    )
     if not orgs:
         log.warning(
             "backfill.no_list_all_method",
@@ -74,9 +76,11 @@ async def _backfill() -> None:
         )
         # Conservative fallback: walk the memberships table. Every
         # property has an org; every org has at least one membership.
-        memberships = await orgs_container.membership_repo.list_all() \
-            if hasattr(orgs_container.membership_repo, "list_all") \
+        memberships = (
+            await orgs_container.membership_repo.list_all()
+            if hasattr(orgs_container.membership_repo, "list_all")
             else []
+        )
         org_ids = {m.organization_id for m in memberships}
     else:
         org_ids = {o.id for o in orgs}

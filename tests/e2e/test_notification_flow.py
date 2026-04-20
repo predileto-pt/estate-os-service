@@ -18,7 +18,7 @@ async def _register_user(client, auth_headers):
 @pytest.mark.e2e
 async def test_create_list_and_mark_read(client, auth_headers):
     user = await _register_user(client, auth_headers)
-    user_id = user["id"]
+    user_id = user["user"]["id"]
 
     # Create notification
     create_resp = await client.post(

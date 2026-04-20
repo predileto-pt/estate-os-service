@@ -15,6 +15,8 @@ from organizations.adapters.database.repositories import (
     SqlAlchemyMembershipRepository,
     SqlAlchemyNotificationRepository,
     SqlAlchemyOrganizationRepository,
+)
+from billing.adapters.database.subscription_repository import (
     SqlAlchemySubscriptionRepository,
 )
 from properties.adapters.database.repositories import (

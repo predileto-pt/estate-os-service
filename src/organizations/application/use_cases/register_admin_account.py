@@ -8,13 +8,17 @@ Orchestrates the three-step flow documented in the identity-split spec:
 2. Duplicate-account check: if the user already has ANY memberships,
    raise `AdminAccountAlreadyExistsError` (mapped to HTTP 409 in the
    route handler). Rules out double-submits and portal-user-promotes.
-3. Create Organization + OwnerMembership + Subscription in a single
-   organizations-local transaction. If this raises, the User from step 1
-   is orphaned but the request is safely retryable — on retry, step 1
-   no-ops and step 3 reruns.
+3. Create Organization + OwnerMembership. If it's a fresh org (not an
+   invitation acceptance), seed the default freemium Subscription via
+   billing's `SeedFreemiumSubscription` callable. If any step fails, the
+   User from step 1 is orphaned but the request is safely retryable —
+   on retry, step 1 no-ops and step 3 reruns.
 
-Cross-context dependency is one-way: this use case calls identity via
-the `RegisterUserPort` Protocol. Identity never imports from organizations.
+Cross-context dependencies are all one-way via callable Protocols:
+- `RegisterUserPort` → identity
+- `SeedFreemiumSubscription` → billing
+
+Identity and billing never import from organizations.
 """
 
 from datetime import datetime, timezone
@@ -23,6 +27,10 @@ from uuid import uuid4
 
 import structlog
 
+from billing.application.ports.seed_freemium_subscription import (
+    SeedFreemiumSubscription,
+)
+from billing.domain.models.subscription import Subscription
 from identity.domain.models.user import User
 from identity.domain.value_objects import PhoneNumber
 from organizations.application.ports.repositories.invitation_repository import (
@@ -34,19 +42,10 @@ from organizations.application.ports.repositories.membership_repository import (
 from organizations.application.ports.repositories.organization_repository import (
     OrganizationRepository,
 )
-from organizations.application.ports.repositories.subscription_repository import (
-    SubscriptionRepository,
-)
 from organizations.domain.exceptions import DomainError
 from organizations.domain.models.invitation import InvitationStatus
 from organizations.domain.models.membership import Membership, MembershipRole
 from organizations.domain.models.organization import Organization
-from organizations.domain.models.subscription import (
-    Subscription,
-    SubscriptionPlan,
-    SubscriptionStatus,
-    SubscriptionType,
-)
 
 log = structlog.get_logger()
 
@@ -75,15 +74,15 @@ class RegisterAdminAccount:
     def __init__(
         self,
         register_user_port: RegisterUserPort,
+        seed_freemium_subscription: SeedFreemiumSubscription,
         organization_repo: OrganizationRepository,
         membership_repo: MembershipRepository,
-        subscription_repo: SubscriptionRepository,
         invitation_repo: InvitationRepository,
     ) -> None:
         self.register_user_port = register_user_port
+        self.seed_freemium_subscription = seed_freemium_subscription
         self.organization_repo = organization_repo
         self.membership_repo = membership_repo
-        self.subscription_repo = subscription_repo
         self.invitation_repo = invitation_repo
 
     async def execute(
@@ -95,7 +94,7 @@ class RegisterAdminAccount:
         phone: PhoneNumber | None = None,
         organization_name: str | None = None,
         google_metadata: dict | None = None,
-    ) -> tuple[User, Organization, Membership, Subscription]:
+    ) -> tuple[User, Organization, Membership, Subscription | None]:
         # Step 1 — identity-local, idempotent.
         user = await self.register_user_port(
             supabase_user_id=supabase_user_id,
@@ -115,12 +114,13 @@ class RegisterAdminAccount:
             )
             raise AdminAccountAlreadyExistsError("Admin account already exists")
 
-        # Step 3 — organizations-local tx: Org + OwnerMembership + Subscription.
+        # Step 3 — org-local tx + (if fresh org) billing seed.
         now = datetime.now(timezone.utc)
         role = MembershipRole.OWNER
 
         # Honour pending email invitation if one exists: join the existing
-        # org instead of creating a new one.
+        # org instead of creating a new one. No billing seed in this branch —
+        # the existing org already has its own Subscription.
         invitation = await self.invitation_repo.get_pending_by_email(email)
         if invitation:
             organization_id = invitation.organization_id
@@ -128,7 +128,7 @@ class RegisterAdminAccount:
             organization = await self.organization_repo.get_by_id(organization_id)
             invitation.status = InvitationStatus.ACCEPTED
             await self.invitation_repo.update(invitation)
-            subscription = None  # Joining existing org — no new sub.
+            subscription: Subscription | None = None
         else:
             organization = Organization(
                 id=uuid4(),
@@ -142,20 +142,8 @@ class RegisterAdminAccount:
             organization = await self.organization_repo.save(organization)
             organization_id = organization.id
 
-            subscription = Subscription(
-                id=uuid4(),
-                organization_id=organization_id,
-                plan=SubscriptionPlan.FREEMIUM,
-                type=SubscriptionType.MANUAL,
-                status=SubscriptionStatus.ACTIVE,
-                stripe_subscription_id=None,
-                stripe_price_id=None,
-                current_period_start=now,
-                current_period_end=None,
-                created_at=now,
-                updated_at=now,
-            )
-            subscription = await self.subscription_repo.save(subscription)
+            # Cross-context: billing seeds the default freemium Subscription.
+            subscription = await self.seed_freemium_subscription(organization_id=organization_id)
 
         membership = Membership(
             id=uuid4(),

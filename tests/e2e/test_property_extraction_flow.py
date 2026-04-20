@@ -22,7 +22,7 @@ async def test_presign_upload_and_submit_extraction(
     client, auth_headers, sqs_client, sqs_queue_url
 ):
     user_data = await _register_user(client, auth_headers)
-    org_id = user_data.get("organization_id", "")
+    org_id = user_data["organization"]["id"]
 
     # Generate presigned upload URL
     presign_resp = await client.post(
@@ -86,7 +86,7 @@ async def test_presign_upload_and_submit_extraction(
 @pytest.mark.e2e
 async def test_list_extraction_jobs(client, auth_headers):
     user_data = await _register_user(client, auth_headers)
-    org_id = user_data.get("organization_id", "")
+    org_id = user_data["organization"]["id"]
 
     list_resp = await client.get(
         f"/api/v1/admin/extraction-jobs/?organization_id={org_id}", headers=auth_headers

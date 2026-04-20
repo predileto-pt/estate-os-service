@@ -397,9 +397,7 @@ class SqlAlchemyExtractionJobRepository(ExtractionJobRepository):
             return
 
         await self._session.execute(
-            delete(DocumentContentModel).where(
-                DocumentContentModel.extraction_job_id.in_(job_ids)
-            )
+            delete(DocumentContentModel).where(DocumentContentModel.extraction_job_id.in_(job_ids))
         )
         await self._session.execute(
             delete(ExtractionJobModel).where(ExtractionJobModel.id.in_(job_ids))

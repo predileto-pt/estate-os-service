@@ -10,7 +10,6 @@ from organizations.domain.exceptions import (
     InsufficientPermissionError,
     LastOwnerError,
     MembershipNotFoundError,
-    UserNotFoundError,
 )
 from organizations.domain.models.authorization import has_permission
 from organizations.domain.models.membership import MembershipRole
@@ -30,19 +29,15 @@ class RemoveMember:
     async def execute(
         self,
         *,
-        supabase_user_id: str,
+        requester_user_id: UUID,
         membership_id: UUID,
     ) -> None:
-        requester = await self.user_repo.get_by_supabase_id(supabase_user_id)
-        if not requester:
-            raise UserNotFoundError(supabase_user_id)
-
         target = await self.membership_repo.get_by_id(membership_id)
         if not target:
             raise MembershipNotFoundError(str(membership_id))
 
         requester_membership = await self.membership_repo.get_by_user_and_organization(
-            requester.id, target.organization_id
+            requester_user_id, target.organization_id
         )
         if not requester_membership or not has_permission(
             requester_membership.role, "member.remove"

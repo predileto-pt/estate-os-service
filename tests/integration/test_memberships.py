@@ -17,7 +17,7 @@ async def _register_user(client, auth_headers):
 @pytest.mark.asyncio
 async def test_list_members(client, auth_headers):
     user = await _register_user(client, auth_headers)
-    org_id = user["organization_id"]
+    org_id = user["organization"]["id"]
     response = await client.get(
         f"/api/v1/admin/memberships?organization_id={org_id}",
         headers=auth_headers,
@@ -26,13 +26,13 @@ async def test_list_members(client, auth_headers):
     members = response.json()
     assert len(members) == 1
     assert members[0]["role"] == "owner"
-    assert members[0]["user_id"] == user["id"]
+    assert members[0]["user_id"] == user["user"]["id"]
 
 
 @pytest.mark.asyncio
 async def test_update_member_role(client, auth_headers, membership_repo):
     user = await _register_user(client, auth_headers)
-    org_id = user["organization_id"]
+    org_id = user["organization"]["id"]
 
     # Register a second user to update
 
@@ -55,7 +55,7 @@ async def test_update_member_role(client, auth_headers, membership_repo):
 @pytest.mark.asyncio
 async def test_remove_last_owner_fails(client, auth_headers):
     user = await _register_user(client, auth_headers)
-    org_id = user["organization_id"]
+    org_id = user["organization"]["id"]
 
     response = await client.get(
         f"/api/v1/admin/memberships?organization_id={org_id}",

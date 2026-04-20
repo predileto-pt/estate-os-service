@@ -50,6 +50,12 @@ Edit `.env` with your values:
 | `SQS_APPLICANT_EXTRACTION_QUEUE_URL` / `_DLQ_URL` | Command queue for applicant document extraction + DLQ |
 | `SQS_APPLICANT_SCREENING_QUEUE_URL` / `_DLQ_URL` | Command queue for applicant screening + DLQ |
 | `GOOGLE_MAPS_API_KEY` | Google Maps API key (Places API enabled) |
+| `APP_URL` | Frontend base URL (e.g. `http://localhost:4000`) — used to build Stripe Checkout success / cancel + Customer Portal return URLs |
+| `STRIPE_API_KEY` | Stripe secret key (sandbox: `sk_test_...`, prod: `sk_live_...`) |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret for `/api/v1/billing/webhooks/stripe` (`whsec_...`) |
+| `STRIPE_PRICE_PRO_MONTHLY` / `_YEARLY` | Stripe `price_*` IDs for the Pro plan |
+| `STRIPE_PRICE_ENTERPRISE_MONTHLY` / `_YEARLY` | Stripe `price_*` IDs for the Enterprise plan |
+| `STRIPE_TRIAL_PERIOD_DAYS` | Free-trial length passed to Checkout (default `7`) |
 | `CORS_ORIGINS` | Comma-separated allowed origins |
 
 ### 3. Run database migrations
@@ -142,13 +148,17 @@ All endpoints are prefixed with `/api/v1`. Authenticated endpoints require a Sup
 | `GET` | `/companies/{id}` | Get company (own company only) |
 | `PATCH` | `/companies/{id}` | Update company details |
 
-### Subscriptions
+### Billing
+
+Stripe Checkout + Customer Portal. OWNER / ADMIN role required for mutations. Webhook is signature-authed and bypasses JWT. See [Stripe Billing Setup](#stripe-billing-setup) for Stripe dashboard configuration and [docs/features/billing.md](docs/features/billing.md) for the lifecycle.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/subscriptions/current` | Get current company subscription |
-| `POST` | `/subscriptions` | Create subscription |
-| `PATCH` | `/subscriptions/{id}` | Update subscription metadata |
+| `GET` | `/admin/billing/plans` | List available plans (`freemium`, `pro`, `enterprise`) — no auth inside the admin scope |
+| `GET` | `/admin/billing/subscription` | Get current organization's subscription (plan, status, period, `stripe_customer_id`) |
+| `POST` | `/admin/billing/checkout` | Start a Stripe Checkout session. Body: `{plan, cadence}`. Returns `{url, session_id}` |
+| `POST` | `/admin/billing/portal` | Open the Stripe Customer Portal for cancel / change plan / update card / invoices |
+| `POST` | `/billing/webhooks/stripe` | Stripe webhook ingress. Signature-verified via `Stripe-Signature` header |
 
 ### Notifications
 
@@ -734,6 +744,97 @@ All tables are prefixed with `booking_` to avoid collision with other contexts:
 - `booking_applicants` — local applicant projection (external_id unique, risk_level)
 - `booking_slots` — visit time slots (CHECK: end > start, CHECK: status enum)
 - `booking_bookings` — confirmed visits (UNIQUE slot_id, FK to slots + applicants)
+
+## Stripe Billing Setup
+
+The `billing` bounded context (`src/billing/`) integrates Stripe-hosted Checkout and Customer Portal. This section lists exactly what to create in the Stripe Dashboard — sandbox for local dev, prod for production. The same steps apply in both modes; only the keys and the webhook endpoint URL differ. See [docs/features/billing.md](docs/features/billing.md) for the subscription lifecycle and [docs/runbooks/stripe-sandbox-setup.md](docs/runbooks/stripe-sandbox-setup.md) for the full operator runbook.
+
+### 1. Create Products + recurring Prices
+
+Create **two products**, each with **two recurring prices** (monthly + yearly). Prices below are the Portuguese launch tier — adjust as needed before creating them in live mode.
+
+| Product | Price nickname | Amount | Billing cycle | Currency | `env` variable |
+|---------|---------------|--------|---------------|----------|-----------------|
+| **Pro** | `pro_monthly` | €29.00 | monthly | EUR | `STRIPE_PRICE_PRO_MONTHLY` |
+| **Pro** | `pro_yearly` | €290.00 | yearly | EUR | `STRIPE_PRICE_PRO_YEARLY` |
+| **Enterprise** | `enterprise_monthly` | €99.00 | monthly | EUR | `STRIPE_PRICE_ENTERPRISE_MONTHLY` |
+| **Enterprise** | `enterprise_yearly` | €990.00 | yearly | EUR | `STRIPE_PRICE_ENTERPRISE_YEARLY` |
+
+Freemium is **not** a Stripe product — it's the default seeded plan for every new Organization and has no Stripe objects.
+
+Copy the four `price_*` IDs from the Dashboard into the matching env vars. Also copy the secret key (`sk_test_...` in sandbox, `sk_live_...` in prod) into `STRIPE_API_KEY`.
+
+### 2. Configure the webhook endpoint
+
+The webhook route is `POST /api/v1/billing/webhooks/stripe`. It's whitelisted in `JWTAuthMiddleware.PUBLIC_PREFIXES` and authenticates solely via the `Stripe-Signature` header — invalid signatures are rejected with 400, and replayed `event.id`s are a no-op (idempotency guarded by the `stripe_webhook_events` table inside `HandleStripeWebhookEvent`).
+
+The setup is different in sandbox vs. prod:
+
+#### Sandbox (local dev)
+
+**Do not create a webhook endpoint in the Dashboard.** The Stripe CLI does it for you on the fly and tunnels every test-mode event straight to `localhost`:
+
+```bash
+stripe listen \
+  --forward-to http://localhost:8000/api/v1/billing/webhooks/stripe \
+  --events checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed
+```
+
+On first run the CLI prints a signing secret (`whsec_...`) to the terminal — paste that into `STRIPE_WEBHOOK_SECRET`. Keep `stripe listen` running in a separate shell while you exercise the flow; stop it when you're done (the ephemeral endpoint disappears automatically).
+
+If you skip `--events`, the CLI forwards every test-mode event and our handler logs-and-ignores the ones it doesn't care about — functionally the same, just noisier.
+
+#### Prod (or any persistent staging / test endpoint)
+
+Create a webhook endpoint in the Dashboard → **Developers → Webhooks → Add endpoint**:
+
+- **URL:** `https://<your-api-host>/api/v1/billing/webhooks/stripe`
+- **Events to subscribe to:** exactly these six
+  - `checkout.session.completed`
+  - `customer.subscription.created`
+  - `customer.subscription.updated`
+  - `customer.subscription.deleted`
+  - `invoice.paid`
+  - `invoice.payment_failed`
+
+After saving, copy the signing secret (`whsec_...`) shown on the endpoint's page into `STRIPE_WEBHOOK_SECRET`. This secret is stable across restarts; rotate via the Dashboard if it leaks.
+
+### 3. Configure the Customer Portal
+
+In the Dashboard → **Settings → Billing → Customer portal**, enable:
+
+- **Cancel subscription** — customer-initiated cancellation
+- **Switch plan** — allow switching between all four of the prices you created above
+- **Update payment method** — card on file
+- **Invoice history** — lets customers download PDFs
+
+Set the **default return URL** to `${APP_URL}/dashboard/settings/subscriptions` (Portal sessions fall back to this when our code doesn't pass an explicit `return_url`; we do pass one per request from `billing_portal_return_url`, so this is belt-and-suspenders).
+
+### 4. Fill in the env
+
+Add to `.env` (see `.env.example` for the full block):
+
+```bash
+APP_URL=http://localhost:4000
+STRIPE_API_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_PRO_MONTHLY=price_...
+STRIPE_PRICE_PRO_YEARLY=price_...
+STRIPE_PRICE_ENTERPRISE_MONTHLY=price_...
+STRIPE_PRICE_ENTERPRISE_YEARLY=price_...
+STRIPE_TRIAL_PERIOD_DAYS=7
+```
+
+### 5. Verify end-to-end
+
+With the server running (`uv run uvicorn shared.main:app --reload --port 8000`) and `stripe listen` forwarding locally:
+
+1. Register a fresh admin account (`POST /api/v1/admin/auth/register`) — verify a `freemium` row appears in the `subscriptions` table.
+2. Hit `POST /api/v1/admin/billing/checkout` with `{"plan": "pro", "cadence": "monthly"}` — follow the returned URL and pay with test card `4242 4242 4242 4242`, any future expiry, any CVC.
+3. After checkout, the webhook should flip the row to `status=trialing, plan=pro, type=stripe` and populate `stripe_customer_id` + `stripe_subscription_id`.
+4. Hit `POST /api/v1/admin/billing/portal` — the returned URL opens the Customer Portal for that customer.
+
+Prod checklist: switch to live-mode keys, create products + prices in live mode, register the webhook at the prod URL (Dashboard, not CLI), and confirm the signing secret matches `STRIPE_WEBHOOK_SECRET`.
 
 ## Contract Intelligence
 

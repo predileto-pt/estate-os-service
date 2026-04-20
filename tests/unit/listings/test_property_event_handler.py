@@ -49,7 +49,9 @@ def context(repo, publisher):
     return {"listings": listings, "publisher": publisher}
 
 
-def _snapshot(*, id_: str | None = None, version: int = 1, address: str = "Arca, Ponte de Lima, Viana") -> dict:
+def _snapshot(
+    *, id_: str | None = None, version: int = 1, address: str = "Arca, Ponte de Lima, Viana"
+) -> dict:
     return {
         "id": id_ or str(uuid4()),
         "organization_id": str(uuid4()),
@@ -107,7 +109,9 @@ async def test_older_update_is_dropped_and_no_enrichment_emitted(context, repo, 
     pid = str(uuid4())
     # Seed v5
     await handle_property_event(
-        DomainEvent(event_type=PROPERTY_CREATED_V1, data=_snapshot(id_=pid, version=5, address="v5")),
+        DomainEvent(
+            event_type=PROPERTY_CREATED_V1, data=_snapshot(id_=pid, version=5, address="v5")
+        ),
         context,
     )
     publisher.published.clear()

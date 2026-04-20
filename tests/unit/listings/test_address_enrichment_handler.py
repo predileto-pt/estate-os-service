@@ -38,7 +38,9 @@ def repo():
     return InMemoryPropertyListingRepository()
 
 
-async def _seed_listing_async(repo, pid: str, address: str = "Arca, Ponte de Lima, Viana do Castelo"):
+async def _seed_listing_async(
+    repo, pid: str, address: str = "Arca, Ponte de Lima, Viana do Castelo"
+):
     event_data = {
         "id": pid,
         "organization_id": str(uuid4()),

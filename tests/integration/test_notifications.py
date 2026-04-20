@@ -25,7 +25,7 @@ async def test_list_notifications_empty(client, auth_headers):
 @pytest.mark.asyncio
 async def test_create_and_list_notification(client, auth_headers):
     user = await _register_user(client, auth_headers)
-    user_id = user["id"]
+    user_id = user["user"]["id"]
 
     # Create notification
     create_resp = await client.post(
@@ -52,7 +52,7 @@ async def test_create_and_list_notification(client, auth_headers):
 @pytest.mark.asyncio
 async def test_mark_notifications_read(client, auth_headers):
     user = await _register_user(client, auth_headers)
-    user_id = user["id"]
+    user_id = user["user"]["id"]
 
     # Create notification
     create_resp = await client.post(

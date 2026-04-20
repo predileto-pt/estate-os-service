@@ -19,7 +19,7 @@ from organizations.adapters.inmemory.inmemory_notification_repo import (
 from organizations.adapters.inmemory.inmemory_organization_repo import (
     InMemoryOrganizationRepository,
 )
-from organizations.adapters.inmemory.inmemory_subscription_repo import (
+from billing.adapters.inmemory.inmemory_subscription_repo import (
     InMemorySubscriptionRepository,
 )
 from organizations.adapters.inmemory.inmemory_user_repo import InMemoryUserRepository
@@ -53,24 +53,111 @@ def id_extractor():
 
 
 @pytest.fixture
-def openai_app(id_extractor, monkeypatch):
+async def openai_app(id_extractor, monkeypatch):
+    from datetime import datetime, timezone
+    from uuid import UUID, uuid4
+
     monkeypatch.setattr("shared.config.settings.supabase_jwt_secret", TEST_JWT_SECRET)
 
-    container = Container(
-        user_repo=InMemoryUserRepository(),
-        organization_repo=InMemoryOrganizationRepository(),
+    from identity.adapters.inmemory.inmemory_user_repo import (
+        InMemoryUserRepository as InMemoryIdentityUserRepository,
+    )
+    from identity.container import Container as IdentityContainer
+    from identity.domain.models.user import User as IdentityUser
+    from billing.adapters.inmemory.inmemory_billing_gateway import (
+        InMemoryBillingGateway,
+    )
+    from billing.adapters.inmemory.inmemory_stripe_webhook_events_repo import (
+        InMemoryStripeWebhookEventsRepository,
+    )
+    from billing.application.use_cases.price_catalog import PriceCatalog
+    from organizations.domain.models.membership import Membership, MembershipRole
+    from organizations.domain.models.user import User as OrgUser
+    from tests.conftest import TEST_SUPABASE_USER_ID
+
+    identity_container = IdentityContainer(user_repo=InMemoryIdentityUserRepository())
+    organization_repo = InMemoryOrganizationRepository()
+    membership_repo = InMemoryMembershipRepository(organization_repo=organization_repo)
+    user_repo = InMemoryUserRepository()
+
+    # Seed the JWT test user + owner membership so property routes pass the
+    # identity middleware check.
+    now = datetime.now(timezone.utc)
+    test_user_id = UUID("00000000-0000-0000-0000-000000000001")
+    test_org_id = UUID(TEST_ORGANIZATION_ID)
+    await identity_container.user_repo.save(
+        IdentityUser(
+            id=test_user_id,
+            supabase_user_id=TEST_SUPABASE_USER_ID,
+            email="test@example.com",
+            name="Test User",
+            phone=None,
+            google_metadata=None,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    await user_repo.save(
+        OrgUser(
+            id=test_user_id,
+            supabase_user_id=TEST_SUPABASE_USER_ID,
+            email="test@example.com",
+            name="Test User",
+            phone=None,
+            google_metadata=None,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    await membership_repo.save(
+        Membership(
+            id=uuid4(),
+            user_id=test_user_id,
+            organization_id=test_org_id,
+            role=MembershipRole.OWNER,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+
+    from billing.container import Container as BillingContainer
+
+    billing_container = BillingContainer(
         subscription_repo=InMemorySubscriptionRepository(),
+        billing_gateway=InMemoryBillingGateway(),
+        stripe_webhook_events_repo=InMemoryStripeWebhookEventsRepository(),
+        price_catalog=PriceCatalog(
+            pro_monthly="price_pro_monthly_test",
+            pro_yearly="price_pro_yearly_test",
+            enterprise_monthly="price_enterprise_monthly_test",
+            enterprise_yearly="price_enterprise_yearly_test",
+        ),
+        trial_period_days=7,
+        checkout_success_url="http://test/billing/return?session_id={CHECKOUT_SESSION_ID}",
+        checkout_cancel_url="http://test/dashboard/settings/subscriptions?checkout=cancelled",
+        portal_return_url="http://test/dashboard/settings/subscriptions",
+    )
+    container = Container(
+        user_repo=user_repo,
+        organization_repo=organization_repo,
         notification_repo=InMemoryNotificationRepository(),
-        membership_repo=InMemoryMembershipRepository(),
+        membership_repo=membership_repo,
         invitation_repo=InMemoryInvitationRepository(),
         email_service=InMemoryEmailService(),
+        register_user_port=identity_container.register_user_port,
+        seed_freemium_subscription=billing_container.seed_freemium_subscription_port,
     )
     property_container = PropertyContainer(
         property_repo=InMemoryPropertyRepository(),
         document_extractor=id_extractor,
         document_parser=InMemoryDocumentParser(),
     )
-    return create_app(container=container, property_container=property_container)
+    return create_app(
+        container=container,
+        identity_container=identity_container,
+        billing_container=billing_container,
+        property_container=property_container,
+    )
 
 
 @pytest.fixture
@@ -114,9 +201,7 @@ class TestExtractFromDocumentWithOpenAI:
     async def test_successful_extraction(self, openai_client, openai_auth_headers, id_extractor):
         property_id = await _create_property(openai_client, openai_auth_headers)
 
-        with patch(
-            "properties.adapters.ai.openai_id_document_extractor.ChatOpenAI"
-        ) as mock_cls:
+        with patch("properties.adapters.ai.openai_id_document_extractor.ChatOpenAI") as mock_cls:
             mock_cls.return_value = _mock_structured_llm(EXTRACTED_OWNER)
 
             response = await openai_client.post(
@@ -159,9 +244,7 @@ class TestExtractFromDocumentWithOpenAI:
             date_of_birth="1995-03-10",
         )
 
-        with patch(
-            "properties.adapters.ai.openai_id_document_extractor.ChatOpenAI"
-        ) as mock_cls:
+        with patch("properties.adapters.ai.openai_id_document_extractor.ChatOpenAI") as mock_cls:
             mock_cls.return_value = _mock_structured_llm(extracted)
 
             response = await openai_client.post(
@@ -179,9 +262,7 @@ class TestExtractFromDocumentWithOpenAI:
     async def test_extraction_ai_error(self, openai_client, openai_auth_headers, id_extractor):
         property_id = await _create_property(openai_client, openai_auth_headers)
 
-        with patch(
-            "properties.adapters.ai.openai_id_document_extractor.ChatOpenAI"
-        ) as mock_cls:
+        with patch("properties.adapters.ai.openai_id_document_extractor.ChatOpenAI") as mock_cls:
             structured = AsyncMock()
             structured.ainvoke = AsyncMock(side_effect=Exception("API rate limit exceeded"))
             mock_llm = MagicMock()
@@ -216,9 +297,7 @@ class TestExtractFromDocumentWithOpenAI:
             date_of_birth="1990-01-01",
         )
 
-        with patch(
-            "properties.adapters.ai.openai_id_document_extractor.ChatOpenAI"
-        ) as mock_cls:
+        with patch("properties.adapters.ai.openai_id_document_extractor.ChatOpenAI") as mock_cls:
             mock_cls.return_value = _mock_structured_llm(extracted)
 
             response = await openai_client.post(

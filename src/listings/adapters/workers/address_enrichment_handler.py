@@ -36,9 +36,7 @@ async def handle_address_enrichment(event: DomainEvent, context: dict) -> None:
     except Exception:
         # Record the attempt so the stuck row is visible in a monitor
         # query, then re-raise so SQS redelivers.
-        await listings.property_listing_repo.increment_enrichment_attempts(
-            property_id=property_id
-        )
+        await listings.property_listing_repo.increment_enrichment_attempts(property_id=property_id)
         log.exception(
             "property_listings.enrichment_failed",
             property_id=str(property_id),

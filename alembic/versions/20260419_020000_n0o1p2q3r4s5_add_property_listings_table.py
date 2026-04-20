@@ -47,9 +47,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "listing_type",
-            postgresql.ENUM(
-                "sale", "purchase", name="listing_type", create_type=False
-            ),
+            postgresql.ENUM("sale", "purchase", name="listing_type", create_type=False),
             nullable=False,
         ),
         sa.Column(
@@ -82,9 +80,7 @@ def upgrade() -> None:
         sa.Column("latitude", sa.Float, nullable=True),
         sa.Column("longitude", sa.Float, nullable=True),
         sa.Column("source_aggregate_version", sa.Integer, nullable=False),
-        sa.Column(
-            "source_occurred_at", sa.DateTime(timezone=True), nullable=False
-        ),
+        sa.Column("source_occurred_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -116,9 +112,7 @@ def upgrade() -> None:
         "has_elevator",
         "min_price",
     ):
-        op.create_index(
-            f"idx_property_listings_{col}", "property_listings", [col]
-        )
+        op.create_index(f"idx_property_listings_{col}", "property_listings", [col])
 
     # Compound index for cursor pagination (ORDER BY created_at DESC, id DESC
     # within a status filter). Supports the follow-on

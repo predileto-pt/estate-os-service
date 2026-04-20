@@ -74,9 +74,7 @@ class SupabaseMembershipRepository(MembershipRepository):
         )
         return [self._to_domain(row) for row in result.data]
 
-    async def list_by_user_id_with_org_names(
-        self, user_id: UUID
-    ) -> list[MembershipWithOrgName]:
+    async def list_by_user_id_with_org_names(self, user_id: UUID) -> list[MembershipWithOrgName]:
         # PostgREST embedded resource join: single round-trip.
         result = (
             await self._client.table("memberships")

@@ -86,10 +86,6 @@ async def discover_property_amenities(
 ):
     await _verify_property_ownership(request, property_id, organization_id)
 
-    domain_event_publisher = request.app.state.property_container.domain_event_publisher
-    if not domain_event_publisher:
-        raise HTTPException(status_code=503, detail="Discovery service not available")
-
     try:
         prop = await request.app.state.property_container.get_property.execute(
             property_id=property_id, organization_id=organization_id
@@ -99,6 +95,10 @@ async def discover_property_amenities(
 
     if prop.latitude is None or prop.longitude is None:
         raise HTTPException(status_code=422, detail="Property missing coordinates")
+
+    domain_event_publisher = request.app.state.property_container.domain_event_publisher
+    if not domain_event_publisher:
+        raise HTTPException(status_code=503, detail="Discovery service not available")
 
     await domain_event_publisher.publish(
         DomainEvent(event_type=PROPERTY_CREATED_V1, data={"property_id": str(property_id)})

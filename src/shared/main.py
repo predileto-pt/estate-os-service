@@ -15,6 +15,7 @@ from identity.adapters.api.routes import (
     portal_auth as identity_portal_auth,
     profile as identity_profile,
 )
+from billing.adapters.api.routes import billing
 from organizations.adapters.api.routes import (
     admin_auth,
     email,
@@ -23,7 +24,6 @@ from organizations.adapters.api.routes import (
     memberships,
     notifications,
     organizations,
-    subscriptions,
 )
 from properties.adapters.api.routes import (
     extraction_jobs,
@@ -55,6 +55,7 @@ from contract_intelligence.adapters.api.routes import (
 def create_app(
     container=None,
     identity_container=None,
+    billing_container=None,
     property_container=None,
     screening_container=None,
     listing_container=None,
@@ -67,6 +68,7 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if not hasattr(app.state, "container") or app.state.container is None:
             from shared.entrypoints.bootstrap import (
+                get_billing_container,
                 get_booking_container,
                 get_container,
                 get_contract_intelligence_container,
@@ -77,6 +79,9 @@ def create_app(
             )
 
             app.state.identity_container = await get_identity_container()
+            # Billing container must be built before organizations; organizations
+            # consumes billing.seed_freemium_subscription_port at construction.
+            app.state.billing_container = await get_billing_container()
             app.state.container = await get_container()
             # Alias used by IdentityMiddleware so the naming reads cleanly;
             # the legacy `app.state.container` stays for existing route code.
@@ -109,7 +114,10 @@ def create_app(
             {"name": "organizations", "description": "Organization management"},
             {"name": "memberships", "description": "Organization membership management"},
             {"name": "invitations", "description": "Member invitation management"},
-            {"name": "subscriptions", "description": "Subscription and plan management"},
+            {
+                "name": "billing",
+                "description": "Stripe Checkout, Customer Portal, webhooks, and plans",
+            },
             {"name": "notifications", "description": "In-app notification management"},
             {"name": "email", "description": "Transactional email sending"},
             {"name": "properties", "description": "Property management"},
@@ -181,8 +189,11 @@ def create_app(
     app.include_router(organizations.router, prefix="/api/v1/admin")
     app.include_router(memberships.router, prefix="/api/v1/admin")
     app.include_router(invitations.router, prefix="/api/v1/admin")
-    app.include_router(subscriptions.router, prefix="/api/v1/admin")
     app.include_router(notifications.router, prefix="/api/v1/admin")
+    app.include_router(billing.admin_router, prefix="/api/v1/admin")
+    # Webhook: unauthenticated, signature-verified. Path is whitelisted
+    # in JWTAuthMiddleware.PUBLIC_PREFIXES.
+    app.include_router(billing.webhook_router, prefix="/api/v1")
     app.include_router(email.router, prefix="/api/v1/admin")
     app.include_router(properties.router, prefix="/api/v1/admin")
     app.include_router(property_owners.router, prefix="/api/v1/admin")
@@ -220,6 +231,8 @@ def create_app(
         app.state.organizations_container = container
     if identity_container:
         app.state.identity_container = identity_container
+    if billing_container:
+        app.state.billing_container = billing_container
     if property_container:
         app.state.property_container = property_container
     if screening_container:

@@ -4,9 +4,11 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from identity.domain.models.user import User
-from organizations.domain.models.membership import Membership
+from organizations.domain.models.membership import Membership, MembershipRole
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+ADMIN_ROLES: frozenset[MembershipRole] = frozenset({MembershipRole.OWNER, MembershipRole.ADMIN})
 
 
 async def get_supabase_user_id(
@@ -88,3 +90,54 @@ async def require_org_member(
             return user, m
 
     raise HTTPException(status_code=403, detail="Not a member of this organization")
+
+
+async def require_org_admin(
+    organization_id: UUID,
+    request: Request,
+) -> tuple[User, Membership]:
+    """Like `require_org_member` but also enforces OWNER or ADMIN role.
+
+    Use on routes that mutate org-level billing or settings. Members
+    without admin privileges get 403.
+    """
+    user, membership = await require_org_member(organization_id, request)
+    if membership.role not in ADMIN_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail="Only organization owners or admins can perform this action",
+        )
+    return user, membership
+
+
+async def require_current_org(request: Request) -> tuple[User, Membership]:
+    """Resolve the caller's current organization without a path param.
+
+    Used by routes that implicitly act on "the user's org" — billing
+    pages come before the user knows the org UUID client-side. Picks
+    the single membership if there's exactly one; otherwise 400 so the
+    caller has to pick explicitly via `organization_id`.
+    """
+    user = getattr(request.state, "user", None)
+    memberships = getattr(request.state, "memberships", None)
+    if user is None or memberships is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if not memberships:
+        raise HTTPException(status_code=403, detail="No organization membership")
+    if len(memberships) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Ambiguous organization — pass organization_id explicitly",
+        )
+    return user, memberships[0]
+
+
+async def require_current_org_admin(request: Request) -> tuple[User, Membership]:
+    """Admin-only variant of `require_current_org`."""
+    user, membership = await require_current_org(request)
+    if membership.role not in ADMIN_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail="Only organization owners or admins can perform this action",
+        )
+    return user, membership

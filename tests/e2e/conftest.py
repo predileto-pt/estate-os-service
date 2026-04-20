@@ -18,6 +18,8 @@ from organizations.adapters.database.repositories import (
     SqlAlchemyMembershipRepository,
     SqlAlchemyNotificationRepository,
     SqlAlchemyOrganizationRepository,
+)
+from billing.adapters.database.subscription_repository import (
     SqlAlchemySubscriptionRepository,
 )
 from organizations.adapters.inmemory.inmemory_email_service import InMemoryEmailService
@@ -188,16 +190,44 @@ def e2e_identity_container(session):
 
 
 @pytest.fixture
-def e2e_container(session, e2e_identity_container):
+def e2e_billing_container(session):
+    from billing.adapters.inmemory.inmemory_billing_gateway import (
+        InMemoryBillingGateway,
+    )
+    from billing.adapters.inmemory.inmemory_stripe_webhook_events_repo import (
+        InMemoryStripeWebhookEventsRepository,
+    )
+    from billing.application.use_cases.price_catalog import PriceCatalog
+    from billing.container import Container as BillingContainer
+
+    return BillingContainer(
+        subscription_repo=SqlAlchemySubscriptionRepository(session),
+        billing_gateway=InMemoryBillingGateway(),
+        stripe_webhook_events_repo=InMemoryStripeWebhookEventsRepository(),
+        price_catalog=PriceCatalog(
+            pro_monthly="price_pro_monthly_test",
+            pro_yearly="price_pro_yearly_test",
+            enterprise_monthly="price_enterprise_monthly_test",
+            enterprise_yearly="price_enterprise_yearly_test",
+        ),
+        trial_period_days=7,
+        checkout_success_url="http://test/billing/return?session_id={CHECKOUT_SESSION_ID}",
+        checkout_cancel_url="http://test/dashboard/settings/subscriptions?checkout=cancelled",
+        portal_return_url="http://test/dashboard/settings/subscriptions",
+    )
+
+
+@pytest.fixture
+def e2e_container(session, e2e_identity_container, e2e_billing_container):
     return Container(
         user_repo=SqlAlchemyUserRepository(session),
         organization_repo=SqlAlchemyOrganizationRepository(session),
-        subscription_repo=SqlAlchemySubscriptionRepository(session),
         notification_repo=SqlAlchemyNotificationRepository(session),
         membership_repo=SqlAlchemyMembershipRepository(session),
         invitation_repo=SqlAlchemyInvitationRepository(session),
         email_service=InMemoryEmailService(),
         register_user_port=e2e_identity_container.register_user_port,
+        seed_freemium_subscription=e2e_billing_container.seed_freemium_subscription_port,
     )
 
 
@@ -241,9 +271,20 @@ def e2e_property_container(session, localstack_url, s3_bucket, sqs_queue_url):
 
 
 @pytest.fixture
-def app(e2e_container, e2e_property_container, monkeypatch):
+def app(
+    e2e_container,
+    e2e_identity_container,
+    e2e_billing_container,
+    e2e_property_container,
+    monkeypatch,
+):
     monkeypatch.setattr("shared.config.settings.supabase_jwt_secret", TEST_JWT_SECRET)
-    return create_app(container=e2e_container, property_container=e2e_property_container)
+    return create_app(
+        container=e2e_container,
+        identity_container=e2e_identity_container,
+        billing_container=e2e_billing_container,
+        property_container=e2e_property_container,
+    )
 
 
 @pytest.fixture

@@ -5,7 +5,7 @@ async def test_current_revision_is_head(session):
     result = await session.execute(text("SELECT version_num FROM alembic_version"))
     row = result.first()
     assert row is not None
-    assert row[0] == "k7l8m9n0o1p2"
+    assert row[0] == "o1p2q3r4s5t6"
 
 
 async def test_all_tables_exist(session):

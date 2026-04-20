@@ -19,18 +19,21 @@ async def test_register_creates_user_org_subscription_membership(client, auth_he
     assert response.status_code == 200
     data = response.json()
 
-    assert data["email"] == "joao@e2e-test.pt"
-    assert data["name"] == "João Silva"
-    assert data["supabase_user_id"] == TEST_SUPABASE_USER_ID
+    assert data["user"]["email"] == "joao@e2e-test.pt"
+    assert data["user"]["name"] == "João Silva"
+    assert data["user"]["supabase_user_id"] == TEST_SUPABASE_USER_ID
+    assert data["organization"]["name"] == "Imobiliária E2E"
+    assert data["membership"]["role"] == "owner"
 
-    # Verify /me returns the full profile with organization + membership role
+    # Verify /me returns the full profile with memberships including org name.
     me_response = await client.get("/api/v1/admin/auth/me", headers=auth_headers)
     assert me_response.status_code == 200
     me_data = me_response.json()
 
     assert me_data["user"]["email"] == "joao@e2e-test.pt"
-    assert me_data["organization"]["name"] == "Imobiliária E2E"
-    assert me_data["role"] == "owner"
+    assert len(me_data["memberships"]) == 1
+    assert me_data["memberships"][0]["organization_name"] == "Imobiliária E2E"
+    assert me_data["memberships"][0]["role"] == "owner"
 
 
 @pytest.mark.e2e

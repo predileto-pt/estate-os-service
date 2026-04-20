@@ -43,7 +43,9 @@ def upgrade() -> None:
     op.create_table(
         "applicant_documents",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("applicant_id", sa.Uuid(), sa.ForeignKey("applicant_applicants.id"), nullable=False),
+        sa.Column(
+            "applicant_id", sa.Uuid(), sa.ForeignKey("applicant_applicants.id"), nullable=False
+        ),
         sa.Column("s3_key", sa.String(512), nullable=False),
         sa.Column("original_filename", sa.String(255), nullable=False),
         sa.Column("content_type", sa.String(100), nullable=False),
@@ -56,7 +58,13 @@ def upgrade() -> None:
     op.create_table(
         "applicant_extracted_data",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("document_id", sa.Uuid(), sa.ForeignKey("applicant_documents.id"), nullable=False, unique=True),
+        sa.Column(
+            "document_id",
+            sa.Uuid(),
+            sa.ForeignKey("applicant_documents.id"),
+            nullable=False,
+            unique=True,
+        ),
         sa.Column("extracted_content", sa.JSON(), nullable=False),
         sa.Column("extraction_status", sa.String(20), nullable=False),
     )
@@ -65,7 +73,9 @@ def upgrade() -> None:
     op.create_table(
         "screening_reports",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("applicant_id", sa.Uuid(), sa.ForeignKey("applicant_applicants.id"), nullable=False),
+        sa.Column(
+            "applicant_id", sa.Uuid(), sa.ForeignKey("applicant_applicants.id"), nullable=False
+        ),
         sa.Column("risk_level", sa.String(10), nullable=False),
         sa.Column("identity_verified", sa.Boolean(), nullable=False),
         sa.Column("income_verified", sa.Boolean(), nullable=False),
@@ -80,7 +90,13 @@ def upgrade() -> None:
     op.create_table(
         "applicant_events",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("applicant_id", sa.Uuid(), sa.ForeignKey("applicant_applicants.id"), nullable=False, index=True),
+        sa.Column(
+            "applicant_id",
+            sa.Uuid(),
+            sa.ForeignKey("applicant_applicants.id"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("event_type", sa.String(30), nullable=False),
         sa.Column("payload", sa.JSON(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -109,7 +125,9 @@ def upgrade() -> None:
     op.create_table(
         "applicant_submissions",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("applicant_id", sa.Uuid(), sa.ForeignKey("applicant_applicants.id"), nullable=True),
+        sa.Column(
+            "applicant_id", sa.Uuid(), sa.ForeignKey("applicant_applicants.id"), nullable=True
+        ),
         sa.Column("form_request_id", sa.Uuid(), nullable=False, index=True),
         sa.Column("organization_id", sa.Uuid(), nullable=False, index=True),
         sa.Column("terms_accepted", sa.Boolean(), nullable=False, server_default="false"),

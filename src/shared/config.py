@@ -109,6 +109,30 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+    # Stripe billing
+    stripe_api_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_pro_monthly: str = ""
+    stripe_price_pro_yearly: str = ""
+    stripe_price_enterprise_monthly: str = ""
+    stripe_price_enterprise_yearly: str = ""
+    stripe_trial_period_days: int = 7
+
+    # Frontend base URL used to build Checkout / Portal redirect targets.
+    app_url: str = "http://localhost:4000"
+
+    @property
+    def billing_checkout_success_url(self) -> str:
+        return f"{self.app_url}/upgrade/success?session_id={{CHECKOUT_SESSION_ID}}"
+
+    @property
+    def billing_checkout_cancel_url(self) -> str:
+        return f"{self.app_url}/upgrade?checkout=cancelled"
+
+    @property
+    def billing_portal_return_url(self) -> str:
+        return f"{self.app_url}/dashboard/settings/subscriptions"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

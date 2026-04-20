@@ -70,14 +70,10 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             municipality=existing.municipality if existing else None,
             district=existing.district if existing else None,
             location_enriched_at=existing.location_enriched_at if existing else None,
-            location_enrichment_attempts=(
-                existing.location_enrichment_attempts if existing else 0
-            ),
+            location_enrichment_attempts=(existing.location_enrichment_attempts if existing else 0),
             num_of_bedrooms=chars.get("num_of_bedrooms"),
             num_of_bathrooms=chars.get("num_of_bathrooms"),
-            area_in_m2=(
-                int(chars["area_in_m2"]) if chars.get("area_in_m2") is not None else None
-            ),
+            area_in_m2=(int(chars["area_in_m2"]) if chars.get("area_in_m2") is not None else None),
             has_pool=chars.get("has_pool"),
             has_garden=chars.get("has_garden"),
             has_elevator=chars.get("has_elevator"),
@@ -127,9 +123,7 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
         existing.location_enrichment_attempts += 1
         return existing
 
-    async def increment_enrichment_attempts(
-        self, *, property_id: UUID
-    ) -> PropertyListing | None:
+    async def increment_enrichment_attempts(self, *, property_id: UUID) -> PropertyListing | None:
         existing = self._rows.get(property_id)
         if existing is None:
             return None

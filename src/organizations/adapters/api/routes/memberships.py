@@ -2,17 +2,17 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from shared.api.dependencies import get_supabase_user_id
+from identity.domain.models.user import User
+from organizations.domain.models.membership import Membership
+from shared.api.dependencies import get_current_user, require_org_member
 from organizations.adapters.api.schemas import (
     MembershipResponse,
     UpdateMemberRoleRequest,
 )
 from organizations.domain.exceptions import (
-    AuthorizationError,
     InsufficientPermissionError,
     LastOwnerError,
     MembershipNotFoundError,
-    UserNotFoundError,
 )
 
 router = APIRouter(prefix="/memberships", tags=["memberships"])
@@ -41,19 +41,10 @@ def _membership_response(membership) -> dict:
 async def list_members(
     request: Request,
     organization_id: UUID,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    _member: tuple[User, Membership] = Depends(require_org_member),
 ):
-    list_members_uc = request.app.state.container.list_members
-
-    try:
-        members = await list_members_uc.execute(
-            supabase_user_id=supabase_user_id, organization_id=organization_id
-        )
-    except UserNotFoundError:
-        raise HTTPException(status_code=404, detail="User not found")
-    except AuthorizationError:
-        raise HTTPException(status_code=403, detail="Not authorized")
-
+    membership_repo = request.app.state.container.membership_repo
+    members = await membership_repo.list_by_organization(organization_id)
     return [_membership_response(m) for m in members]
 
 
@@ -72,21 +63,19 @@ async def update_member_role(
     membership_id: UUID,
     body: UpdateMemberRoleRequest,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    user: User = Depends(get_current_user),
 ):
     update_role_uc = request.app.state.container.update_member_role
 
     try:
         membership = await update_role_uc.execute(
-            supabase_user_id=supabase_user_id,
+            requester_user_id=user.id,
             membership_id=membership_id,
             new_role=body.role,
         )
-    except UserNotFoundError:
-        raise HTTPException(status_code=404, detail="User not found")
     except MembershipNotFoundError:
         raise HTTPException(status_code=404, detail="Membership not found")
-    except (InsufficientPermissionError, AuthorizationError):
+    except InsufficientPermissionError:
         raise HTTPException(status_code=403, detail="Not authorized")
     except LastOwnerError:
         raise HTTPException(status_code=409, detail="Cannot demote the last owner")
@@ -108,20 +97,18 @@ async def update_member_role(
 async def remove_member(
     membership_id: UUID,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    user: User = Depends(get_current_user),
 ):
     remove_member_uc = request.app.state.container.remove_member
 
     try:
         await remove_member_uc.execute(
-            supabase_user_id=supabase_user_id,
+            requester_user_id=user.id,
             membership_id=membership_id,
         )
-    except UserNotFoundError:
-        raise HTTPException(status_code=404, detail="User not found")
     except MembershipNotFoundError:
         raise HTTPException(status_code=404, detail="Membership not found")
-    except (InsufficientPermissionError, AuthorizationError):
+    except InsufficientPermissionError:
         raise HTTPException(status_code=403, detail="Not authorized")
     except LastOwnerError:
         raise HTTPException(status_code=409, detail="Cannot remove the last owner")

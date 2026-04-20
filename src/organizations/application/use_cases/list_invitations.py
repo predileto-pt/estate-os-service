@@ -7,10 +7,7 @@ from organizations.application.ports.repositories.membership_repository import (
     MembershipRepository,
 )
 from organizations.application.ports.repositories.user_repository import UserRepository
-from organizations.domain.exceptions import (
-    AuthorizationError,
-    UserNotFoundError,
-)
+from organizations.domain.exceptions import AuthorizationError
 from organizations.domain.models.invitation import Invitation
 
 
@@ -25,13 +22,9 @@ class ListInvitations:
         self.membership_repo = membership_repo
         self.user_repo = user_repo
 
-    async def execute(self, *, supabase_user_id: str, organization_id: UUID) -> list[Invitation]:
-        user = await self.user_repo.get_by_supabase_id(supabase_user_id)
-        if not user:
-            raise UserNotFoundError(supabase_user_id)
-
+    async def execute(self, *, requester_user_id: UUID, organization_id: UUID) -> list[Invitation]:
         membership = await self.membership_repo.get_by_user_and_organization(
-            user.id, organization_id
+            requester_user_id, organization_id
         )
         if not membership:
             raise AuthorizationError("Not a member of this organization")

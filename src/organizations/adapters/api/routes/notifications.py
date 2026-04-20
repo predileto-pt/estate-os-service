@@ -1,12 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
-from shared.api.dependencies import get_supabase_user_id
+from identity.domain.models.user import User
+from shared.api.dependencies import get_current_user
 from organizations.adapters.api.schemas import (
     CreateNotificationRequest,
     MarkNotificationsReadRequest,
     NotificationResponse,
 )
-from organizations.domain.exceptions import UserNotFoundError
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -35,18 +35,11 @@ def _notification_response(n) -> dict:
 )
 async def list_notifications(
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    user: User = Depends(get_current_user),
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0, ge=0),
 ):
-    get_profile_uc = request.app.state.container.get_user_profile
     list_uc = request.app.state.container.list_notifications
-
-    try:
-        user, _, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
-    except UserNotFoundError:
-        raise HTTPException(status_code=404, detail="User not found")
-
     notifications = await list_uc.execute(user_id=user.id, limit=limit, offset=offset)
     return [_notification_response(n) for n in notifications]
 
@@ -62,16 +55,9 @@ async def list_notifications(
 async def mark_notifications_read(
     body: MarkNotificationsReadRequest,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    user: User = Depends(get_current_user),
 ):
-    get_profile_uc = request.app.state.container.get_user_profile
     mark_read_uc = request.app.state.container.mark_notifications_read
-
-    try:
-        user, _, _ = await get_profile_uc.execute(supabase_user_id=supabase_user_id)
-    except UserNotFoundError:
-        raise HTTPException(status_code=404, detail="User not found")
-
     count = await mark_read_uc.execute(notification_ids=body.notification_ids, user_id=user.id)
     return {"marked_read": count}
 
@@ -88,7 +74,7 @@ async def mark_notifications_read(
 async def create_notification(
     body: CreateNotificationRequest,
     request: Request,
-    supabase_user_id: str = Depends(get_supabase_user_id),
+    _user: User = Depends(get_current_user),
 ):
     send_uc = request.app.state.container.send_notification
 

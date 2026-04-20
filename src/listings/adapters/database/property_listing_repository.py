@@ -110,9 +110,7 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
         from sqlalchemy import delete as sql_delete
 
         await self._session.execute(
-            sql_delete(PropertyListingModel).where(
-                PropertyListingModel.id == str(property_id)
-            )
+            sql_delete(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
         )
         await self._session.flush()
         return True
@@ -126,9 +124,7 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
         district: str | None,
     ) -> PropertyListing | None:
         result = await self._session.execute(
-            select(PropertyListingModel).where(
-                PropertyListingModel.id == str(property_id)
-            )
+            select(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
         )
         model = result.scalar_one_or_none()
         if model is None:
@@ -137,26 +133,18 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
         model.municipality = municipality
         model.district = district
         model.location_enriched_at = func.now()
-        model.location_enrichment_attempts = (
-            model.location_enrichment_attempts or 0
-        ) + 1
+        model.location_enrichment_attempts = (model.location_enrichment_attempts or 0) + 1
         await self._session.flush()
         return self._to_domain(model)
 
-    async def increment_enrichment_attempts(
-        self, *, property_id: UUID
-    ) -> PropertyListing | None:
+    async def increment_enrichment_attempts(self, *, property_id: UUID) -> PropertyListing | None:
         result = await self._session.execute(
-            select(PropertyListingModel).where(
-                PropertyListingModel.id == str(property_id)
-            )
+            select(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
         )
         model = result.scalar_one_or_none()
         if model is None:
             return None
-        model.location_enrichment_attempts = (
-            model.location_enrichment_attempts or 0
-        ) + 1
+        model.location_enrichment_attempts = (model.location_enrichment_attempts or 0) + 1
         await self._session.flush()
         return self._to_domain(model)
 
@@ -204,9 +192,7 @@ def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:
         "location_enrichment_attempts": 0,
         "num_of_bedrooms": chars.get("num_of_bedrooms"),
         "num_of_bathrooms": chars.get("num_of_bathrooms"),
-        "area_in_m2": (
-            int(chars["area_in_m2"]) if chars.get("area_in_m2") is not None else None
-        ),
+        "area_in_m2": (int(chars["area_in_m2"]) if chars.get("area_in_m2") is not None else None),
         "has_pool": chars.get("has_pool"),
         "has_garden": chars.get("has_garden"),
         "has_elevator": chars.get("has_elevator"),

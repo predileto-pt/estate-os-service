@@ -27,6 +27,4 @@ class InMemoryExtractionJobRepository(ExtractionJobRepository):
         return job
 
     async def delete_by_property_id(self, property_id: UUID) -> None:
-        self._jobs = {
-            jid: job for jid, job in self._jobs.items() if job.property_id != property_id
-        }
+        self._jobs = {jid: job for jid, job in self._jobs.items() if job.property_id != property_id}

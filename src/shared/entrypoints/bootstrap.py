@@ -1,6 +1,15 @@
 import aioboto3
 from supabase import acreate_client
 
+from billing.adapters.outbound.stripe.billing_gateway import StripeBillingGateway
+from billing.adapters.inmemory.inmemory_stripe_webhook_events_repo import (
+    InMemoryStripeWebhookEventsRepository,
+)
+from billing.adapters.persistence.supabase_subscription_repo import (
+    SupabaseSubscriptionRepository,
+)
+from billing.application.use_cases.price_catalog import PriceCatalog
+from billing.container import Container as BillingContainer
 from organizations.adapters.email.resend_email_service import ResendEmailService
 from organizations.adapters.persistence.supabase_invitation_repo import (
     SupabaseInvitationRepository,
@@ -13,9 +22,6 @@ from organizations.adapters.persistence.supabase_notification_repo import (
 )
 from organizations.adapters.persistence.supabase_organization_repo import (
     SupabaseOrganizationRepository,
-)
-from organizations.adapters.persistence.supabase_subscription_repo import (
-    SupabaseSubscriptionRepository,
 )
 from organizations.adapters.persistence.supabase_user_repo import (
     SupabaseUserRepository as _OrgSupabaseUserRepository,
@@ -76,6 +82,7 @@ from contract_intelligence.container import Container as ContractIntelligenceCon
 
 _container: Container | None = None
 _identity_container: IdentityContainer | None = None
+_billing_container: BillingContainer | None = None
 _property_container: PropertyContainer | None = None
 _screening_container: ApplicantScreeningContainer | None = None
 _listing_container: ListingContainer | None = None
@@ -101,6 +108,49 @@ async def get_identity_container() -> IdentityContainer:
     return _identity_container
 
 
+async def get_billing_container() -> BillingContainer:
+    """Billing context container.
+
+    Wires the Subscription aggregate + Stripe integration (Checkout, Portal,
+    webhooks, price catalog). Exposes `seed_freemium_subscription_port`
+    callable binding for cross-context injection into organizations.
+    """
+    global _billing_container
+    if _billing_container is not None:
+        return _billing_container
+
+    settings = Settings()
+    client = await acreate_client(settings.supabase_url, settings.supabase_service_role_key)
+
+    billing_gateway = StripeBillingGateway(
+        api_key=settings.stripe_api_key,
+        webhook_secret=settings.stripe_webhook_secret,
+    )
+    price_catalog = PriceCatalog(
+        pro_monthly=settings.stripe_price_pro_monthly,
+        pro_yearly=settings.stripe_price_pro_yearly,
+        enterprise_monthly=settings.stripe_price_enterprise_monthly,
+        enterprise_yearly=settings.stripe_price_enterprise_yearly,
+    )
+    # Webhook idempotency: an in-memory store is fine on a single
+    # instance. Move to the SqlAlchemy-backed impl when we scale out —
+    # that path is already implemented in
+    # `billing.adapters.database.stripe_webhook_events_repo`.
+    stripe_webhook_events_repo = InMemoryStripeWebhookEventsRepository()
+
+    _billing_container = BillingContainer(
+        subscription_repo=SupabaseSubscriptionRepository(client),
+        billing_gateway=billing_gateway,
+        stripe_webhook_events_repo=stripe_webhook_events_repo,
+        price_catalog=price_catalog,
+        trial_period_days=settings.stripe_trial_period_days,
+        checkout_success_url=settings.billing_checkout_success_url,
+        checkout_cancel_url=settings.billing_checkout_cancel_url,
+        portal_return_url=settings.billing_portal_return_url,
+    )
+    return _billing_container
+
+
 async def get_container() -> Container:
     """Organizations context container.
 
@@ -110,6 +160,11 @@ async def get_container() -> Container:
     keeps the `grep "from identity" src/organizations/` acceptance
     criterion tight (no identity.domain imports leaking into org
     business code). `PortalUser` is gone (collapsed into `User`).
+
+    Consumes two callable Protocols from sibling contexts:
+    - `identity.register_user_port` for RegisterAdminAccount step 1.
+    - `billing.seed_freemium_subscription_port` for seeding the default
+      freemium Subscription when a fresh org is created.
     """
     global _container
     if _container is not None:
@@ -118,19 +173,20 @@ async def get_container() -> Container:
     settings = Settings()
     client = await acreate_client(settings.supabase_url, settings.supabase_service_role_key)
 
-    # Identity container must be built first — organizations depends on
-    # its `register_user_port` callable binding.
+    # Identity + billing must be built first — organizations consumes
+    # their callable-Protocol bindings.
     identity = await get_identity_container()
+    billing = await get_billing_container()
 
     _container = Container(
         user_repo=_OrgSupabaseUserRepository(client),
         organization_repo=SupabaseOrganizationRepository(client),
-        subscription_repo=SupabaseSubscriptionRepository(client),
         notification_repo=SupabaseNotificationRepository(client),
         membership_repo=SupabaseMembershipRepository(client),
         invitation_repo=SupabaseInvitationRepository(client),
         email_service=ResendEmailService(settings.resend_api_key),
         register_user_port=identity.register_user_port,
+        seed_freemium_subscription=billing.seed_freemium_subscription_port,
     )
     return _container
 

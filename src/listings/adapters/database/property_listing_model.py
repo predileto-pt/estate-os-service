@@ -39,9 +39,7 @@ class PropertyListingModel(Base):
     __tablename__ = "property_listings"
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
-    organization_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), nullable=False, index=True
-    )
+    organization_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False, index=True)
 
     status: Mapped[PropertyStatus] = mapped_column(
         Enum(
@@ -103,9 +101,7 @@ class PropertyListingModel(Base):
 
     # Idempotency + pagination.
     source_aggregate_version: Mapped[int] = mapped_column(Integer, nullable=False)
-    source_occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    source_occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

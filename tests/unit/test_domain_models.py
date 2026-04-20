@@ -4,7 +4,7 @@ from uuid import uuid4
 from organizations.domain.models.membership import Membership, MembershipRole
 from organizations.domain.models.notification import Notification, NotificationStatus
 from organizations.domain.models.organization import Organization
-from organizations.domain.models.subscription import (
+from billing.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
     SubscriptionStatus,
@@ -89,6 +89,7 @@ class TestSubscription:
             plan=SubscriptionPlan.FREEMIUM,
             type=SubscriptionType.MANUAL,
             status=SubscriptionStatus.ACTIVE,
+            stripe_customer_id=None,
             stripe_subscription_id=None,
             stripe_price_id=None,
             current_period_start=now,

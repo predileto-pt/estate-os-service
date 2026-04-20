@@ -2,10 +2,10 @@ from uuid import UUID
 
 from supabase import AsyncClient
 
-from organizations.application.ports.repositories.subscription_repository import (
+from billing.application.ports.repositories.subscription_repository import (
     SubscriptionRepository,
 )
-from organizations.domain.models.subscription import (
+from billing.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
     SubscriptionStatus,
@@ -24,6 +24,7 @@ class SupabaseSubscriptionRepository(SubscriptionRepository):
             plan=SubscriptionPlan(row["plan"]),
             type=SubscriptionType(row["type"]),
             status=SubscriptionStatus(row["status"]),
+            stripe_customer_id=row.get("stripe_customer_id"),
             stripe_subscription_id=row.get("stripe_subscription_id"),
             stripe_price_id=row.get("stripe_price_id"),
             current_period_start=row.get("current_period_start"),
@@ -39,6 +40,7 @@ class SupabaseSubscriptionRepository(SubscriptionRepository):
             "plan": sub.plan.value,
             "type": sub.type.value,
             "status": sub.status.value,
+            "stripe_customer_id": sub.stripe_customer_id,
             "stripe_subscription_id": sub.stripe_subscription_id,
             "stripe_price_id": sub.stripe_price_id,
             "current_period_start": (
@@ -65,6 +67,19 @@ class SupabaseSubscriptionRepository(SubscriptionRepository):
             await self._client.table("subscriptions")
             .select("*")
             .eq("organization_id", str(organization_id))
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not result.data:
+            return None
+        return self._to_domain(result.data[0])
+
+    async def get_by_stripe_customer_id(self, stripe_customer_id: str) -> Subscription | None:
+        result = (
+            await self._client.table("subscriptions")
+            .select("*")
+            .eq("stripe_customer_id", stripe_customer_id)
             .order("created_at", desc=True)
             .limit(1)
             .execute()

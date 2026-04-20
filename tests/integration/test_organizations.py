@@ -17,8 +17,10 @@ async def _register_user(client, auth_headers):
 @pytest.mark.asyncio
 async def test_get_organization(client, auth_headers):
     user = await _register_user(client, auth_headers)
-    organization_id = user["organization_id"]
-    response = await client.get(f"/api/v1/admin/organizations/{organization_id}", headers=auth_headers)
+    organization_id = user["organization"]["id"]
+    response = await client.get(
+        f"/api/v1/admin/organizations/{organization_id}", headers=auth_headers
+    )
     assert response.status_code == 200
     assert response.json()["name"] == "Imobiliária Silva"
 
@@ -36,7 +38,7 @@ async def test_get_other_organization_forbidden(client, auth_headers):
 @pytest.mark.asyncio
 async def test_update_organization(client, auth_headers):
     user = await _register_user(client, auth_headers)
-    organization_id = user["organization_id"]
+    organization_id = user["organization"]["id"]
     response = await client.patch(
         f"/api/v1/admin/organizations/{organization_id}",
         json={"name": "Nova Imobiliária", "nif": "987654321"},

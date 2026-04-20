@@ -67,7 +67,7 @@ async def test_invite_member_success(invite_use_case):
     owner, org_id = await _create_owner(user_repo, membership_repo)
 
     invitation = await uc.execute(
-        supabase_user_id=owner.supabase_user_id,
+        inviter_user_id=owner.id,
         organization_id=org_id,
         email="invite@test.com",
         role=MembershipRole.MEMBER,
@@ -108,7 +108,7 @@ async def test_invite_member_as_member_fails(invite_use_case):
 
     with pytest.raises(InsufficientPermissionError):
         await uc.execute(
-            supabase_user_id=member.supabase_user_id,
+            inviter_user_id=member.id,
             organization_id=org_id,
             email="invite@test.com",
             role=MembershipRole.MEMBER,
@@ -145,7 +145,7 @@ async def test_invite_existing_member_fails(invite_use_case):
 
     with pytest.raises(MembershipAlreadyExistsError):
         await uc.execute(
-            supabase_user_id=owner.supabase_user_id,
+            inviter_user_id=owner.id,
             organization_id=org_id,
             email="existing@test.com",
             role=MembershipRole.MEMBER,

@@ -16,18 +16,19 @@ async def _register_user(client, auth_headers):
 @pytest.mark.asyncio
 async def test_get_user_profile(client, auth_headers):
     await _register_user(client, auth_headers)
-    response = await client.get("/api/v1/admin/users/me", headers=auth_headers)
+    response = await client.get("/api/v1/admin/auth/me", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["user"]["email"] == "joao@agency.pt"
-    assert data["organization"]["name"] == "Imobiliária Silva"
+    assert len(data["memberships"]) == 1
+    assert data["memberships"][0]["organization_name"] == "Imobiliária Silva"
 
 
 @pytest.mark.asyncio
 async def test_update_user_profile(client, auth_headers):
     await _register_user(client, auth_headers)
     response = await client.patch(
-        "/api/v1/admin/users/me",
+        "/api/v1/admin/auth/profile",
         json={"name": "João Santos", "phone_country_code": "+34", "phone_number": "612345678"},
         headers=auth_headers,
     )
@@ -41,7 +42,7 @@ async def test_update_user_profile(client, auth_headers):
 async def test_update_user_name_only(client, auth_headers):
     await _register_user(client, auth_headers)
     response = await client.patch(
-        "/api/v1/admin/users/me",
+        "/api/v1/admin/auth/profile",
         json={"name": "New Name"},
         headers=auth_headers,
     )
