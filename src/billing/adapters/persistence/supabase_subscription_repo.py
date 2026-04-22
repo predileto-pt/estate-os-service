@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from supabase import AsyncClient
@@ -11,6 +12,20 @@ from billing.domain.models.subscription import (
     SubscriptionStatus,
     SubscriptionType,
 )
+
+
+def _parse_ts(value: str) -> datetime:
+    """Parse a Postgres-shaped ISO-8601 timestamp string into a datetime.
+
+    Supabase's PostgREST JSON responses return `timestamptz` columns as
+    strings like `2026-04-22T10:15:30.123456+00:00`. Python's
+    `datetime.fromisoformat` handles that natively from 3.11+.
+    """
+    return datetime.fromisoformat(value)
+
+
+def _parse_ts_optional(value: str | None) -> datetime | None:
+    return None if value is None else _parse_ts(value)
 
 
 class SupabaseSubscriptionRepository(SubscriptionRepository):
@@ -27,10 +42,10 @@ class SupabaseSubscriptionRepository(SubscriptionRepository):
             stripe_customer_id=row.get("stripe_customer_id"),
             stripe_subscription_id=row.get("stripe_subscription_id"),
             stripe_price_id=row.get("stripe_price_id"),
-            current_period_start=row.get("current_period_start"),
-            current_period_end=row.get("current_period_end"),
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
+            current_period_start=_parse_ts_optional(row.get("current_period_start")),
+            current_period_end=_parse_ts_optional(row.get("current_period_end")),
+            created_at=_parse_ts(row["created_at"]),
+            updated_at=_parse_ts(row["updated_at"]),
         )
 
     def _to_row(self, sub: Subscription) -> dict:
