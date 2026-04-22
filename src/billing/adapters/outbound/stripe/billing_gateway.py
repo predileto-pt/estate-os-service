@@ -82,10 +82,13 @@ class StripeBillingGateway(BillingGateway):
         # `event` and `event["data"]["object"]` are both `stripe.StripeObject`s.
         # `to_dict()` recurses by default, so nested StripeObjects flatten
         # into plain Python dicts/lists — needed by the handler indexing
-        # and by JSONB persistence in the webhook events repo.
+        # and by JSONB persistence in the webhook events repo. `for_json=True`
+        # coerces Decimal values (produced by Stripe's `parse_float=Decimal`
+        # JSON load) to strings so the raw_payload survives `json.dumps` on
+        # the way into Postgres.
         return StripeEventData(
             id=event["id"],
             type=event["type"],
-            data_object=event["data"]["object"].to_dict(),
-            raw_payload=event.to_dict(),
+            data_object=event["data"]["object"].to_dict(for_json=True),
+            raw_payload=event.to_dict(for_json=True),
         )

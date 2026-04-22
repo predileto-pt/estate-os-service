@@ -82,6 +82,50 @@ def test_verify_webhook_converts_nested_stripe_objects_to_plain_dict():
     assert event.raw_payload["data"]["object"]["id"] == "sub_test_1"
 
 
+def test_verify_webhook_raw_payload_is_json_serializable():
+    """Stripe's SDK loads webhook JSON with `parse_float=Decimal` to
+    preserve monetary precision. The raw_payload we hand to the webhook
+    events repo flows through `httpx` → stdlib `json.dumps`, which does
+    NOT know how to encode `Decimal`. `for_json=True` on `to_dict()` is
+    what coerces Decimal → str. Regression test for the prod TypeError.
+    """
+    gateway = StripeBillingGateway(api_key="sk_test_x", webhook_secret=SECRET)
+
+    payload = json.dumps(
+        {
+            "id": "evt_decimal_1",
+            "object": "event",
+            "api_version": "2024-11-20.acacia",
+            "type": "invoice.paid",
+            "livemode": False,
+            "created": int(time.time()),
+            "pending_webhooks": 1,
+            "request": {"id": None, "idempotency_key": None},
+            "data": {
+                "object": {
+                    "id": "in_test_1",
+                    "object": "invoice",
+                    "customer": "cus_test_1",
+                    # Float fields that Stripe's SDK will parse as Decimal.
+                    "amount_paid": 19.99,
+                    "tax": 0.50,
+                    "lines": {
+                        "object": "list",
+                        "data": [{"amount": 19.99, "quantity": 1}],
+                    },
+                },
+            },
+        }
+    ).encode()
+
+    event = gateway.verify_webhook(payload=payload, signature=_sign(payload, SECRET))
+
+    # The regression: this must not raise `TypeError: Object of type
+    # Decimal is not JSON serializable`.
+    json.dumps(event.raw_payload)
+    json.dumps(event.data_object)
+
+
 def test_verify_webhook_raises_on_bad_signature():
     gateway = StripeBillingGateway(api_key="sk_test_x", webhook_secret=SECRET)
 
