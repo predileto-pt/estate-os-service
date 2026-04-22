@@ -81,11 +81,11 @@ class StripeBillingGateway(BillingGateway):
 
         # `event["data"]["object"]` is a `stripe.StripeObject`. Calling
         # `dict(...)` on it raises `KeyError: 0` because its iterator
-        # protocol doesn't match `dict`'s constructor expectations.
-        # `to_dict_recursive()` is the SDK's documented way to convert
-        # (and recursively convert nested StripeObjects, e.g. `items.data`).
+        # protocol doesn't cooperate with `dict`'s constructor. The SDK's
+        # public `to_dict()` recurses by default, so nested StripeObjects
+        # (e.g. `items.data[0].price`) also become plain Python dicts/lists.
         return StripeEventData(
             id=event["id"],
             type=event["type"],
-            data_object=event["data"]["object"].to_dict_recursive(),
+            data_object=event["data"]["object"].to_dict(),
         )
