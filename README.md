@@ -836,6 +836,90 @@ With the server running (`uv run uvicorn shared.main:app --reload --port 8000`) 
 
 Prod checklist: switch to live-mode keys, create products + prices in live mode, register the webhook at the prod URL (Dashboard, not CLI), and confirm the signing secret matches `STRIPE_WEBHOOK_SECRET`.
 
+### 6. Dev helpers — replay events and simulate time
+
+#### Resend a specific event
+
+If a webhook failed (bad handler, bad DB state, anything), Stripe keeps the event for 30 days and you can replay it:
+
+```bash
+stripe events list --limit 10                # find the evt_... id
+stripe events resend evt_1abcXYZ123          # replays through `stripe listen` → your backend
+```
+
+`resend` defaults to test mode. Use `--live` if you ever need to resend a live event (rare).
+
+#### Fabricate a synthetic event
+
+Quick smoke-test of the webhook plumbing without completing a full checkout:
+
+```bash
+stripe trigger customer.subscription.created
+```
+
+Caveat: the synthetic customer doesn't match any `stripe_customer_id` in our DB, so `HandleStripeWebhookEvent._on_subscription_upsert` logs `stripe_webhook.subscription_no_local_row` and exits early. Signature verification + routing are exercised; business logic isn't. For real end-to-end use the checkout flow in step 5.
+
+#### Simulate time passing — Stripe Test Clocks
+
+[Test Clocks](https://stripe.com/docs/billing/testing/test-clocks) let you fast-forward a simulated clock so billing events (trial ending, renewals, dunning) fire in seconds instead of days. Test mode only; clocks don't exist in live.
+
+**Important gotcha:** a clock must be attached **at customer-creation time**. Our `StartCheckoutSession` creates customers without clocks, so the subscription created by our real app flow can't be advanced on a clock after the fact. Use clocks against **a separate, CLI-created customer** to learn or demo the event sequence; keep real end-to-end verification on the `4242` card flow.
+
+```bash
+# 1. Create a clock frozen at "now". Note the clock_test_... id.
+CLOCK=$(stripe test_helpers test_clocks create \
+  --frozen-time $(date +%s) \
+  --name "trial-conversion-sim" \
+  | grep '"id":' | head -1 | awk -F'"' '{print $4}')
+
+# 2. Create a customer attached to that clock, with a default test card.
+CUSTOMER=$(stripe customers create \
+  --email="sim@test.local" \
+  --test-clock="$CLOCK" \
+  | grep '"id":' | head -1 | awk -F'"' '{print $4}')
+stripe payment_methods attach pm_card_visa --customer="$CUSTOMER"
+stripe customers update "$CUSTOMER" \
+  -d "invoice_settings[default_payment_method]=pm_card_visa"
+
+# 3. Create a subscription with a 7-day trial on one of our Pro prices.
+stripe subscriptions create \
+  --customer="$CUSTOMER" \
+  -d "items[0][price]=$STRIPE_PRICE_PRO_MONTHLY" \
+  --trial-period-days=7
+# → `customer.subscription.created` fires (status=trialing)
+
+# 4. Advance 8 days — past the trial end.
+stripe test_helpers test_clocks advance "$CLOCK" \
+  --frozen-time $(($(date +%s) + 8*86400))
+# → customer.subscription.updated (trialing → active)
+# → invoice.created → invoice.finalized → invoice.paid
+
+# 5. Advance another 30 days — next billing cycle renews.
+stripe test_helpers test_clocks advance "$CLOCK" \
+  --frozen-time $(($(date +%s) + 38*86400))
+# → invoice.created → invoice.paid (renewal)
+
+# Cleanup when done.
+stripe test_helpers test_clocks delete "$CLOCK"
+```
+
+Advances are async. The clock transitions `ready → advancing → ready`; events fire during the `advancing` window. Poll with `stripe test_helpers test_clocks retrieve "$CLOCK"` if you need to wait for the transition to complete before the next step.
+
+**Simulating payment failure** — replace the payment method in step 2:
+
+```bash
+stripe payment_methods attach pm_card_chargeCustomerFail --customer="$CUSTOMER"
+stripe customers update "$CUSTOMER" \
+  -d "invoice_settings[default_payment_method]=pm_card_chargeCustomerFail"
+```
+
+Then advance past the trial → `invoice.payment_failed` fires → `HandleStripeWebhookEvent._on_invoice_payment_failed` flips `status=past_due` (only if the customer's `stripe_customer_id` matches a local row — see the gotcha above).
+
+Useful references:
+
+- [`stripe test_helpers test_clocks list`](https://stripe.com/docs/api/test_clocks/list) — see active clocks
+- Stripe [test-mode card numbers](https://stripe.com/docs/testing) — `4242` (success), `chargeCustomerFail` (always declines), others for 3DS / insufficient funds / specific errors
+
 ## Contract Intelligence
 
 Ingests existing lease and sale contracts, extracts their structure via Reducto OCR, classifies each section with an LLM, and produces versioned templates that can be filled from CRM records to generate new contracts.

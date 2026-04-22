@@ -187,6 +187,16 @@ The `stripe_webhook_events` table is a narrow idempotency log: `(event_id PK, ev
 - Webhook with invalid `Stripe-Signature` → 400.
 - Replaying the same `event.id` is a DB no-op.
 
+## Dev workflow — replaying events and simulating time
+
+For local dev you run `stripe listen --forward-to http://localhost:8000/api/v1/billing/webhooks/stripe` in a side shell. From there, the Stripe CLI has two escape hatches you'll reach for regularly:
+
+- **Replay a specific event** — `stripe events resend evt_xxx`. Useful when a real event failed in the backend and you want to rerun it against the fixed code. Stripe keeps events 30 days.
+- **Fabricate a synthetic event** — `stripe trigger customer.subscription.created`. Exercises signature verification + routing but short-circuits `HandleStripeWebhookEvent._on_subscription_upsert` because the synthetic customer has no matching `stripe_customer_id` in our DB.
+- **Simulate time with Stripe Test Clocks** — fast-forward trial→active, renewal cycles, and dunning without waiting real days. Clock must be attached at customer-creation time, so clocks don't apply to subscriptions created by our real app flow (our `StartCheckoutSession` creates clockless customers). Use clocks against CLI-created customers to learn the event sequence; keep real end-to-end verification on the `4242` card flow.
+
+Full runbook with copy-pasteable commands lives in [`README.md § Stripe Billing Setup → Dev helpers`](../../README.md#6-dev-helpers--replay-events-and-simulate-time).
+
 ## Related docs
 
 - [`docs/features/organizations.md`](./organizations.md) — the `Subscription` aggregate lives inside the Organizations context.
