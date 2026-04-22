@@ -920,6 +920,22 @@ Useful references:
 - [`stripe test_helpers test_clocks list`](https://stripe.com/docs/api/test_clocks/list) — see active clocks
 - Stripe [test-mode card numbers](https://stripe.com/docs/testing) — `4242` (success), `chargeCustomerFail` (always declines), others for 3DS / insufficient funds / specific errors
 
+**Shortcut script:** the raw CLI commands above are wrapped in `scripts/stripe-clock.sh` for everyday use:
+
+```bash
+scripts/stripe-clock.sh setup alice@test.local $STRIPE_PRICE_PRO_MONTHLY 7
+# → creates clock + customer + card + trialing subscription in one shot
+
+scripts/stripe-clock.sh status clock_test_xxx        # show current state
+scripts/stripe-clock.sh end-trial clock_test_xxx     # jump past trial_end + 60s
+scripts/stripe-clock.sh renew clock_test_xxx         # +30d (next billing cycle)
+scripts/stripe-clock.sh advance clock_test_xxx +12h  # +Nd / +Nh / +Nm / unix_ts
+scripts/stripe-clock.sh list                         # all clocks in the account
+scripts/stripe-clock.sh cleanup clock_test_xxx       # delete clock + attached objects
+```
+
+Every mutating subcommand polls the clock until it transitions back to `ready` and prints the event types that fired, so you can eyeball whether your backend got the expected webhooks.
+
 ## Contract Intelligence
 
 Ingests existing lease and sale contracts, extracts their structure via Reducto OCR, classifies each section with an LLM, and produces versioned templates that can be filled from CRM records to generate new contracts.
