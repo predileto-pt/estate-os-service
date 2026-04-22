@@ -79,13 +79,13 @@ class StripeBillingGateway(BillingGateway):
         except (StripeSignatureError, ValueError) as exc:
             raise SignatureVerificationError(str(exc)) from exc
 
-        # `event["data"]["object"]` is a `stripe.StripeObject`. Calling
-        # `dict(...)` on it raises `KeyError: 0` because its iterator
-        # protocol doesn't cooperate with `dict`'s constructor. The SDK's
-        # public `to_dict()` recurses by default, so nested StripeObjects
-        # (e.g. `items.data[0].price`) also become plain Python dicts/lists.
+        # `event` and `event["data"]["object"]` are both `stripe.StripeObject`s.
+        # `to_dict()` recurses by default, so nested StripeObjects flatten
+        # into plain Python dicts/lists — needed by the handler indexing
+        # and by JSONB persistence in the webhook events repo.
         return StripeEventData(
             id=event["id"],
             type=event["type"],
             data_object=event["data"]["object"].to_dict(),
+            raw_payload=event.to_dict(),
         )

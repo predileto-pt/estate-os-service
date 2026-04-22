@@ -66,7 +66,11 @@ class HandleStripeWebhookEvent:
         self._prices = price_catalog
 
     async def execute(self, event: StripeEventData) -> None:
-        is_new = await self._events.try_mark_processed(event_id=event.id, event_type=event.type)
+        is_new = await self._events.try_mark_processed(
+            event_id=event.id,
+            event_type=event.type,
+            payload=event.raw_payload,
+        )
         if not is_new:
             log.info("stripe_webhook.duplicate_ignored", event_id=event.id, type=event.type)
             return

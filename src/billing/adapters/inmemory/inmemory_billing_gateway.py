@@ -86,4 +86,5 @@ class InMemoryBillingGateway(BillingGateway):
             id=event["id"],
             type=event["type"],
             data_object=event["data"]["object"],
+            raw_payload=event,
         )

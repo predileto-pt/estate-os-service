@@ -19,10 +19,10 @@ class SqlAlchemyStripeWebhookEventsRepository(StripeWebhookEventsRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def try_mark_processed(self, *, event_id: str, event_type: str) -> bool:
+    async def try_mark_processed(self, *, event_id: str, event_type: str, payload: dict) -> bool:
         stmt = (
             insert(StripeWebhookEventModel)
-            .values(event_id=event_id, event_type=event_type)
+            .values(event_id=event_id, event_type=event_type, payload=payload)
             .on_conflict_do_nothing(index_elements=["event_id"])
         )
         result = await self._session.execute(stmt)

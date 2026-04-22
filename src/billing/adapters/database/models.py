@@ -9,7 +9,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from shared.database.models import Base
@@ -88,16 +88,23 @@ class SubscriptionModel(Base):
 
 
 class StripeWebhookEventModel(Base):
-    """Idempotency table for Stripe webhook events.
+    """Idempotency + audit log for Stripe webhook events.
 
-    Every processed Stripe event is recorded here; the webhook handler
-    checks membership before applying side effects, so retries / replays
-    are no-ops. Stripe retries any non-2xx response, so this table also
-    guards against double-apply on transient handler failures.
+    Every processed Stripe event is recorded here with its full decoded
+    envelope in `payload`. The table serves two jobs:
+
+    1. Idempotency — `(event_id)` is the PK, so replays are atomic no-ops
+       via `INSERT ... ON CONFLICT DO NOTHING` (SQLAlchemy) or PostgREST's
+       `upsert(..., ignore_duplicates=True)` (Supabase).
+    2. Audit / debug — `payload` preserves what Stripe sent us. Useful
+       for reproducing bugs locally (copy the payload, replay it through
+       the handler) and for satisfying audit requirements beyond Stripe's
+       own 30-day event retention.
     """
 
     __tablename__ = "stripe_webhook_events"
 
     event_id: Mapped[str] = mapped_column(Text, primary_key=True)
     event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
     processed_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())

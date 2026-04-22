@@ -2,8 +2,8 @@ import aioboto3
 from supabase import acreate_client
 
 from billing.adapters.outbound.stripe.billing_gateway import StripeBillingGateway
-from billing.adapters.inmemory.inmemory_stripe_webhook_events_repo import (
-    InMemoryStripeWebhookEventsRepository,
+from billing.adapters.persistence.supabase_stripe_webhook_events_repo import (
+    SupabaseStripeWebhookEventsRepository,
 )
 from billing.adapters.persistence.supabase_subscription_repo import (
     SupabaseSubscriptionRepository,
@@ -132,11 +132,11 @@ async def get_billing_container() -> BillingContainer:
         enterprise_monthly=settings.stripe_price_enterprise_monthly,
         enterprise_yearly=settings.stripe_price_enterprise_yearly,
     )
-    # Webhook idempotency: an in-memory store is fine on a single
-    # instance. Move to the SqlAlchemy-backed impl when we scale out —
-    # that path is already implemented in
-    # `billing.adapters.database.stripe_webhook_events_repo`.
-    stripe_webhook_events_repo = InMemoryStripeWebhookEventsRepository()
+    # Webhook events: Supabase-backed idempotency + audit log. Each
+    # event's full decoded envelope is persisted to `stripe_webhook_events.payload`
+    # for debugging and audit. Duplicates on `event_id` are no-ops
+    # (`upsert(..., ignore_duplicates=True)`).
+    stripe_webhook_events_repo = SupabaseStripeWebhookEventsRepository(client)
 
     _billing_container = BillingContainer(
         subscription_repo=SupabaseSubscriptionRepository(client),

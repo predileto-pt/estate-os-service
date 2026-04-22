@@ -20,14 +20,16 @@ class CheckoutSession:
 class StripeEventData:
     """Normalised view of a Stripe event payload.
 
-    Only carries the fields the webhook handler reads. Keeps the
-    handler independent of Stripe's concrete `Event` object shape so
-    unit tests can emit these directly without touching the SDK.
+    Carries the fields the webhook handler needs for routing + the full
+    decoded envelope for audit / idempotency storage. Keeps the handler
+    independent of Stripe's concrete `Event` object shape so unit tests
+    can emit these directly without touching the SDK.
     """
 
     id: str
     type: str
     data_object: dict
+    raw_payload: dict  # full event envelope, preserved for audit
 
 
 class SignatureVerificationError(Exception):

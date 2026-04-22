@@ -5,10 +5,11 @@ from billing.application.ports.repositories.stripe_webhook_events_repository imp
 
 class InMemoryStripeWebhookEventsRepository(StripeWebhookEventsRepository):
     def __init__(self) -> None:
-        self._seen: set[str] = set()
+        # Store (event_type, payload) so tests can assert what was recorded.
+        self._seen: dict[str, tuple[str, dict]] = {}
 
-    async def try_mark_processed(self, *, event_id: str, event_type: str) -> bool:
+    async def try_mark_processed(self, *, event_id: str, event_type: str, payload: dict) -> bool:
         if event_id in self._seen:
             return False
-        self._seen.add(event_id)
+        self._seen[event_id] = (event_type, payload)
         return True

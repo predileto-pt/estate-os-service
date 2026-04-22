@@ -77,7 +77,8 @@ async def _seed_sub(
 
 
 def _event(event_type: str, obj: dict, event_id: str = "evt_1") -> StripeEventData:
-    return StripeEventData(id=event_id, type=event_type, data_object=obj)
+    raw = {"id": event_id, "type": event_type, "data": {"object": obj}}
+    return StripeEventData(id=event_id, type=event_type, data_object=obj, raw_payload=raw)
 
 
 async def test_checkout_completed_sets_stripe_subscription_id(use_case, subscription_repo):
@@ -117,9 +118,7 @@ async def test_subscription_created_syncs_all_fields(use_case, subscription_repo
     assert refreshed.current_period_end == datetime.fromtimestamp(1_700_600_000, tz=timezone.utc)
 
 
-async def test_subscription_created_clover_api_reads_period_from_items(
-    use_case, subscription_repo
-):
+async def test_subscription_created_clover_api_reads_period_from_items(use_case, subscription_repo):
     """Stripe 2025 Clover API (e.g. 2026-02-25.clover) moved
     current_period_{start,end} off the subscription object and onto each
     subscription item. Top-level fields are null / missing; the handler
@@ -144,12 +143,8 @@ async def test_subscription_created_clover_api_reads_period_from_items(
     await use_case.execute(_event("customer.subscription.created", event_obj))
 
     refreshed = await subscription_repo.get_by_organization_id(sub.organization_id)
-    assert refreshed.current_period_start == datetime.fromtimestamp(
-        1_700_000_000, tz=timezone.utc
-    )
-    assert refreshed.current_period_end == datetime.fromtimestamp(
-        1_700_600_000, tz=timezone.utc
-    )
+    assert refreshed.current_period_start == datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
+    assert refreshed.current_period_end == datetime.fromtimestamp(1_700_600_000, tz=timezone.utc)
 
 
 async def test_subscription_created_top_level_wins_over_items(use_case, subscription_repo):
@@ -177,12 +172,8 @@ async def test_subscription_created_top_level_wins_over_items(use_case, subscrip
     await use_case.execute(_event("customer.subscription.created", event_obj))
 
     refreshed = await subscription_repo.get_by_organization_id(sub.organization_id)
-    assert refreshed.current_period_start == datetime.fromtimestamp(
-        1_700_000_000, tz=timezone.utc
-    )
-    assert refreshed.current_period_end == datetime.fromtimestamp(
-        1_700_600_000, tz=timezone.utc
-    )
+    assert refreshed.current_period_start == datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
+    assert refreshed.current_period_end == datetime.fromtimestamp(1_700_600_000, tz=timezone.utc)
 
 
 async def test_subscription_deleted_marks_cancelled(use_case, subscription_repo):
@@ -247,6 +238,22 @@ async def test_invoice_paid_no_op_if_not_past_due(use_case, subscription_repo):
 
     refreshed = await subscription_repo.get_by_organization_id(sub.organization_id)
     assert refreshed.status == SubscriptionStatus.ACTIVE
+
+
+async def test_webhook_event_payload_is_persisted(use_case, subscription_repo, webhook_events_repo):
+    """Full raw payload should land on the events repo for audit."""
+    sub = await _seed_sub(subscription_repo)
+
+    event_obj = {"id": "cs_1", "customer": sub.stripe_customer_id, "subscription": "sub_1"}
+    event = _event("checkout.session.completed", event_obj, event_id="evt_payload")
+
+    await use_case.execute(event)
+
+    # Private-ish peek at the in-memory repo to prove the payload round-tripped.
+    stored_type, stored_payload = webhook_events_repo._seen["evt_payload"]
+    assert stored_type == "checkout.session.completed"
+    assert stored_payload == event.raw_payload
+    assert stored_payload["data"]["object"]["customer"] == sub.stripe_customer_id
 
 
 async def test_idempotency_same_event_id_is_noop(use_case, subscription_repo):

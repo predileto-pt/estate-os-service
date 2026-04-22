@@ -74,6 +74,12 @@ def test_verify_webhook_converts_nested_stripe_objects_to_plain_dict():
     assert type(event.data_object["items"]) is dict
     assert type(event.data_object["items"]["data"]) is list
     assert event.data_object["items"]["data"][0]["price"]["id"] == "price_pro_monthly"
+    # raw_payload preserves the full event envelope for audit — not just
+    # data.object. The webhook events repo persists this as-is.
+    assert type(event.raw_payload) is dict
+    assert event.raw_payload["id"] == "evt_test_123"
+    assert event.raw_payload["object"] == "event"
+    assert event.raw_payload["data"]["object"]["id"] == "sub_test_1"
 
 
 def test_verify_webhook_raises_on_bad_signature():
