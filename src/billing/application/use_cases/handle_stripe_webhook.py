@@ -126,14 +126,24 @@ class HandleStripeWebhookEvent:
             except UnknownStripePriceError:
                 log.warning("stripe_webhook.unknown_price_id", price_id=price_id)
 
+        # Stripe's 2025 Clover API moved `current_period_{start,end}` off the
+        # subscription object and onto each subscription item. Read top-level
+        # first for older API versions, then fall back to items[0] for Clover.
+        period_start = obj.get("current_period_start")
+        period_end = obj.get("current_period_end")
+        if items and (period_start is None or period_end is None):
+            first_item = items[0]
+            period_start = period_start or first_item.get("current_period_start")
+            period_end = period_end or first_item.get("current_period_end")
+
         sub.update(
             plan=plan,
             type=SubscriptionType.STRIPE,
             status=status,
             stripe_subscription_id=obj.get("id"),
             stripe_price_id=price_id,
-            current_period_start=_utc_from_stripe_ts(obj.get("current_period_start")),
-            current_period_end=_utc_from_stripe_ts(obj.get("current_period_end")),
+            current_period_start=_utc_from_stripe_ts(period_start),
+            current_period_end=_utc_from_stripe_ts(period_end),
         )
         await self._subscriptions.update(sub)
 

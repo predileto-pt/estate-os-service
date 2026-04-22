@@ -95,6 +95,7 @@ async def test_checkout_completed_sets_stripe_subscription_id(use_case, subscrip
 
 
 async def test_subscription_created_syncs_all_fields(use_case, subscription_repo):
+    """Legacy API shape: current_period_{start,end} on the subscription object."""
     sub = await _seed_sub(subscription_repo)
 
     event_obj = {
@@ -113,6 +114,75 @@ async def test_subscription_created_syncs_all_fields(use_case, subscription_repo
     assert refreshed.stripe_price_id == "price_pm"
     assert refreshed.stripe_subscription_id == "sub_stripe_1"
     assert refreshed.current_period_start == datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
+    assert refreshed.current_period_end == datetime.fromtimestamp(1_700_600_000, tz=timezone.utc)
+
+
+async def test_subscription_created_clover_api_reads_period_from_items(
+    use_case, subscription_repo
+):
+    """Stripe 2025 Clover API (e.g. 2026-02-25.clover) moved
+    current_period_{start,end} off the subscription object and onto each
+    subscription item. Top-level fields are null / missing; the handler
+    must fall back to items[0]."""
+    sub = await _seed_sub(subscription_repo)
+
+    event_obj = {
+        "id": "sub_stripe_1",
+        "customer": sub.stripe_customer_id,
+        "status": "trialing",
+        # Top-level period fields are NOT set — this is what prod was seeing.
+        "items": {
+            "data": [
+                {
+                    "price": {"id": "price_pm"},
+                    "current_period_start": 1_700_000_000,
+                    "current_period_end": 1_700_600_000,
+                }
+            ]
+        },
+    }
+    await use_case.execute(_event("customer.subscription.created", event_obj))
+
+    refreshed = await subscription_repo.get_by_organization_id(sub.organization_id)
+    assert refreshed.current_period_start == datetime.fromtimestamp(
+        1_700_000_000, tz=timezone.utc
+    )
+    assert refreshed.current_period_end == datetime.fromtimestamp(
+        1_700_600_000, tz=timezone.utc
+    )
+
+
+async def test_subscription_created_top_level_wins_over_items(use_case, subscription_repo):
+    """If both top-level and items[0] have period values, top-level wins.
+    Guards against the fallback silently overriding a legacy-API value."""
+    sub = await _seed_sub(subscription_repo)
+
+    event_obj = {
+        "id": "sub_stripe_1",
+        "customer": sub.stripe_customer_id,
+        "status": "trialing",
+        "current_period_start": 1_700_000_000,
+        "current_period_end": 1_700_600_000,
+        "items": {
+            "data": [
+                {
+                    "price": {"id": "price_pm"},
+                    # Different values on the item — must be ignored.
+                    "current_period_start": 9_999_999_999,
+                    "current_period_end": 9_999_999_999,
+                }
+            ]
+        },
+    }
+    await use_case.execute(_event("customer.subscription.created", event_obj))
+
+    refreshed = await subscription_repo.get_by_organization_id(sub.organization_id)
+    assert refreshed.current_period_start == datetime.fromtimestamp(
+        1_700_000_000, tz=timezone.utc
+    )
+    assert refreshed.current_period_end == datetime.fromtimestamp(
+        1_700_600_000, tz=timezone.utc
+    )
 
 
 async def test_subscription_deleted_marks_cancelled(use_case, subscription_repo):
