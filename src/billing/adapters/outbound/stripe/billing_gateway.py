@@ -79,8 +79,13 @@ class StripeBillingGateway(BillingGateway):
         except (StripeSignatureError, ValueError) as exc:
             raise SignatureVerificationError(str(exc)) from exc
 
+        # `event["data"]["object"]` is a `stripe.StripeObject`. Calling
+        # `dict(...)` on it raises `KeyError: 0` because its iterator
+        # protocol doesn't match `dict`'s constructor expectations.
+        # `to_dict_recursive()` is the SDK's documented way to convert
+        # (and recursively convert nested StripeObjects, e.g. `items.data`).
         return StripeEventData(
             id=event["id"],
             type=event["type"],
-            data_object=dict(event["data"]["object"]),
+            data_object=event["data"]["object"].to_dict_recursive(),
         )
