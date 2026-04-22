@@ -936,6 +936,35 @@ scripts/stripe-clock.sh cleanup clock_test_xxx       # delete clock + attached o
 
 Every mutating subcommand polls the clock until it transitions back to `ready` and prints the event types that fired, so you can eyeball whether your backend got the expected webhooks.
 
+**Hijacking an existing app user with a clock:**
+
+Clocks must be attached at customer-creation time, so the customers our real `/upgrade` flow creates can never be time-advanced directly. To exercise `HandleStripeWebhookEvent` against real local data, create a clock-attached Stripe customer/subscription and then point a local admin's `subscriptions` row at it:
+
+```bash
+# 1. Register a fresh test admin in the app (normal signup flow).
+# 2. Create the clock setup (new Stripe customer, new subscription with trial).
+scripts/stripe-clock.sh setup alice@test.local "$STRIPE_PRICE_PRO_MONTHLY" 7
+# → prints clock=..., customer=..., subscription=sub_test_CLOCK
+
+# 3. Hijack — patches alice@test.local's local subscription row to point
+#    at the clock's customer/subscription. Needs DATABASE_URL exported.
+set -a; source .env; set +a
+scripts/stripe-clock.sh hijack sub_test_CLOCK alice@test.local
+
+# 4. Advance — webhooks from the clock now match alice's local row.
+scripts/stripe-clock.sh end-trial clock_test_xxx
+
+# 5. Observe — backend logs show the webhook processing, DB row flips.
+
+# 6. Rollback — restores alice's row to freemium/active/manual.
+scripts/stripe-clock.sh hijack-rollback alice@test.local
+scripts/stripe-clock.sh cleanup clock_test_xxx
+```
+
+`hijack` resolves the target org by walking `users.email → memberships.user_id → subscriptions.organization_id`, so the admin must already be registered. If the UPDATE affects 0 rows the script prints a diagnostic SELECT you can run to list known admins.
+
+Requires `psql` on `$PATH` and `DATABASE_URL` exported (source your `.env` with `set -a; source .env; set +a`). The SQL goes directly to the database — PostgREST is bypassed for this dev-only operation.
+
 ## Contract Intelligence
 
 Ingests existing lease and sale contracts, extracts their structure via Reducto OCR, classifies each section with an LLM, and produces versioned templates that can be filled from CRM records to generate new contracts.

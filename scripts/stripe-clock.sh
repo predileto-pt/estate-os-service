@@ -13,9 +13,15 @@
 #   scripts/stripe-clock.sh renew <clock_id>              # jump one billing cycle (+30d)
 #   scripts/stripe-clock.sh list
 #   scripts/stripe-clock.sh cleanup <clock_id>
+#   scripts/stripe-clock.sh hijack <stripe_sub_id> <admin_email>
+#   scripts/stripe-clock.sh hijack-rollback <admin_email>
 #
 # Every subcommand that mutates state polls the clock until it's back to
 # `ready` and prints the events that fired during the advance window.
+#
+# `hijack` / `hijack-rollback` need `DATABASE_URL` exported (load your
+# backend .env first: `set -a; source .env; set +a`) and the `psql` binary
+# on PATH. See "Swap stripe_customer_id" in README § 6.
 
 set -euo pipefail
 
@@ -24,6 +30,23 @@ require_stripe_cli() {
     echo "stripe CLI not found. Install from https://stripe.com/docs/stripe-cli" >&2
     exit 1
   fi
+}
+
+require_psql() {
+  if ! command -v psql &>/dev/null; then
+    echo "psql not found. Install postgresql client tools." >&2
+    exit 1
+  fi
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo "DATABASE_URL not set. Load your backend .env first:" >&2
+    echo "  set -a; source .env; set +a" >&2
+    exit 1
+  fi
+}
+
+# Strip SQLAlchemy-style `+asyncpg` dialect marker so psql accepts the URL.
+psql_url() {
+  echo "${DATABASE_URL/postgresql+asyncpg/postgresql}"
 }
 
 usage() {
@@ -217,19 +240,116 @@ cmd_cleanup() {
   stripe test_helpers test_clocks delete "$clock_id" 2>&1 | grep -E '"(id|deleted)"'
 }
 
+cmd_hijack() {
+  # hijack <stripe_sub_id> <admin_email>
+  # Points the admin's local subscription row at a clock-attached Stripe
+  # customer/subscription, so webhook events from the clock land on a real
+  # backend-owned row and run through HandleStripeWebhookEvent normally.
+  local sub_id="${1:-}" admin_email="${2:-}"
+  [ -z "$sub_id" ] || [ -z "$admin_email" ] && {
+    echo "usage: hijack <stripe_sub_id> <admin_email>" >&2
+    exit 1
+  }
+  require_psql
+
+  echo "Retrieving Stripe subscription $sub_id..."
+  local sub_json customer_id
+  sub_json=$(stripe subscriptions retrieve "$sub_id")
+  customer_id=$(echo "$sub_json" | grep '"customer":' | head -1 | awk -F'"' '{print $4}')
+  if [ -z "$customer_id" ]; then
+    echo "Couldn't parse customer id from: $sub_id" >&2
+    exit 1
+  fi
+  echo "  stripe_customer_id: $customer_id"
+
+  echo "Patching local subscriptions row for admin $admin_email..."
+  local result
+  result=$(psql "$(psql_url)" -X -A -q --tuples-only \
+    -v stripe_customer_id="$customer_id" \
+    -v stripe_subscription_id="$sub_id" \
+    -v admin_email="$admin_email" <<'SQL'
+UPDATE subscriptions s
+SET stripe_customer_id    = :'stripe_customer_id',
+    stripe_subscription_id = :'stripe_subscription_id',
+    status                = 'trialing',
+    plan                  = 'pro',
+    type                  = 'stripe',
+    updated_at            = NOW()
+FROM memberships m, users u
+WHERE s.organization_id = m.organization_id
+  AND m.user_id = u.id
+  AND u.email = :'admin_email'
+RETURNING s.organization_id, s.plan, s.status, s.stripe_customer_id, s.stripe_subscription_id;
+SQL
+  )
+
+  if [ -z "$result" ]; then
+    echo "  no subscription found for admin '$admin_email'." >&2
+    echo "  Has this user registered through the app? Check:" >&2
+    echo "    psql \"\$(echo \$DATABASE_URL | sed 's/+asyncpg//')\" -c \"SELECT u.email FROM users u JOIN memberships m ON m.user_id = u.id;\"" >&2
+    exit 1
+  fi
+
+  echo "  patched: $result"
+  echo ""
+  echo "Hijack complete. Clock events will now land on this admin's row."
+  echo "To restore:"
+  echo "  scripts/stripe-clock.sh hijack-rollback $admin_email"
+}
+
+cmd_hijack_rollback() {
+  local admin_email="${1:-}"
+  [ -z "$admin_email" ] && { echo "usage: hijack-rollback <admin_email>" >&2; exit 1; }
+  require_psql
+
+  echo "Restoring $admin_email's subscription to freemium defaults..."
+  local result
+  result=$(psql "$(psql_url)" -X -A -q --tuples-only \
+    -v admin_email="$admin_email" <<'SQL'
+UPDATE subscriptions s
+SET stripe_customer_id     = NULL,
+    stripe_subscription_id  = NULL,
+    stripe_price_id        = NULL,
+    status                 = 'active',
+    plan                   = 'freemium',
+    type                   = 'manual',
+    current_period_start   = NOW(),
+    current_period_end     = NULL,
+    updated_at             = NOW()
+FROM memberships m, users u
+WHERE s.organization_id = m.organization_id
+  AND m.user_id = u.id
+  AND u.email = :'admin_email'
+RETURNING s.organization_id, s.plan, s.status;
+SQL
+  )
+
+  if [ -z "$result" ]; then
+    echo "  no subscription found for admin '$admin_email'. Nothing to roll back." >&2
+    exit 1
+  fi
+
+  echo "  restored: $result"
+  echo ""
+  echo "Rollback complete. Stripe-side clock + customer are untouched."
+  echo "Run \`scripts/stripe-clock.sh cleanup <clock_id>\` to delete them."
+}
+
 require_stripe_cli
 
 sub="${1:-}"
 shift || true
 
 case "$sub" in
-  setup)     cmd_setup "$@" ;;
-  status)    cmd_status "$@" ;;
-  advance)   cmd_advance "$@" ;;
-  end-trial) cmd_end_trial "$@" ;;
-  renew)     cmd_renew "$@" ;;
-  list)      cmd_list ;;
-  cleanup)   cmd_cleanup "$@" ;;
+  setup)            cmd_setup "$@" ;;
+  status)           cmd_status "$@" ;;
+  advance)          cmd_advance "$@" ;;
+  end-trial)        cmd_end_trial "$@" ;;
+  renew)            cmd_renew "$@" ;;
+  list)             cmd_list ;;
+  cleanup)          cmd_cleanup "$@" ;;
+  hijack)           cmd_hijack "$@" ;;
+  hijack-rollback)  cmd_hijack_rollback "$@" ;;
   ""|-h|--help|help) usage ;;
   *) echo "Unknown subcommand: $sub" >&2; usage ;;
 esac
