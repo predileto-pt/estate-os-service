@@ -1,8 +1,9 @@
 # Carried-state domain events + PropertyListing read-model projector
 
-**Status:** in-progress
+**Status:** shipped
 **Owner:** Peter
 **Created:** 2026-04-17
+**Shipped:** 2026-04-19 (PR #3, squash-merged as `382feda8bbca`. Delivers `property_listings` read-model, `aggregate_version` idempotency, carried-state `PROPERTY_CREATED.v1` / `PROPERTY_UPDATED.v1` / `PROPERTY_DELETED.v1` payloads, listings projector + async address-enrichment handler, LangChain + in-memory address parsers, backfill CLI.)
 
 ## Problem
 
