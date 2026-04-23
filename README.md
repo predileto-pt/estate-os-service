@@ -456,9 +456,11 @@ uv run uvicorn shared.main:app --reload --port 8000
 #   customers  → APPLICANT_SCREENED.v1 (send screening-complete email)
 #   bookings   → APPLICANT_SCREENED.v1 (create booking applicant)
 #   properties → PROPERTY_CREATED.v1  (discover amenities)
+#   listings   → PROPERTY_{CREATED,UPDATED,DELETED,PUBLISHED}.v1 + address enrichment
 uv run python -m customers.entrypoints.worker --queue events
 uv run python -m bookings.entrypoints.events_worker
 uv run python -m properties.entrypoints.events_worker
+uv run python -m listings.entrypoints.events_worker
 
 # Terminal 3 — Property extraction worker
 uv run python -m properties.entrypoints.worker --queue extraction

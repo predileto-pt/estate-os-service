@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from properties.domain.models.property import Property
+from properties.domain.models.property import Property, PropertyStatus
 from properties.domain.models.property_image import PropertyImage
 from properties.domain.models.property_owner import PropertyOwner
 from properties.domain.models.property_price import PropertyPrice
@@ -44,6 +44,13 @@ class PropertyRepository(ABC):
     async def update_image_orders(
         self, prop: Property, image_orders: list[tuple[UUID, int]]
     ) -> Property: ...
+
+    @abstractmethod
+    async def update_status(self, property_id: UUID, status: PropertyStatus) -> None:
+        """Persist a status change on a single property. The aggregate version
+        bump is driven separately by `bump_aggregate_version`, same as every
+        other update-style write on this port."""
+        ...
 
     @abstractmethod
     async def bump_aggregate_version(self, property_id: UUID) -> Property:

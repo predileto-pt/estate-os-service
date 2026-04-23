@@ -296,6 +296,21 @@ class SupabasePropertyRepository(PropertyRepository):
             await self._client.table(table).delete().eq("property_id", pid).execute()
         await self._client.table("properties").delete().eq("id", pid).execute()
 
+    async def update_status(self, property_id: UUID, status: PropertyStatus) -> None:
+        from datetime import datetime, timezone
+
+        await (
+            self._client.table("properties")
+            .update(
+                {
+                    "status": status.value,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            .eq("id", str(property_id))
+            .execute()
+        )
+
     async def bump_aggregate_version(self, property_id: UUID) -> Property:
         # PostgREST can't do column arithmetic in updates — read-modify-write.
         # Two round-trips at worst; fine at our scale.

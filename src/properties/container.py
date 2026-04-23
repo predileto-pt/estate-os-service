@@ -37,6 +37,7 @@ from properties.application.use_cases.process_batch_property_extraction import (
 from properties.application.use_cases.process_property_extraction import (
     ProcessPropertyExtraction,
 )
+from properties.application.use_cases.publish_property import PublishProperty
 from properties.application.use_cases.submit_batch_property_extraction import (
     SubmitBatchPropertyExtraction,
 )
@@ -123,6 +124,10 @@ class Container:
             property_repo=property_repo,
         )
         self.update_property_owner_contact = UpdatePropertyOwnerContact(
+            property_repo=property_repo,
+            domain_event_publisher=domain_event_publisher,
+        )
+        self.publish_property = PublishProperty(
             property_repo=property_repo,
             domain_event_publisher=domain_event_publisher,
         )

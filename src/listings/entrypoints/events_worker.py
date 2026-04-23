@@ -1,9 +1,10 @@
 """Listings domain-event worker CLI.
 
 Consumes the `listings-events-queue` — subscribed (via SNS fan-out) to
-four topics:
+five topics:
 
-- `PROPERTY_CREATED.v1`, `PROPERTY_UPDATED.v1`, `PROPERTY_DELETED.v1`
+- `PROPERTY_CREATED.v1`, `PROPERTY_UPDATED.v1`, `PROPERTY_DELETED.v1`,
+  `PROPERTY_PUBLISHED.v1`
   → `handle_property_event` (projector)
 - `PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1`
   → `handle_address_enrichment`
@@ -33,6 +34,7 @@ from shared.events.types import (
     PROPERTY_CREATED_V1,
     PROPERTY_DELETED_V1,
     PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1,
+    PROPERTY_PUBLISHED_V1,
     PROPERTY_UPDATED_V1,
 )
 from shared.events.worker import SQSWorker
@@ -64,6 +66,7 @@ async def _run_events_worker() -> None:
     router.on(PROPERTY_CREATED_V1, handle_property_event)
     router.on(PROPERTY_UPDATED_V1, handle_property_event)
     router.on(PROPERTY_DELETED_V1, handle_property_event)
+    router.on(PROPERTY_PUBLISHED_V1, handle_property_event)
     router.on(PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1, handle_address_enrichment)
 
     context = {

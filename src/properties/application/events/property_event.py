@@ -120,3 +120,29 @@ async def emit_property_deleted(publisher, prop: Property) -> None:
         )
     except Exception:
         log.exception("property.domain_event_failed", property_id=str(prop.id))
+
+
+async def emit_property_published(publisher, prop: Property) -> None:
+    """Publish `PROPERTY_PUBLISHED.v1` with a fresh snapshot.
+
+    Distinct business event for the "went live" moment — downstream
+    consumers (notifications, analytics, search indexers) subscribe to
+    this specifically rather than treating it as another UPDATED.
+
+    Log-and-swallow on publish failure — matches the existing pattern;
+    persistence is already committed when we get here.
+    """
+    import structlog
+
+    from shared.events.base import DomainEvent
+    from shared.events.types import PROPERTY_PUBLISHED_V1
+
+    log = structlog.get_logger()
+    if publisher is None:
+        return
+    try:
+        await publisher.publish(
+            DomainEvent(event_type=PROPERTY_PUBLISHED_V1, data=build_property_snapshot(prop))
+        )
+    except Exception:
+        log.exception("property.domain_event_failed", property_id=str(prop.id))

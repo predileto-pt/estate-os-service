@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
 
+from properties.domain.exceptions import PropertyNotPublishableError
 from properties.domain.models.property_characteristics import PropertyCharacteristics
 from properties.domain.models.property_image import PropertyImage
 from properties.domain.models.property_owner import PropertyOwner
@@ -59,6 +60,29 @@ class Property:
         """Increment the aggregate version. Called inside write-path use cases
         on the same transaction as the state change they're broadcasting."""
         self.aggregate_version += 1
+
+    def publish(self) -> None:
+        """Flip status to ACTIVE if the aggregate is publishable.
+
+        Raises PropertyNotPublishableError with a list of machine-readable
+        reason codes when the aggregate is not ready. Does NOT bump
+        aggregate_version — the use case drives that via the repo's atomic
+        bump_aggregate_version method, matching UpdatePropertyOwnerContact.
+        """
+        reasons: list[str] = []
+        if self.status not in (PropertyStatus.DRAFT, PropertyStatus.WITHDRAWN):
+            reasons.append(f"cannot_publish_from_status:{self.status.value}")
+        if not self.address.strip():
+            reasons.append("missing_address")
+        if not self.prices:
+            reasons.append("missing_price")
+        if not self.owners:
+            reasons.append("missing_owner")
+        if not self.images:
+            reasons.append("missing_image")
+        if reasons:
+            raise PropertyNotPublishableError(reasons)
+        self.status = PropertyStatus.ACTIVE
 
     def add_price(self, price: PropertyPrice) -> None:
         price.property_id = self.id

@@ -17,6 +17,7 @@ from shared.events.types import (
     PROPERTY_CREATED_V1,
     PROPERTY_DELETED_V1,
     PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1,
+    PROPERTY_PUBLISHED_V1,
     PROPERTY_UPDATED_V1,
 )
 
@@ -177,6 +178,66 @@ async def test_delete_older_than_stored_drops(context, repo):
 
     # Row still there
     assert await repo.get_by_id(UUID(pid)) is not None
+
+
+async def test_property_published_upserts_active_and_emits_enrichment(context, repo, publisher):
+    """PROPERTY_PUBLISHED.v1 has the same carried-state shape as UPDATED,
+    so the projector upserts it via the same path. The snapshot carries
+    status='active' (set by Property.publish()), which is what the public
+    portal's `WHERE status = ACTIVE` filter keys on."""
+    pid = str(uuid4())
+    # Seed a DRAFT row via CREATED first
+    draft_snapshot = _snapshot(id_=pid, version=1)
+    draft_snapshot["status"] = "draft"
+    await handle_property_event(
+        DomainEvent(event_type=PROPERTY_CREATED_V1, data=draft_snapshot),
+        context,
+    )
+    publisher.published.clear()
+
+    # Now publish — status flips to active, version bumps to 2
+    published_snapshot = _snapshot(id_=pid, version=2)
+    assert published_snapshot["status"] == "active"
+    await handle_property_event(
+        DomainEvent(event_type=PROPERTY_PUBLISHED_V1, data=published_snapshot),
+        context,
+    )
+
+    row = await repo.get_by_id(UUID(pid))
+    assert row is not None
+    assert row.source_aggregate_version == 2
+    # status column is populated from the snapshot
+    assert row.status.value == "active"
+    # Enrichment fan-out fires — same pre-existing behavior as UPDATED.
+    assert len(publisher.published) == 1
+    assert publisher.published[0].event_type == PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1
+
+
+async def test_older_published_is_dropped(context, repo, publisher):
+    """Idempotency guard applies to PROPERTY_PUBLISHED.v1 exactly like
+    CREATED/UPDATED — replaying an older publish event must not regress
+    the row."""
+    pid = str(uuid4())
+    # Seed v5 with address "v5-addr"
+    await handle_property_event(
+        DomainEvent(
+            event_type=PROPERTY_UPDATED_V1, data=_snapshot(id_=pid, version=5, address="v5-addr")
+        ),
+        context,
+    )
+    publisher.published.clear()
+
+    # Replay an old v3 PUBLISHED — must be dropped
+    old_published = _snapshot(id_=pid, version=3, address="old-addr")
+    await handle_property_event(
+        DomainEvent(event_type=PROPERTY_PUBLISHED_V1, data=old_published),
+        context,
+    )
+
+    row = await repo.get_by_id(UUID(pid))
+    assert row.source_aggregate_version == 5
+    assert row.address == "v5-addr"
+    assert publisher.published == []
 
 
 async def test_handler_without_publisher_in_context_does_not_raise(repo):

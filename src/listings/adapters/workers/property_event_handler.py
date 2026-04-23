@@ -1,9 +1,12 @@
 """Projector: maintains `property_listings` from carried-state property events.
 
-Registered on the listings context worker for three event types:
+Registered on the listings context worker for four event types:
 - `PROPERTY_CREATED.v1` — upsert (insert on first event)
 - `PROPERTY_UPDATED.v1` — upsert (update columns from snapshot)
 - `PROPERTY_DELETED.v1` — delete (guarded by aggregate_version)
+- `PROPERTY_PUBLISHED.v1` — upsert (same payload shape as CREATED/UPDATED;
+  status flips to ACTIVE in the snapshot, which lets the row through the
+  public portal's `WHERE status = ACTIVE` filter)
 
 After every non-DELETED event the projector emits a
 `PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1` event so the LLM call

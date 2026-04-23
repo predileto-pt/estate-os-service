@@ -15,7 +15,7 @@ from properties.adapters.api.schemas import (
     PropertySummaryResponse,
     PublicPropertyResponse,
 )
-from properties.domain.exceptions import PropertyNotFoundError
+from properties.domain.exceptions import PropertyNotFoundError, PropertyNotPublishableError
 
 router = APIRouter(prefix="/properties", tags=["properties"])
 
@@ -250,3 +250,49 @@ async def delete_property(
         raise HTTPException(status_code=404, detail="Property not found")
 
     return None
+
+
+@router.post(
+    "/{property_id}/publish",
+    response_model=PropertyResponse,
+    summary="Publish a property to the public portal",
+    description=(
+        "Flip a property from DRAFT or WITHDRAWN to ACTIVE and broadcast "
+        "PROPERTY_PUBLISHED.v1 so the listings context picks it up. "
+        "Only the organization's OWNER or ADMIN can perform this action."
+    ),
+    responses={
+        200: {"description": "Property published"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not authorized — must be OWNER or ADMIN of the organization"},
+        404: {"description": "Property not found"},
+        422: {"description": "Property is not publishable (missing fields or wrong status)"},
+    },
+)
+async def publish_property(
+    property_id: UUID,
+    organization_id: UUID,
+    request: Request,
+    member: tuple[User, Membership] = Depends(require_org_member),
+):
+    _user, membership = member
+    role_value = membership.role.value if hasattr(membership.role, "value") else membership.role
+    if role_value not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Only OWNER or ADMIN can publish properties")
+
+    publish_uc = request.app.state.property_container.publish_property
+    try:
+        prop = await publish_uc.execute(
+            property_id=property_id,
+            organization_id=organization_id,
+        )
+    except PropertyNotFoundError:
+        raise HTTPException(status_code=404, detail="Property not found")
+    except PropertyNotPublishableError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Property is not publishable", "reasons": exc.reasons},
+        )
+
+    urls = await _generate_image_download_urls(request, prop)
+    return _property_response(prop, urls)

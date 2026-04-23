@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 class DomainError(Exception):
     pass
 
@@ -7,6 +10,12 @@ class PropertyNotFoundError(DomainError):
         super().__init__(
             f"Property not found: {identifier}" if identifier else "Property not found"
         )
+
+
+class PropertyNotPublishableError(DomainError):
+    def __init__(self, reasons: list[str]) -> None:
+        self.reasons = reasons
+        super().__init__(f"Property is not publishable: {', '.join(reasons)}")
 
 
 class PropertyOwnerNotFoundError(DomainError):
