@@ -83,7 +83,7 @@ uv run alembic downgrade -1
 uv run alembic stamp head
 ```
 
-Schema is defined in SQLAlchemy models across bounded contexts: `src/customers/adapters/database/models.py`, `src/properties/adapters/database/models.py`, `src/screening/adapters/database/models.py`, and `src/bookings/adapters/database/models.py`.
+Schema is defined in SQLAlchemy models across bounded contexts: `src/identity/adapters/database/models.py`, `src/organizations/adapters/database/models.py`, `src/billing/adapters/database/models.py`, `src/properties/adapters/database/models.py`, `src/screening/adapters/database/models.py`, `src/bookings/adapters/database/models.py`, `src/contract_intelligence/adapters/database/models.py`, and `src/listings/adapters/database/models.py`.
 
 **Adopting on an existing database:** If the database already has the schema (e.g. production), stamp it as current without executing any DDL:
 
@@ -457,7 +457,7 @@ uv run uvicorn shared.main:app --reload --port 8000
 #   bookings   → APPLICANT_SCREENED.v1 (create booking applicant)
 #   properties → PROPERTY_CREATED.v1  (discover amenities)
 #   listings   → PROPERTY_{CREATED,UPDATED,DELETED,PUBLISHED}.v1 + address enrichment
-uv run python -m customers.entrypoints.worker --queue events
+uv run python -m organizations.entrypoints.worker --queue events
 uv run python -m bookings.entrypoints.events_worker
 uv run python -m properties.entrypoints.events_worker
 uv run python -m listings.entrypoints.events_worker

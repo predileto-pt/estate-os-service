@@ -46,12 +46,6 @@ class Settings(BaseSettings):
     sqs_listings_events_queue_url: str = ""
     sqs_listings_events_dlq_url: str = ""
 
-    # Deprecated — pre-ADR-008 single shared queue. No code reads this any
-    # more, but the field is kept so old `.env` files (which may still have
-    # `SQS_DOMAIN_EVENTS_QUEUE_URL=...`) don't fail Settings validation.
-    # Safe to remove after every environment has been rotated.
-    sqs_domain_events_queue_url: str = ""
-
     # Command queues (point-to-point via `SQSCommandPublisher`). Every queue
     # gets a DLQ with `maxReceiveCount=5`.
     sqs_property_extraction_queue_url: str = ""

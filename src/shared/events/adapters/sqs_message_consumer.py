@@ -64,6 +64,11 @@ class SQSMessageConsumer:
         queue_url: str,
         endpoint_url: str | None = None,
     ) -> None:
+        if not queue_url:
+            raise ValueError(
+                "SQSMessageConsumer requires a non-empty queue_url. The matching "
+                "SQS_*_QUEUE_URL env var is unset — sync your .env against .env.example."
+            )
         self._session = session
         self._queue_url = queue_url
         self._endpoint_url = endpoint_url
