@@ -273,7 +273,6 @@ async def get_listing_container() -> ListingContainer:
     settings = Settings()
     engine = create_async_engine(settings.database_url, echo=False)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    session = session_factory()
 
     address_parser = LangChainAddressParser(
         model=settings.address_parser_model,
@@ -281,8 +280,8 @@ async def get_listing_container() -> ListingContainer:
     )
 
     _listing_container = ListingContainer(
-        listing_repo=SqlAlchemyListingRepository(session),
-        property_listing_repo=SqlAlchemyPropertyListingRepository(session),
+        listing_repo=SqlAlchemyListingRepository(session_factory),
+        property_listing_repo=SqlAlchemyPropertyListingRepository(session_factory),
         address_parser=address_parser,
     )
     return _listing_container

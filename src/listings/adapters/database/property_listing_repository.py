@@ -7,17 +7,25 @@ events with a stale version are silently dropped. Same guard on
 
 The projector calls this from the listings worker; the enrichment
 handler calls `update_location` / `increment_enrichment_attempts`.
+
+**Session scope:** one fresh `AsyncSession` per public method call. The
+listings worker handles many events in sequence on the same process, and
+sharing a single long-lived session across handlers leaks state and
+triggers `MissingGreenlet` errors when ORM objects loaded in one
+operation are accessed under a different async/greenlet context. The
+repo therefore owns the session lifecycle entirely — every method opens
+a session, commits on success, rolls back on exception, and closes.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from listings.adapters.database.property_listing_model import PropertyListingModel
 from listings.application.ports.repositories.property_listing_repository import (
@@ -26,10 +34,13 @@ from listings.application.ports.repositories.property_listing_repository import 
 from listings.domain.models import ListingType, PropertyStatus, Typology
 from listings.domain.property_listing import PropertyListing
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 
 class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
 
     @staticmethod
     def _to_domain(m: PropertyListingModel) -> PropertyListing:
@@ -65,11 +76,12 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
         )
 
     async def get_by_id(self, property_id: UUID) -> PropertyListing | None:
-        result = await self._session.execute(
-            select(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
-        )
-        row = result.scalar_one_or_none()
-        return self._to_domain(row) if row else None
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
+            )
+            row = result.scalar_one_or_none()
+            return self._to_domain(row) if row else None
 
     async def upsert_from_event(
         self,
@@ -78,22 +90,29 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
         source_occurred_at: datetime,
     ) -> PropertyListing | None:
         row = _event_to_row(event_data, source_occurred_at)
-        stmt = pg_insert(PropertyListingModel).values(**row)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["id"],
-            set_={
-                # Copy every carried-state column on UPDATE.
-                k: stmt.excluded[k]
-                for k in row
-                if k not in ("id", "created_at", "location_enrichment_attempts")
-            }
-            | {"updated_at": func.now()},
-            where=PropertyListingModel.source_aggregate_version
-            < stmt.excluded.source_aggregate_version,
-        )
-        await self._session.execute(stmt)
-        await self._session.flush()
-        return await self.get_by_id(UUID(row["id"]))
+        async with self._session_factory() as session:
+            stmt = pg_insert(PropertyListingModel).values(**row)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    k: stmt.excluded[k]
+                    for k in row
+                    if k not in ("id", "created_at", "location_enrichment_attempts")
+                }
+                | {"updated_at": func.now()},
+                where=PropertyListingModel.source_aggregate_version
+                < stmt.excluded.source_aggregate_version,
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+            # Re-fetch in the same session so attribute reads in `_to_domain`
+            # don't trigger refresh against a closed connection.
+            refetch = await session.execute(
+                select(PropertyListingModel).where(PropertyListingModel.id == row["id"])
+            )
+            model = refetch.scalar_one_or_none()
+            return self._to_domain(model) if model else None
 
     async def delete_if_newer(
         self,
@@ -102,18 +121,23 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
         source_aggregate_version: int,
         source_occurred_at: datetime,
     ) -> bool:
-        existing = await self.get_by_id(property_id)
-        if existing is None:
-            return False
-        if existing.source_aggregate_version >= source_aggregate_version:
-            return False
-        from sqlalchemy import delete as sql_delete
+        async with self._session_factory() as session:
+            existing = await session.execute(
+                select(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
+            )
+            existing_model = existing.scalar_one_or_none()
+            if existing_model is None:
+                return False
+            if existing_model.source_aggregate_version >= source_aggregate_version:
+                return False
 
-        await self._session.execute(
-            sql_delete(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
-        )
-        await self._session.flush()
-        return True
+            from sqlalchemy import delete as sql_delete
+
+            await session.execute(
+                sql_delete(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
+            )
+            await session.commit()
+            return True
 
     async def update_location(
         self,
@@ -123,30 +147,37 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
         municipality: str | None,
         district: str | None,
     ) -> PropertyListing | None:
-        result = await self._session.execute(
-            select(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
-        )
-        model = result.scalar_one_or_none()
-        if model is None:
-            return None
-        model.parish = parish
-        model.municipality = municipality
-        model.district = district
-        model.location_enriched_at = func.now()
-        model.location_enrichment_attempts = (model.location_enrichment_attempts or 0) + 1
-        await self._session.flush()
-        return self._to_domain(model)
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
+            )
+            model = result.scalar_one_or_none()
+            if model is None:
+                return None
+            model.parish = parish
+            model.municipality = municipality
+            model.district = district
+            model.location_enriched_at = func.now()
+            model.location_enrichment_attempts = (model.location_enrichment_attempts or 0) + 1
+            await session.commit()
+
+            # Refresh inside the session so the domain mapping below stays
+            # within an active connection scope.
+            await session.refresh(model)
+            return self._to_domain(model)
 
     async def increment_enrichment_attempts(self, *, property_id: UUID) -> PropertyListing | None:
-        result = await self._session.execute(
-            select(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
-        )
-        model = result.scalar_one_or_none()
-        if model is None:
-            return None
-        model.location_enrichment_attempts = (model.location_enrichment_attempts or 0) + 1
-        await self._session.flush()
-        return self._to_domain(model)
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
+            )
+            model = result.scalar_one_or_none()
+            if model is None:
+                return None
+            model.location_enrichment_attempts = (model.location_enrichment_attempts or 0) + 1
+            await session.commit()
+            await session.refresh(model)
+            return self._to_domain(model)
 
 
 def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:

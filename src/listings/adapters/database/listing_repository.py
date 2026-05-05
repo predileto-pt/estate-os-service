@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from listings.adapters.database.models import (
     PropertyStatus,
@@ -23,49 +25,57 @@ from listings.domain.models import (
     Typology,
 )
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 
 class SqlAlchemyListingRepository(ListingRepository):
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+    """One fresh `AsyncSession` per public method call. See the analogous
+    docstring on `SqlAlchemyPropertyListingRepository`."""
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
 
     async def list_active(self, filters: PropertyFilters) -> list[ListedProperty]:
-        query = self._build_query(filters)
-        query = query.order_by(ReadPropertyModel.created_at.desc())
-        query = query.limit(filters.limit).offset(filters.offset)
+        async with self._session_factory() as session:
+            query = self._build_query(filters)
+            query = query.order_by(ReadPropertyModel.created_at.desc())
+            query = query.limit(filters.limit).offset(filters.offset)
 
-        result = await self._session.execute(query)
-        properties = []
-        for row in result.scalars().all():
-            prices = await self._load_prices(row.id)
-            images = await self._load_images(row.id)
+            result = await session.execute(query)
+            properties = []
+            for row in result.scalars().all():
+                prices = await self._load_prices(session, row.id)
+                images = await self._load_images(session, row.id)
 
-            # Apply price filtering post-query (prices are in a separate table)
-            if filters.min_price is not None or filters.max_price is not None:
-                if not self._matches_price_filter(prices, filters.min_price, filters.max_price):
-                    continue
+                if filters.min_price is not None or filters.max_price is not None:
+                    if not self._matches_price_filter(prices, filters.min_price, filters.max_price):
+                        continue
 
-            properties.append(self._to_domain(row, prices, images))
-        return properties
+                properties.append(self._to_domain(row, prices, images))
+            return properties
 
     async def get_by_id(self, property_id: UUID) -> ListedProperty | None:
-        result = await self._session.execute(
-            select(ReadPropertyModel).where(
-                ReadPropertyModel.id == str(property_id),
-                ReadPropertyModel.status == PropertyStatus.ACTIVE,
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(ReadPropertyModel).where(
+                    ReadPropertyModel.id == str(property_id),
+                    ReadPropertyModel.status == PropertyStatus.ACTIVE,
+                )
             )
-        )
-        row = result.scalar_one_or_none()
-        if not row:
-            return None
-        prices = await self._load_prices(row.id)
-        images = await self._load_images(row.id)
-        return self._to_domain(row, prices, images)
+            row = result.scalar_one_or_none()
+            if not row:
+                return None
+            prices = await self._load_prices(session, row.id)
+            images = await self._load_images(session, row.id)
+            return self._to_domain(row, prices, images)
 
     async def count_active(self, filters: PropertyFilters) -> int:
-        query = self._build_query(filters)
-        count_query = select(func.count()).select_from(query.subquery())
-        result = await self._session.execute(count_query)
-        return result.scalar_one()
+        async with self._session_factory() as session:
+            query = self._build_query(filters)
+            count_query = select(func.count()).select_from(query.subquery())
+            result = await session.execute(count_query)
+            return result.scalar_one()
 
     def _build_query(self, filters: PropertyFilters):
         query = select(ReadPropertyModel).where(ReadPropertyModel.status == PropertyStatus.ACTIVE)
@@ -94,16 +104,20 @@ class SqlAlchemyListingRepository(ListingRepository):
             return False
         return True
 
-    async def _load_prices(self, property_id: str) -> list[ReadPropertyPriceModel]:
-        result = await self._session.execute(
+    async def _load_prices(
+        self, session: AsyncSession, property_id: str
+    ) -> list[ReadPropertyPriceModel]:
+        result = await session.execute(
             select(ReadPropertyPriceModel)
             .where(ReadPropertyPriceModel.property_id == property_id)
             .order_by(ReadPropertyPriceModel.created_at.desc())
         )
         return list(result.scalars().all())
 
-    async def _load_images(self, property_id: str) -> list[ReadPropertyImageModel]:
-        result = await self._session.execute(
+    async def _load_images(
+        self, session: AsyncSession, property_id: str
+    ) -> list[ReadPropertyImageModel]:
+        result = await session.execute(
             select(ReadPropertyImageModel)
             .where(ReadPropertyImageModel.property_id == property_id)
             .order_by(ReadPropertyImageModel.display_order.asc())
