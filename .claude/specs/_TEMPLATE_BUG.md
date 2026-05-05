@@ -18,3 +18,7 @@ The minimum change that resolves the symptom without expanding scope. Reference 
 ## Verification
 
 How we'll know it's fixed — manual repro that now passes, regression test added, etc.
+
+## Commit
+
+Conventional-commit style: `fix(<scope>): <subject>`. Scope is the bounded context or area touched (`properties`, `billing`, …). See `_TEMPLATE.md` for the full convention.

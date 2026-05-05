@@ -46,3 +46,14 @@ Things that need a decision before (or during) implementation. Resolve or conver
 ## Out of scope follow-ups
 
 Ideas surfaced during spec review that belong in their own future spec. Capture them here so they're not lost.
+
+## Commits
+
+Use conventional-commit style with a scope: `<type>(<scope>): <subject>`. Types in use in this repo:
+
+- `feat(<scope>):` — new user-facing capability (route, use case, event, …)
+- `fix(<scope>):` — bug fix
+- `chore(<scope>):` — non-behavior changes (spec archival, dependency bumps, config, …)
+- `docs(<scope>):` — documentation-only changes (specs, ADRs, READMEs)
+
+Scope is the bounded context or area touched (`properties`, `billing`, `specs`, …). Examples: `feat(properties): PATCH /address endpoint + UpdatePropertyAddress use case`, `chore(specs): archive shipped publish-to-portal spec`. When in doubt, mirror the most recent commits with `git log --oneline -10`.
