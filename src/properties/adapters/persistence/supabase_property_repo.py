@@ -311,6 +311,21 @@ class SupabasePropertyRepository(PropertyRepository):
             .execute()
         )
 
+    async def update_address(self, property_id: UUID, address: str) -> None:
+        from datetime import datetime, timezone
+
+        await (
+            self._client.table("properties")
+            .update(
+                {
+                    "address": address,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            .eq("id", str(property_id))
+            .execute()
+        )
+
     async def bump_aggregate_version(self, property_id: UUID) -> Property:
         # PostgREST can't do column arithmetic in updates — read-modify-write.
         # Two round-trips at worst; fine at our scale.
