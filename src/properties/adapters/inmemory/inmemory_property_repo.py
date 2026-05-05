@@ -73,6 +73,14 @@ class InMemoryPropertyRepository(PropertyRepository):
             raise PropertyNotFoundError(str(property_id))
         prop.status = status
 
+    async def update_address(self, property_id: UUID, address: str) -> None:
+        prop = self._properties.get(property_id)
+        if not prop:
+            from properties.domain.exceptions import PropertyNotFoundError
+
+            raise PropertyNotFoundError(str(property_id))
+        prop.address = address
+
     async def bump_aggregate_version(self, property_id: UUID) -> Property:
         prop = self._properties.get(property_id)
         if not prop:

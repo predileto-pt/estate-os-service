@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from properties.domain.models.extraction_job import ExtractionJobStatus
 from properties.domain.models.property import ListingType, PropertyStatus, Typology
@@ -65,6 +65,18 @@ class CreatePropertyOwnerRequest(BaseModel):
 class UpdatePropertyOwnerContactRequest(BaseModel):
     email: str | None = None
     phone_number: str | None = None
+
+
+class UpdatePropertyAddressRequest(BaseModel):
+    address: str = Field(min_length=1, description="New street address; whitespace-only rejected")
+
+    @field_validator("address")
+    @classmethod
+    def _strip_and_require_nonempty(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("address must not be empty")
+        return cleaned
 
 
 class PropertyOwnerResponse(BaseModel):

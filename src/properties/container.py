@@ -52,6 +52,9 @@ from properties.application.use_cases.generate_image_upload_urls import (
 )
 from properties.application.use_cases.record_property_image import RecordPropertyImage
 from properties.application.use_cases.reorder_property_images import ReorderPropertyImages
+from properties.application.use_cases.update_property_address import (
+    UpdatePropertyAddress,
+)
 from properties.application.use_cases.update_property_owner_contact import (
     UpdatePropertyOwnerContact,
 )
@@ -124,6 +127,10 @@ class Container:
             property_repo=property_repo,
         )
         self.update_property_owner_contact = UpdatePropertyOwnerContact(
+            property_repo=property_repo,
+            domain_event_publisher=domain_event_publisher,
+        )
+        self.update_property_address = UpdatePropertyAddress(
             property_repo=property_repo,
             domain_event_publisher=domain_event_publisher,
         )

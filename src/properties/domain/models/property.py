@@ -5,7 +5,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
 
-from properties.domain.exceptions import PropertyNotPublishableError
+from properties.domain.exceptions import (
+    PropertyAddressInvalidError,
+    PropertyNotPublishableError,
+)
 from properties.domain.models.property_characteristics import PropertyCharacteristics
 from properties.domain.models.property_image import PropertyImage
 from properties.domain.models.property_owner import PropertyOwner
@@ -83,6 +86,17 @@ class Property:
         if reasons:
             raise PropertyNotPublishableError(reasons)
         self.status = PropertyStatus.ACTIVE
+
+    def update_address(self, new_address: str) -> None:
+        """Replace the property's address. Strips surrounding whitespace and
+        rejects empty input. Does NOT bump aggregate_version — the use case
+        drives that via the repo's atomic bump_aggregate_version method,
+        matching every other update-style use case in this context.
+        """
+        cleaned = new_address.strip()
+        if not cleaned:
+            raise PropertyAddressInvalidError()
+        self.address = cleaned
 
     def add_price(self, price: PropertyPrice) -> None:
         price.property_id = self.id

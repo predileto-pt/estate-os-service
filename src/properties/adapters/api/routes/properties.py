@@ -14,6 +14,7 @@ from properties.adapters.api.schemas import (
     PropertyResponse,
     PropertySummaryResponse,
     PublicPropertyResponse,
+    UpdatePropertyAddressRequest,
 )
 from properties.domain.exceptions import PropertyNotFoundError, PropertyNotPublishableError
 
@@ -250,6 +251,45 @@ async def delete_property(
         raise HTTPException(status_code=404, detail="Property not found")
 
     return None
+
+
+@router.patch(
+    "/{property_id}/address",
+    response_model=PropertyResponse,
+    summary="Update property address",
+    description=(
+        "Replace a property's `address`. Strips surrounding whitespace; "
+        "empty / whitespace-only inputs are rejected at the schema layer (422). "
+        "On no-op (new value equal to current after normalization) returns the "
+        "existing aggregate without bumping `aggregate_version` or emitting an event."
+    ),
+    responses={
+        200: {"description": "Address updated (or unchanged on no-op)"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not authorized"},
+        404: {"description": "Property not found"},
+        422: {"description": "Address failed schema validation (empty/whitespace-only)"},
+    },
+)
+async def update_property_address(
+    property_id: UUID,
+    body: UpdatePropertyAddressRequest,
+    organization_id: UUID,
+    request: Request,
+    _member: tuple[User, Membership] = Depends(require_org_member),
+):
+    update_uc = request.app.state.property_container.update_property_address
+    try:
+        prop = await update_uc.execute(
+            property_id=property_id,
+            organization_id=organization_id,
+            address=body.address,
+        )
+    except PropertyNotFoundError:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    urls = await _generate_image_download_urls(request, prop)
+    return _property_response(prop, urls)
 
 
 @router.post(

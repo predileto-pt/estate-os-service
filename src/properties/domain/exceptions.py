@@ -18,6 +18,11 @@ class PropertyNotPublishableError(DomainError):
         super().__init__(f"Property is not publishable: {', '.join(reasons)}")
 
 
+class PropertyAddressInvalidError(DomainError):
+    def __init__(self, message: str = "address must not be empty") -> None:
+        super().__init__(message)
+
+
 class PropertyOwnerNotFoundError(DomainError):
     def __init__(self, identifier: str = "") -> None:
         super().__init__(

@@ -53,6 +53,13 @@ class PropertyRepository(ABC):
         ...
 
     @abstractmethod
+    async def update_address(self, property_id: UUID, address: str) -> None:
+        """Persist an address change on a single property. The aggregate
+        version bump is driven separately by `bump_aggregate_version`, same
+        as every other update-style write on this port."""
+        ...
+
+    @abstractmethod
     async def bump_aggregate_version(self, property_id: UUID) -> Property:
         """Atomically bump the property's aggregate_version + updated_at and
         return the refreshed aggregate.

@@ -521,6 +521,147 @@ class TestPublishProperty:
         assert response.status_code == 403
 
 
+class TestUpdatePropertyAddress:
+    async def _create(self, client, auth_headers, address: str = "Rua Original 1"):
+        resp = await client.post(
+            "/api/v1/admin/properties/",
+            json={
+                "organization_id": TEST_ORGANIZATION_ID,
+                "address": address,
+                "listing_type": "sale",
+                "typology": "apartment",
+            },
+            headers=auth_headers,
+        )
+        return resp.json()["id"]
+
+    async def test_update_address_happy_path(self, client, auth_headers, property_repo):
+        property_id = await self._create(client, auth_headers, address="Rua Velha")
+        version_before = (await property_repo.get_by_id(UUID(property_id))).aggregate_version
+
+        response = await client.patch(
+            f"/api/v1/admin/properties/{property_id}/address?organization_id={TEST_ORGANIZATION_ID}",
+            json={"address": "Rua Nova 5, Porto"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["address"] == "Rua Nova 5, Porto"
+
+        stored = await property_repo.get_by_id(UUID(property_id))
+        assert stored.address == "Rua Nova 5, Porto"
+        assert stored.aggregate_version == version_before + 1
+
+    async def test_update_address_strips_whitespace(self, client, auth_headers, property_repo):
+        property_id = await self._create(client, auth_headers)
+
+        response = await client.patch(
+            f"/api/v1/admin/properties/{property_id}/address?organization_id={TEST_ORGANIZATION_ID}",
+            json={"address": "  Rua Nova  "},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["address"] == "Rua Nova"
+
+        stored = await property_repo.get_by_id(UUID(property_id))
+        assert stored.address == "Rua Nova"
+
+    async def test_update_address_no_op_unchanged_value(self, client, auth_headers, property_repo):
+        property_id = await self._create(client, auth_headers, address="Rua Igual")
+        version_before = (await property_repo.get_by_id(UUID(property_id))).aggregate_version
+
+        response = await client.patch(
+            f"/api/v1/admin/properties/{property_id}/address?organization_id={TEST_ORGANIZATION_ID}",
+            json={"address": "Rua Igual"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["address"] == "Rua Igual"
+
+        stored = await property_repo.get_by_id(UUID(property_id))
+        assert stored.aggregate_version == version_before
+
+    async def test_update_address_no_op_whitespace_variant(
+        self, client, auth_headers, property_repo
+    ):
+        property_id = await self._create(client, auth_headers, address="Rua Igual")
+        version_before = (await property_repo.get_by_id(UUID(property_id))).aggregate_version
+
+        response = await client.patch(
+            f"/api/v1/admin/properties/{property_id}/address?organization_id={TEST_ORGANIZATION_ID}",
+            json={"address": "  Rua Igual  "},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+
+        stored = await property_repo.get_by_id(UUID(property_id))
+        assert stored.aggregate_version == version_before
+
+    async def test_update_address_empty_returns_422(self, client, auth_headers):
+        property_id = await self._create(client, auth_headers)
+        response = await client.patch(
+            f"/api/v1/admin/properties/{property_id}/address?organization_id={TEST_ORGANIZATION_ID}",
+            json={"address": ""},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    async def test_update_address_whitespace_only_returns_422(self, client, auth_headers):
+        property_id = await self._create(client, auth_headers)
+        response = await client.patch(
+            f"/api/v1/admin/properties/{property_id}/address?organization_id={TEST_ORGANIZATION_ID}",
+            json={"address": "   "},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    async def test_update_address_unknown_id_returns_404(self, client, auth_headers):
+        missing = "00000000-0000-0000-0000-0000000000ff"
+        response = await client.patch(
+            f"/api/v1/admin/properties/{missing}/address?organization_id={TEST_ORGANIZATION_ID}",
+            json={"address": "Rua Nova"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 404
+
+    async def test_update_address_cross_org_blocked(self, client, auth_headers, property_repo):
+        """Property in another org → caller is not a member → require_org_member 403s."""
+        other_prop = _make_property(address="Cross")
+        other_prop.organization_id = UUID(OTHER_ORGANIZATION_ID)
+        await property_repo.save(other_prop)
+
+        response = await client.patch(
+            f"/api/v1/admin/properties/{other_prop.id}/address?organization_id={OTHER_ORGANIZATION_ID}",
+            json={"address": "Rua Nova"},
+            headers=auth_headers,
+        )
+        assert response.status_code in (403, 404)
+
+    async def test_update_address_unauthenticated_returns_401(self, client, auth_headers):
+        property_id = await self._create(client, auth_headers)
+        response = await client.patch(
+            f"/api/v1/admin/properties/{property_id}/address?organization_id={TEST_ORGANIZATION_ID}",
+            json={"address": "Rua Nova"},
+        )
+        assert response.status_code == 401
+
+    async def test_update_address_on_active_property_preserves_status(
+        self, client, auth_headers, property_repo
+    ):
+        prop = _make_property(status=PropertyStatus.ACTIVE, address="Old Active")
+        await property_repo.save(prop)
+
+        response = await client.patch(
+            f"/api/v1/admin/properties/{prop.id}/address?organization_id={TEST_ORGANIZATION_ID}",
+            json={"address": "Rua Nova"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "active"
+        assert data["address"] == "Rua Nova"
+
+
 class TestListActiveProperties:
     async def test_list_active_properties(self, client, property_repo):
         active = _make_property(status=PropertyStatus.ACTIVE, address="Active 1")
