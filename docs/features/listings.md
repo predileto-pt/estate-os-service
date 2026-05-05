@@ -65,6 +65,14 @@ The route layer (`src/listings/adapters/api/routes/listings.py`) calls `Document
 
 `src/listings/container.py` wires `GetProperty` and `ListProperties`. Built in `src/shared/entrypoints/bootstrap.py::get_listing_container()` and stored on `app.state.listing_container`.
 
+### Session scope: one `AsyncSession` per repo method
+
+`SqlAlchemyListingRepository` and `SqlAlchemyPropertyListingRepository` take an `async_sessionmaker[AsyncSession]`, not a single `AsyncSession`. Every public method opens its own scoped session via `async with self._session_factory() as session: …` and commits on success.
+
+Why: the listings worker handles many events in sequence on the same process. Sharing a long-lived `AsyncSession` across handlers causes `MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here` when ORM objects loaded in one operation are accessed under a different async/greenlet context. The same hazard sits behind the read API — concurrent FastAPI requests must not share a session. Per-method scoping is the simplest fix: every event handler and every API request gets a fresh session, and there's no cross-event ORM state to leak.
+
+`update_location` and `increment_enrichment_attempts` call `session.refresh(model)` after `commit()` so the subsequent `_to_domain` attribute reads stay inside the active connection scope.
+
 ## Publishing a property
 
 A property starts in `DRAFT` status and is invisible to the portal (the read endpoints filter `WHERE status = ACTIVE`). An agent publishes it via:

@@ -41,6 +41,9 @@ Constants live in `src/shared/events/types.py`. See [ADR-008](../adr/008-event-b
 | [GetProperty](#getproperty) | `GET /api/v1/admin/properties/{property_id}` | Return property with owners, prices, images |
 | [ListProperties](#listproperties) | `GET /api/v1/admin/properties` | List properties for an organization |
 | [ListActiveProperties](#listactiveproperties) | `GET /api/v1/admin/properties/active` | List active properties (admin variant — public version is in `listings`) |
+| [UpdatePropertyAddress](#updatepropertyaddress) | `PATCH /api/v1/admin/properties/{property_id}/address` | Replace the property's address (strips, rejects empty, no-op on unchanged value) |
+| [PublishProperty](#publishproperty) | `POST /api/v1/admin/properties/{property_id}/publish` | Flip `DRAFT`/`WITHDRAWN` → `ACTIVE`; emit `PROPERTY_PUBLISHED.v1` |
+| [DeleteProperty](#deleteproperty) | `DELETE /api/v1/admin/properties/{property_id}` | Hard-delete a property and cascade owners, prices, images |
 
 ### Property owners
 
@@ -124,6 +127,38 @@ List properties with status `ACTIVE`. Used by admin tooling. The public listings
 
 - **Output:** `list[Property]`
 - **Source:** `src/properties/application/use_cases/list_active_properties.py`
+
+### UpdatePropertyAddress
+
+Replace a property's `address`. The schema validator strips surrounding whitespace and rejects empty / whitespace-only inputs (422). The use case short-circuits on no-op — if the stripped new value matches the current address, it returns the existing aggregate without bumping `aggregate_version` or emitting an event. This avoids redundant projector traffic on idempotent retries. The domain method enforces the same non-empty invariant for non-HTTP callers.
+
+- **Inputs:** `property_id`, `organization_id`, `address`
+- **Output:** refreshed `Property`
+- **Raises:** `PropertyNotFoundError` (cross-org / unknown id)
+- **Events:** `PROPERTY_UPDATED.v1` (only when the value actually changes)
+- **Source:** `src/properties/application/use_cases/update_property_address.py`
+
+### PublishProperty
+
+Flip a property from `DRAFT` or `WITHDRAWN` to `ACTIVE` and broadcast a distinct business event so downstream consumers (notifications, analytics, search indexers) can subscribe to the "went live" moment specifically — not every owner-detail tweak. The domain method enforces a publishability checklist (non-empty address, at least one price, owner, and image, and a publishable starting status); failures bubble as `PropertyNotPublishableError` with machine-readable reason codes.
+
+The route gates on OWNER/ADMIN role; the use case itself is permission-agnostic.
+
+- **Inputs:** `property_id`, `organization_id`
+- **Output:** refreshed `Property` (status now `ACTIVE`, version bumped)
+- **Raises:** `PropertyNotFoundError`, `PropertyNotPublishableError`
+- **Events:** `PROPERTY_PUBLISHED.v1` (carried-state snapshot from `build_property_snapshot`)
+- **Source:** `src/properties/application/use_cases/publish_property.py`
+
+### DeleteProperty
+
+Hard-delete a property and cascade owners, prices, images (including S3 objects), amenities, and extraction jobs. Restricted to OWNER/ADMIN at the route layer.
+
+- **Inputs:** `property_id`, `organization_id`
+- **Output:** none (204)
+- **Raises:** `PropertyNotFoundError`
+- **Events:** `PROPERTY_DELETED.v1` (minimal `{id, organization_id, aggregate_version}` payload)
+- **Source:** `src/properties/application/use_cases/delete_property.py`
 
 ### CreatePropertyOwner
 
