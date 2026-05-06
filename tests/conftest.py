@@ -104,6 +104,30 @@ def property_repo():
 
 
 @pytest.fixture
+def listing_repo():
+    from listings.adapters.inmemory.inmemory_listing_repository import (
+        InMemoryListingRepository,
+    )
+
+    return InMemoryListingRepository()
+
+
+@pytest.fixture
+def listing_container(listing_repo):
+    from listings.adapters.inmemory.inmemory_address_parser import InMemoryAddressParser
+    from listings.adapters.inmemory.inmemory_property_listing_repo import (
+        InMemoryPropertyListingRepository,
+    )
+    from listings.container import Container as ListingContainer
+
+    return ListingContainer(
+        listing_repo=listing_repo,
+        property_listing_repo=InMemoryPropertyListingRepository(),
+        address_parser=InMemoryAddressParser(),
+    )
+
+
+@pytest.fixture
 def document_extractor():
     return InMemoryDocumentExtractor()
 
@@ -255,13 +279,21 @@ def property_container(
 
 
 @pytest.fixture
-def app(container, identity_container, billing_container, property_container, monkeypatch):
+def app(
+    container,
+    identity_container,
+    billing_container,
+    property_container,
+    listing_container,
+    monkeypatch,
+):
     monkeypatch.setattr("shared.config.settings.supabase_jwt_secret", TEST_JWT_SECRET)
     return create_app(
         container=container,
         identity_container=identity_container,
         billing_container=billing_container,
         property_container=property_container,
+        listing_container=listing_container,
     )
 
 

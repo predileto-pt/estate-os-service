@@ -204,6 +204,8 @@ def create_app(
 
     # Public property listings (no auth)
     app.include_router(listings.router, prefix="/api/v1/listings")
+    # Admin property listings (auth-gated, org-scoped via require_org_member)
+    app.include_router(listings.admin_router, prefix="/api/v1/admin/listings")
 
     # Applicant screening — portal (no auth: intake form submission)
     app.include_router(submissions.router, prefix="/api/v1/portal")

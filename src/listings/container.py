@@ -4,6 +4,7 @@ from listings.application.ports.repositories.property_listing_repository import 
     PropertyListingRepository,
 )
 from listings.application.use_cases.get_property import GetProperty
+from listings.application.use_cases.list_org_active_listings import ListOrgActiveListings
 from listings.application.use_cases.list_properties import ListProperties
 
 
@@ -19,6 +20,7 @@ class Container:
         self.listing_repo = listing_repo
         self.list_properties = ListProperties(listing_repo=listing_repo)
         self.get_property = GetProperty(listing_repo=listing_repo)
+        self.list_org_active_listings = ListOrgActiveListings(listing_repo=listing_repo)
 
         # New carried-state read-model (property_listings table, populated
         # by the projector). Consumed by the events_worker handlers.

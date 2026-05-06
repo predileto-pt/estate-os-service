@@ -77,6 +77,44 @@ class SqlAlchemyListingRepository(ListingRepository):
             result = await session.execute(count_query)
             return result.scalar_one()
 
+    async def list_active_for_organization(
+        self, organization_id: UUID, filters: PropertyFilters
+    ) -> list[ListedProperty]:
+        """Return ACTIVE listings for one organization. The `WHERE status = ACTIVE`
+        predicate comes from `_build_query` and is the canonical enforcement of
+        status filtering — the in-memory adapter does NOT honor this
+        (`ListedProperty` carries no `status` field) and is unsuitable for
+        status-exclusion testing.
+        """
+        async with self._session_factory() as session:
+            query = self._build_query(filters)
+            query = query.where(ReadPropertyModel.organization_id == str(organization_id))
+            query = query.order_by(ReadPropertyModel.updated_at.desc())
+            query = query.limit(filters.limit).offset(filters.offset)
+
+            result = await session.execute(query)
+            properties = []
+            for row in result.scalars().all():
+                prices = await self._load_prices(session, row.id)
+                images = await self._load_images(session, row.id)
+
+                if filters.min_price is not None or filters.max_price is not None:
+                    if not self._matches_price_filter(prices, filters.min_price, filters.max_price):
+                        continue
+
+                properties.append(self._to_domain(row, prices, images))
+            return properties
+
+    async def count_active_for_organization(
+        self, organization_id: UUID, filters: PropertyFilters
+    ) -> int:
+        async with self._session_factory() as session:
+            query = self._build_query(filters)
+            query = query.where(ReadPropertyModel.organization_id == str(organization_id))
+            count_query = select(func.count()).select_from(query.subquery())
+            result = await session.execute(count_query)
+            return result.scalar_one()
+
     def _build_query(self, filters: PropertyFilters):
         query = select(ReadPropertyModel).where(ReadPropertyModel.status == PropertyStatus.ACTIVE)
 

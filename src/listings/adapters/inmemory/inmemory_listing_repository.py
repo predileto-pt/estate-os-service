@@ -44,3 +44,45 @@ class InMemoryListingRepository(ListingRepository):
             )
         )
         return len(results)
+
+    async def list_active_for_organization(
+        self, organization_id: UUID, filters: PropertyFilters
+    ) -> list[ListedProperty]:
+        """Return rows for one organization. Note: the in-memory adapter
+        cannot filter by status — `ListedProperty` carries no `status`
+        field — so every row in `_properties` belonging to the org is
+        returned. The SQL adapter enforces `WHERE status = ACTIVE`; this
+        adapter is org-scope-only.
+        """
+        results = [p for p in self._properties.values() if p.organization_id == organization_id]
+
+        if filters.listing_type is not None:
+            results = [p for p in results if p.listing_type == filters.listing_type]
+        if filters.typology is not None:
+            results = [p for p in results if p.typology == filters.typology]
+        if filters.district is not None:
+            results = [p for p in results if filters.district.lower() in p.address.lower()]
+        if filters.min_price is not None:
+            results = [p for p in results if p.prices and p.prices[0].amount >= filters.min_price]
+        if filters.max_price is not None:
+            results = [p for p in results if p.prices and p.prices[0].amount <= filters.max_price]
+
+        results.sort(key=lambda p: p.updated_at, reverse=True)
+        return results[filters.offset : filters.offset + filters.limit]
+
+    async def count_active_for_organization(
+        self, organization_id: UUID, filters: PropertyFilters
+    ) -> int:
+        results = await self.list_active_for_organization(
+            organization_id,
+            PropertyFilters(
+                listing_type=filters.listing_type,
+                typology=filters.typology,
+                min_price=filters.min_price,
+                max_price=filters.max_price,
+                district=filters.district,
+                limit=999999,
+                offset=0,
+            ),
+        )
+        return len(results)

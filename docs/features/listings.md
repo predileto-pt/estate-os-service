@@ -21,10 +21,11 @@ Enums (defined locally — duplicated by design from `properties`):
 
 ## Feature catalog
 
-| Feature                           | Trigger                                         | Purpose                               |
-| --------------------------------- | ----------------------------------------------- | ------------------------------------- |
-| [GetProperty](#getproperty)       | `GET /api/v1/listings/properties/{property_id}` | Return one active property by ID      |
-| [ListProperties](#listproperties) | `GET /api/v1/listings/properties`               | Filter and paginate active properties |
+| Feature                                                       | Trigger                                         | Purpose                                                              |
+| ------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------- |
+| [GetProperty](#getproperty)                                   | `GET /api/v1/listings/properties/{property_id}` | Return one active property by ID                                     |
+| [ListProperties](#listproperties)                             | `GET /api/v1/listings/properties`               | Filter and paginate active properties (public)                       |
+| [ListOrgActiveListings](#listorgactivelistings)               | `GET /api/v1/admin/listings/properties`         | Same shape, scoped to caller's org via `require_org_member` (admin)  |
 
 ---
 
@@ -54,6 +55,16 @@ Filter active properties by listing type, typology, district (substring on addre
 - **Side effects:** none. The route handler enriches images with pre-signed URLs.
 - **Notes:** price filtering is applied post-query because prices are stored in a separate table.
 - **Source:** `src/listings/application/use_cases/list_properties.py`
+
+### ListOrgActiveListings
+
+Admin variant of `ListProperties` scoped to the caller's organization. Mounted at `/api/v1/admin/listings` via a sibling `admin_router` in the same routes file (`src/listings/adapters/api/routes/listings.py`) — the URL prefix matches the rest of the admin surface (`admin/properties`, `admin/property-owners`, …) and keeps the public `/api/v1/listings/...` surface unchanged.
+
+- **Auth:** `Depends(require_org_member)` — 401 if no auth, 403 if the caller isn't a member of `organization_id`. The use case itself is permission-agnostic.
+- **Inputs:** `organization_id` (query) plus the same `PropertyFilters` as the public endpoint
+- **Output:** `(list[ListedProperty], int)` — same shape as the public endpoint, so the agencies-dashboard can render the same card component
+- **Status filtering:** the SQLAlchemy adapter's `WHERE status = ACTIVE` predicate (`_build_query`) is the canonical enforcement. The in-memory adapter cannot filter by status (`ListedProperty` has no `status` field) and is org-scope-only — see `list_active_for_organization`'s docstring for context.
+- **Source:** `src/listings/application/use_cases/list_org_active_listings.py`, route at `src/listings/adapters/api/routes/listings.py` (`admin_router`).
 
 ## Read-model pattern
 

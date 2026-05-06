@@ -26,3 +26,13 @@ class ListingRepository(ABC):
 
     @abstractmethod
     async def count_active(self, filters: PropertyFilters) -> int: ...
+
+    @abstractmethod
+    async def list_active_for_organization(
+        self, organization_id: UUID, filters: PropertyFilters
+    ) -> list[ListedProperty]: ...
+
+    @abstractmethod
+    async def count_active_for_organization(
+        self, organization_id: UUID, filters: PropertyFilters
+    ) -> int: ...

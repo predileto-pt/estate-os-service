@@ -2,8 +2,9 @@ from decimal import Decimal
 from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from identity.domain.models.user import User
 from listings.adapters.api.schemas import (
     ListedPropertyResponse,
     PaginatedListingResponse,
@@ -14,10 +15,13 @@ from listings.adapters.api.schemas import (
 from listings.application.ports.listing_repository import PropertyFilters
 from listings.domain.exceptions import PropertyNotFoundError
 from listings.domain.models import ListedProperty, ListingType, Typology
+from organizations.domain.models.membership import Membership
+from shared.api.dependencies import require_org_member
 
 logger = structlog.get_logger()
 
 router = APIRouter(tags=["property-listings"])
+admin_router = APIRouter(tags=["property-listings-admin"])
 
 
 async def _generate_image_urls(request: Request, prop: ListedProperty) -> dict[str, str]:
@@ -136,3 +140,57 @@ async def get_property(property_id: UUID, request: Request) -> ListedPropertyRes
 
     image_urls = await _generate_image_urls(request, prop)
     return _to_response(prop, image_urls)
+
+
+# ── Admin (auth-gated, org-scoped) ───────────────────────────────────────────
+
+
+@admin_router.get(
+    "/properties",
+    response_model=PaginatedListingResponse,
+    summary="List active listings for the caller's organization (admin view)",
+    responses={
+        200: {"description": "Active listings for the organization"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not a member of this organization"},
+    },
+)
+async def list_org_active_listings(
+    organization_id: UUID,
+    request: Request,
+    listing_type: ListingType | None = Query(
+        None, description="Filter by listing type (sale/purchase)"
+    ),
+    typology: Typology | None = Query(
+        None, description="Filter by typology (house/apartment/land/ruin)"
+    ),
+    min_price: Decimal | None = Query(None, ge=0, description="Minimum price filter"),
+    max_price: Decimal | None = Query(None, ge=0, description="Maximum price filter"),
+    district: str | None = Query(
+        None, description="Filter by district/location (partial match on address)"
+    ),
+    limit: int = Query(20, ge=1, le=100, description="Number of results per page"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    _member: tuple[User, Membership] = Depends(require_org_member),
+) -> PaginatedListingResponse:
+    container = request.app.state.listing_container
+    filters = PropertyFilters(
+        listing_type=listing_type,
+        typology=typology,
+        min_price=min_price,
+        max_price=max_price,
+        district=district,
+        limit=limit,
+        offset=offset,
+    )
+    properties, total = await container.list_org_active_listings.execute(
+        organization_id=organization_id,
+        filters=filters,
+    )
+
+    items = []
+    for prop in properties:
+        image_urls = await _generate_image_urls(request, prop)
+        items.append(_to_response(prop, image_urls))
+
+    return PaginatedListingResponse(items=items, total=total, limit=limit, offset=offset)
