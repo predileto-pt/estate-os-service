@@ -16,13 +16,16 @@ from properties.domain.exceptions import (
     PropertyMissingCoordinatesError,
     PropertyNotFoundError,
 )
+from properties.domain.models.nearby_place import TOP_PLACES_LIMIT, NearbyPlace
 from properties.domain.models.property_amenity import (
-    TOP_PLACES_LIMIT,
     AmenityCategory,
-    NearbyPlace,
     PropertyAmenity,
 )
-from properties.domain.services.amenity_ranker import rank_places, rank_top_places
+from properties.domain.services.proximity_ranker import (
+    KNOWN_BRANDS_BY_CATEGORY,
+    rank_places,
+    rank_top_places,
+)
 from shared.utils.concurrency import gather_with_concurrency
 
 log = structlog.get_logger()
@@ -89,8 +92,9 @@ class DiscoverPropertyAmenities:
             if not places:
                 continue
 
-            best = rank_places(places, category)
-            top = rank_top_places(places, category, limit=TOP_PLACES_LIMIT)
+            brands = KNOWN_BRANDS_BY_CATEGORY.get(category.value)
+            best = rank_places(places, known_brands=brands)
+            top = rank_top_places(places, known_brands=brands, limit=TOP_PLACES_LIMIT)
             amenities.append(
                 PropertyAmenity(
                     id=uuid4(),

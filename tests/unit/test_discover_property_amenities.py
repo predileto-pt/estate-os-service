@@ -24,10 +24,8 @@ from properties.domain.models.property import (
     PropertyStatus,
     Typology,
 )
-from properties.domain.models.property_amenity import (
-    AmenityCategory,
-    NearbyPlace,
-)
+from properties.domain.models.nearby_place import NearbyPlace
+from properties.domain.models.property_amenity import AmenityCategory
 
 TEST_ORG_ID = UUID("00000000-0000-0000-0000-000000000010")
 

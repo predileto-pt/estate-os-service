@@ -1,8 +1,21 @@
-from properties.domain.models.property_amenity import (
-    AmenityCategory,
-    NearbyPlace,
+"""Unit tests for the category-agnostic proximity ranker.
+
+The ranker takes a `known_brands: list[str] | None` parameter directly —
+it doesn't know whether the brand list came from `AmenityCategory` or
+`PoiCategory`. The lookup happens at the call site via
+`KNOWN_BRANDS_BY_CATEGORY[category.value]`.
+"""
+
+from properties.domain.models.nearby_place import NearbyPlace
+from properties.domain.services.proximity_ranker import (
+    KNOWN_BRANDS_BY_CATEGORY,
+    rank_places,
+    rank_top_places,
 )
-from properties.domain.services.amenity_ranker import rank_places, rank_top_places
+
+# Helper aliases so the test bodies read naturally.
+BANK_BRANDS = KNOWN_BRANDS_BY_CATEGORY["bank"]
+GROCERY_BRANDS = KNOWN_BRANDS_BY_CATEGORY["grocery"]
 
 
 def _place(name: str, distance: float) -> NearbyPlace:
@@ -17,59 +30,66 @@ def _place(name: str, distance: float) -> NearbyPlace:
 class TestRankPlaces:
     def test_known_bank_closer_wins(self):
         places = [_place("Millennium BCP", 300), _place("ATM Local", 400)]
-        best = rank_places(places, AmenityCategory.BANK)
+        best = rank_places(places, known_brands=BANK_BRANDS)
         assert best.name == "Millennium BCP"
 
     def test_known_bank_farther_loses_to_very_close_unknown(self):
         # At 100m vs 500m, the 1.5x weight isn't enough to overcome distance
         places = [_place("ATM Local", 100), _place("Millennium BCP", 500)]
-        best = rank_places(places, AmenityCategory.BANK)
+        best = rank_places(places, known_brands=BANK_BRANDS)
         assert best.name == "ATM Local"
 
     def test_known_bank_farther_beats_unknown_at_moderate_distance(self):
         # BPI at 400m vs unknown at 300m — brand boost wins
         places = [_place("ATM Local", 300), _place("BPI", 400)]
-        best = rank_places(places, AmenityCategory.BANK)
+        best = rank_places(places, known_brands=BANK_BRANDS)
         assert best.name == "BPI"
 
     def test_known_grocery_beats_unknown(self):
         places = [_place("Mini Preço", 400), _place("Continente Bom Dia", 500)]
-        best = rank_places(places, AmenityCategory.GROCERY)
+        best = rank_places(places, known_brands=GROCERY_BRANDS)
         assert best.name == "Continente Bom Dia"
 
-    def test_non_weighted_category_uses_nearest(self):
+    def test_no_brands_uses_nearest(self):
+        # Categories without a known-brand list (hospital, school, gym, ...)
+        # fall back to nearest-by-distance.
         places = [_place("Hospital A", 300), _place("Hospital B", 200)]
-        best = rank_places(places, AmenityCategory.HOSPITAL)
+        best = rank_places(places, known_brands=None)
+        assert best.name == "Hospital B"
+
+    def test_empty_brands_list_uses_nearest(self):
+        places = [_place("Hospital A", 300), _place("Hospital B", 200)]
+        best = rank_places(places, known_brands=[])
         assert best.name == "Hospital B"
 
     def test_case_insensitive_matching(self):
         places = [_place("millennium bcp", 400), _place("ATM", 350)]
-        best = rank_places(places, AmenityCategory.BANK)
+        best = rank_places(places, known_brands=BANK_BRANDS)
         assert best.name == "millennium bcp"
 
     def test_partial_match(self):
         places = [_place("Pingo Doce Express", 500), _place("Mercearia Local", 400)]
-        best = rank_places(places, AmenityCategory.GROCERY)
+        best = rank_places(places, known_brands=GROCERY_BRANDS)
         assert best.name == "Pingo Doce Express"
 
     def test_caixa_geral_matches(self):
         places = [_place("Caixa Geral de Depósitos", 450), _place("Unknown Bank", 350)]
-        best = rank_places(places, AmenityCategory.BANK)
+        best = rank_places(places, known_brands=BANK_BRANDS)
         assert best.name == "Caixa Geral de Depósitos"
 
     def test_novo_banco_matches(self):
         places = [_place("Novo Banco Ponte de Lima", 400), _place("ATM", 300)]
-        best = rank_places(places, AmenityCategory.BANK)
+        best = rank_places(places, known_brands=BANK_BRANDS)
         assert best.name == "Novo Banco Ponte de Lima"
 
     def test_single_place_returns_it(self):
         places = [_place("Only Option", 1000)]
-        best = rank_places(places, AmenityCategory.BANK)
+        best = rank_places(places, known_brands=BANK_BRANDS)
         assert best.name == "Only Option"
 
     def test_two_known_brands_nearest_wins(self):
         places = [_place("Santander", 300), _place("BPI", 500)]
-        best = rank_places(places, AmenityCategory.BANK)
+        best = rank_places(places, known_brands=BANK_BRANDS)
         assert best.name == "Santander"
 
 
@@ -84,7 +104,7 @@ class TestRankTopPlaces:
             _place("ATM 4", 600),
             _place("Santander", 700),
         ]
-        top = rank_top_places(places, AmenityCategory.BANK, limit=5)
+        top = rank_top_places(places, known_brands=BANK_BRANDS, limit=5)
         assert len(top) == 5
         # ATM 1 at 100m scores highest (1.0/101 > 1.5/301 for BPI)
         assert top[0].name == "ATM 1"
@@ -94,16 +114,16 @@ class TestRankTopPlaces:
 
     def test_returns_all_when_fewer_than_limit(self):
         places = [_place("BPI", 300), _place("ATM", 500)]
-        top = rank_top_places(places, AmenityCategory.BANK, limit=5)
+        top = rank_top_places(places, known_brands=BANK_BRANDS, limit=5)
         assert len(top) == 2
 
-    def test_non_weighted_category_sorted_by_distance(self):
+    def test_no_brands_sorted_by_distance(self):
         places = [
             _place("Hospital C", 500),
             _place("Hospital A", 100),
             _place("Hospital B", 300),
         ]
-        top = rank_top_places(places, AmenityCategory.HOSPITAL, limit=5)
+        top = rank_top_places(places, known_brands=None, limit=5)
         assert [p.name for p in top] == ["Hospital A", "Hospital B", "Hospital C"]
 
     def test_known_brands_rank_higher(self):
@@ -112,8 +132,30 @@ class TestRankTopPlaces:
             _place("Lidl", 350),
             _place("Continente", 400),
         ]
-        top = rank_top_places(places, AmenityCategory.GROCERY, limit=3)
+        top = rank_top_places(places, known_brands=GROCERY_BRANDS, limit=3)
         # Lidl at 350m with brand boost should beat Mini Preço at 300m
         top_names = [p.name for p in top]
         assert top_names[0] == "Lidl"
         assert "Continente" in top_names
+
+
+class TestCategoryAgnosticism:
+    """Both `AmenityCategory.BANK.value` and `PoiCategory.BANK.value` equal
+    `"bank"`, so the same `KNOWN_BRANDS_BY_CATEGORY` lookup works for both
+    enum families. This is the whole point of moving the ranker out of the
+    amenity-specific module.
+    """
+
+    def test_brands_lookup_works_with_amenity_category(self):
+        from properties.domain.models.property_amenity import AmenityCategory
+
+        brands = KNOWN_BRANDS_BY_CATEGORY.get(AmenityCategory.BANK.value)
+        assert brands is not None
+        assert "Millennium" in brands
+
+    def test_brands_lookup_works_with_poi_category(self):
+        from properties.domain.models.property_poi import PoiCategory
+
+        brands = KNOWN_BRANDS_BY_CATEGORY.get(PoiCategory.GROCERY.value)
+        assert brands is not None
+        assert "Continente" in brands

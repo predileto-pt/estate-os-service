@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from properties.application.ports.places_service import PlacesService
-from properties.domain.models.property_amenity import NearbyPlace
+from properties.domain.models.nearby_place import NearbyPlace
 
 
 class InMemoryPlacesService(PlacesService):

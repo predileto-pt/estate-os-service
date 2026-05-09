@@ -6,7 +6,7 @@ import httpx
 import structlog
 
 from properties.application.ports.places_service import PlacesService
-from properties.domain.models.property_amenity import GOOGLE_MAPS_PLACE_URL, NearbyPlace
+from properties.domain.models.nearby_place import GOOGLE_MAPS_PLACE_URL, NearbyPlace
 
 log = structlog.get_logger()
 

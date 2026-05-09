@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from properties.domain.models.property_amenity import NearbyPlace
+from properties.domain.models.nearby_place import NearbyPlace
 
 
 class PlacesService(ABC):

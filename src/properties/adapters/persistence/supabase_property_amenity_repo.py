@@ -7,9 +7,9 @@ from supabase import AsyncClient
 from properties.application.ports.repositories.property_amenity_repository import (
     PropertyAmenityRepository,
 )
+from properties.domain.models.nearby_place import NearbyPlace
 from properties.domain.models.property_amenity import (
     AmenityCategory,
-    NearbyPlace,
     PropertyAmenity,
 )
 
