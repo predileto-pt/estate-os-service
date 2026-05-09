@@ -465,6 +465,9 @@ uv run python -m listings.entrypoints.events_worker
 # Terminal 3 — Property extraction worker
 uv run python -m properties.entrypoints.worker --queue extraction
 
+# Terminal 3b — Property POI auto-discovery worker (ADR-010 stage 1+2)
+uv run python -m properties.entrypoints.worker --queue enrichment
+
 # Terminal 4 — Applicant extraction worker
 uv run python -m screening.entrypoints.worker --queue extraction
 

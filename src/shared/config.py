@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     # gets a DLQ with `maxReceiveCount=5`.
     sqs_property_extraction_queue_url: str = ""
     sqs_property_extraction_dlq_url: str = ""
+    sqs_property_enrichment_queue_url: str = ""
+    sqs_property_enrichment_dlq_url: str = ""
     sqs_applicant_extraction_queue_url: str = ""
     sqs_applicant_extraction_dlq_url: str = ""
     sqs_applicant_screening_queue_url: str = ""

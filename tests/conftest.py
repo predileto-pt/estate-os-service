@@ -246,6 +246,11 @@ def extraction_queue_url():
 
 
 @pytest.fixture
+def enrichment_queue_url():
+    return "test-enrichment-queue"
+
+
+@pytest.fixture
 def document_classifier():
     return InMemoryDocumentClassifier()
 
@@ -270,6 +275,7 @@ def property_container(
     property_extractor_service,
     command_publisher,
     extraction_queue_url,
+    enrichment_queue_url,
     document_classifier,
     document_parser,
     document_content_repo,
@@ -286,6 +292,7 @@ def property_container(
         document_parser=document_parser,
         document_content_repo=document_content_repo,
         property_poi_repo=property_poi_repo,
+        enrichment_queue_url=enrichment_queue_url,
     )
 
 

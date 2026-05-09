@@ -325,3 +325,10 @@ class PropertyPoiResponse(PropertyPoiBase):
     manually_edited: bool
     created_at: datetime
     updated_at: datetime
+
+
+# --- Property POI auto-discovery (workflow trigger) ---
+
+
+class EnrichPropertyRequest(BaseModel):
+    force: bool = False

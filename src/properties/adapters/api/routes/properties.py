@@ -11,12 +11,17 @@ from shared.api.dependencies import (
 )
 from properties.adapters.api.schemas import (
     CreatePropertyRequest,
+    EnrichPropertyRequest,
     PropertyResponse,
     PropertySummaryResponse,
     PublicPropertyResponse,
     UpdatePropertyAddressRequest,
 )
-from properties.domain.exceptions import PropertyNotFoundError, PropertyNotPublishableError
+from properties.domain.exceptions import (
+    PropertyMissingCoordinatesError,
+    PropertyNotFoundError,
+    PropertyNotPublishableError,
+)
 
 router = APIRouter(prefix="/properties", tags=["properties"])
 
@@ -336,3 +341,44 @@ async def publish_property(
 
     urls = await _generate_image_download_urls(request, prop)
     return _property_response(prop, urls)
+
+
+@router.post(
+    "/{property_id}/enrich",
+    status_code=202,
+    summary="Trigger POI auto-discovery for a property",
+    description=(
+        "Enqueues an `ENRICH_PROPERTY_REQUESTED.v1` command. The worker "
+        "discovers nearby POIs via the configured `PlacesService`, ranks "
+        "them, and replaces the property's POI catalog. Manually-edited "
+        "categories are preserved unless `force=true` is sent."
+    ),
+    responses={
+        202: {"description": "Enrichment command queued"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not a member of this organization"},
+        404: {"description": "Property not found"},
+        422: {"description": "Property is missing coordinates"},
+    },
+)
+async def enrich_property(
+    property_id: UUID,
+    organization_id: UUID,
+    body: EnrichPropertyRequest,
+    request: Request,
+    member: tuple[User, Membership] = Depends(require_org_member),
+):
+    user, _membership = member
+    use_case = request.app.state.property_container.enqueue_enrich_property
+    try:
+        await use_case.execute(
+            property_id=property_id,
+            organization_id=organization_id,
+            force=body.force,
+            requested_by_user_id=user.id,
+        )
+    except PropertyNotFoundError:
+        raise HTTPException(status_code=404, detail="Property not found")
+    except PropertyMissingCoordinatesError:
+        raise HTTPException(status_code=422, detail="Property missing coordinates")
+    return {"status": "enrichment_queued", "property_id": str(property_id)}

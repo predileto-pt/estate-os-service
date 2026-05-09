@@ -1,10 +1,14 @@
-"""Integration tests for the property POI manual-entry endpoints.
+"""Integration tests for the property POI endpoints.
 
-POST/GET/PATCH/DELETE on /api/v1/admin/properties/{id}/pois.
+POST/GET/PATCH/DELETE on /api/v1/admin/properties/{id}/pois — manual entry.
+POST /api/v1/admin/properties/{id}/enrich — auto-discovery workflow trigger.
 """
+
+from uuid import UUID
 
 import pytest
 
+from shared.events.types import ENRICH_PROPERTY_REQUESTED_V1
 from tests.conftest import TEST_ORGANIZATION_ID
 
 OTHER_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000099"
@@ -345,3 +349,118 @@ class TestPropertyPois:
         )
         version_after_delete = (await property_repo.get_by_id(UUID(property_id))).aggregate_version
         assert version_after_delete == version_after_patch + 1
+
+
+class TestEnrichProperty:
+    """Integration tests for the auto-discovery trigger.
+
+    These hit the enqueue endpoint only — the actual workflow runs in
+    the worker, which is unit-tested separately. We assert the command
+    arrives on the in-memory command publisher with the right payload.
+    """
+
+    async def _create_property_with_coords(
+        self,
+        client,
+        auth_headers,
+        property_repo,
+        latitude: float | None = 38.768,
+        longitude: float | None = -9.108,
+    ) -> str:
+        property_id = await _create_property(client, auth_headers)
+        # CreatePropertyRequest doesn't accept lat/lng; set directly on the
+        # in-memory repo. Production sets coords via amenity-discovery /
+        # geocoding flows that run elsewhere.
+        prop = await property_repo.get_by_id(UUID(property_id))
+        prop.latitude = latitude
+        prop.longitude = longitude
+        await property_repo.save(prop)
+        return property_id
+
+    async def test_enrich_happy_path_returns_202_and_queues_command(
+        self, client, auth_headers, property_repo, command_publisher
+    ):
+        property_id = await self._create_property_with_coords(client, auth_headers, property_repo)
+
+        response = await client.post(
+            f"/api/v1/admin/properties/{property_id}/enrich?organization_id={TEST_ORGANIZATION_ID}",
+            json={"force": False},
+            headers=auth_headers,
+        )
+        assert response.status_code == 202
+        assert response.json() == {
+            "status": "enrichment_queued",
+            "property_id": property_id,
+        }
+
+        assert len(command_publisher.sent) == 1
+        queue_url, event = command_publisher.sent[0]
+        assert event.event_type == ENRICH_PROPERTY_REQUESTED_V1
+        assert event.data["property_id"] == property_id
+        assert event.data["organization_id"] == TEST_ORGANIZATION_ID
+        assert event.data["force"] is False
+        assert "requested_by_user_id" in event.data
+
+    async def test_enrich_with_force_propagates_to_payload(
+        self, client, auth_headers, property_repo, command_publisher
+    ):
+        property_id = await self._create_property_with_coords(client, auth_headers, property_repo)
+
+        response = await client.post(
+            f"/api/v1/admin/properties/{property_id}/enrich?organization_id={TEST_ORGANIZATION_ID}",
+            json={"force": True},
+            headers=auth_headers,
+        )
+        assert response.status_code == 202
+        assert command_publisher.sent[0][1].data["force"] is True
+
+    async def test_enrich_unknown_property_returns_404(
+        self, client, auth_headers, command_publisher
+    ):
+        bogus_id = "00000000-0000-0000-0000-0000000000ff"
+        response = await client.post(
+            f"/api/v1/admin/properties/{bogus_id}/enrich?organization_id={TEST_ORGANIZATION_ID}",
+            json={"force": False},
+            headers=auth_headers,
+        )
+        assert response.status_code == 404
+        assert command_publisher.sent == []
+
+    async def test_enrich_missing_coordinates_returns_422(
+        self, client, auth_headers, property_repo, command_publisher
+    ):
+        property_id = await self._create_property_with_coords(
+            client, auth_headers, property_repo, latitude=None, longitude=None
+        )
+        response = await client.post(
+            f"/api/v1/admin/properties/{property_id}/enrich?organization_id={TEST_ORGANIZATION_ID}",
+            json={"force": False},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+        assert command_publisher.sent == []
+
+    async def test_enrich_cross_org_returns_403(
+        self, client, auth_headers, property_repo, command_publisher
+    ):
+        property_id = await self._create_property_with_coords(client, auth_headers, property_repo)
+        response = await client.post(
+            f"/api/v1/admin/properties/{property_id}/enrich?organization_id={OTHER_ORGANIZATION_ID}",
+            json={"force": False},
+            headers=auth_headers,
+        )
+        assert response.status_code == 403
+        assert command_publisher.sent == []
+
+    async def test_enrich_unauthenticated_returns_401(
+        self, client, property_repo, auth_headers, command_publisher
+    ):
+        property_id = await self._create_property_with_coords(client, auth_headers, property_repo)
+        # auth_headers used only to seed the property; the actual enrich
+        # call below has no Authorization header.
+        response = await client.post(
+            f"/api/v1/admin/properties/{property_id}/enrich?organization_id={TEST_ORGANIZATION_ID}",
+            json={"force": False},
+        )
+        assert response.status_code == 401
+        assert command_publisher.sent == []

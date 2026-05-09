@@ -57,6 +57,7 @@ awslocal sns create-topic --name domain-events-CONTRACT_GENERATED-v1
 
 echo "Creating command-queue DLQs first (redrive targets)..."
 awslocal sqs create-queue --queue-name property-extraction-dlq
+awslocal sqs create-queue --queue-name property-enrichment-dlq
 awslocal sqs create-queue --queue-name applicant-extraction-dlq
 awslocal sqs create-queue --queue-name applicant-screening-dlq
 awslocal sqs create-queue --queue-name contract-ingestion-dlq
@@ -66,6 +67,8 @@ echo "Creating command queues with redrive policies..."
 # maxReceiveCount=5 per spec §Failure semantics.
 awslocal sqs create-queue --queue-name property-extraction-queue \
   --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:property-extraction-dlq\",\"maxReceiveCount\":\"5\"}"}'
+awslocal sqs create-queue --queue-name property-enrichment-queue \
+  --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:property-enrichment-dlq\",\"maxReceiveCount\":\"5\"}"}'
 awslocal sqs create-queue --queue-name applicant-extraction-queue \
   --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:applicant-extraction-dlq\",\"maxReceiveCount\":\"5\"}"}'
 awslocal sqs create-queue --queue-name applicant-screening-queue \

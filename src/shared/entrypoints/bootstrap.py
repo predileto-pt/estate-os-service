@@ -259,6 +259,7 @@ async def get_property_container() -> PropertyContainer:
         places_service=places_service,
         amenity_repo=amenity_repo,
         property_poi_repo=property_poi_repo,
+        enrichment_queue_url=settings.sqs_property_enrichment_queue_url,
     )
     return _property_container
 

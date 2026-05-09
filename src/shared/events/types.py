@@ -48,6 +48,7 @@ CONTRACT_GENERATED_V1 = "CONTRACT_GENERATED.v1"
 # direct `DomainEvent(event_type=..._V1, data=...)` constructors)
 PROPERTY_EXTRACTION_REQUESTED_V1 = "PROPERTY_EXTRACTION_REQUESTED.v1"
 BATCH_PROPERTY_EXTRACTION_REQUESTED_V1 = "BATCH_PROPERTY_EXTRACTION_REQUESTED.v1"
+ENRICH_PROPERTY_REQUESTED_V1 = "ENRICH_PROPERTY_REQUESTED.v1"
 
 # Screening (new — these commands are published today as flat payloads via
 # the legacy `SQSMessagePublisher`; this spec moves them onto the canonical

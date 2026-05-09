@@ -56,6 +56,8 @@ from properties.application.use_cases.generate_image_upload_urls import (
 from properties.application.use_cases.record_property_image import RecordPropertyImage
 from properties.application.use_cases.reorder_property_images import ReorderPropertyImages
 from properties.application.use_cases.delete_property_poi import DeletePropertyPoi
+from properties.application.use_cases.enqueue_enrich_property import EnqueueEnrichProperty
+from properties.application.use_cases.enrich_property import EnrichProperty
 from properties.application.use_cases.list_property_pois import ListPropertyPois
 from properties.application.use_cases.replace_property_pois import ReplacePropertyPois
 from properties.application.use_cases.update_property_address import (
@@ -91,6 +93,7 @@ class Container:
         places_service: PlacesService | None = None,
         amenity_repo: PropertyAmenityRepository | None = None,
         property_poi_repo: PropertyPoiRepository | None = None,
+        enrichment_queue_url: str = "",
     ) -> None:
         self.property_repo = property_repo
         self.document_extractor = document_extractor
@@ -106,6 +109,7 @@ class Container:
         self.places_service = places_service
         self.amenity_repo = amenity_repo
         self.property_poi_repo = property_poi_repo
+        self.enrichment_queue_url = enrichment_queue_url
 
         # Existing use cases
         self.create_property = CreateProperty(
@@ -167,6 +171,28 @@ class Container:
             self.replace_property_pois = None
             self.update_property_poi = None
             self.delete_property_poi = None
+
+        # POI auto-discovery workflow (slice 2 of ADR-010).
+        # Enqueue half: needs command_publisher + the enrichment queue URL.
+        if command_publisher is not None and enrichment_queue_url:
+            self.enqueue_enrich_property = EnqueueEnrichProperty(
+                property_repo=property_repo,
+                command_publisher=command_publisher,
+                enrichment_queue_url=enrichment_queue_url,
+            )
+        else:
+            self.enqueue_enrich_property = None
+
+        # Orchestrator half: needs property_poi_repo + places_service.
+        if property_poi_repo is not None and places_service is not None:
+            self.enrich_property = EnrichProperty(
+                property_repo=property_repo,
+                property_poi_repo=property_poi_repo,
+                places_service=places_service,
+            )
+        else:
+            self.enrich_property = None
+
         self.publish_property = PublishProperty(
             property_repo=property_repo,
             domain_event_publisher=domain_event_publisher,
