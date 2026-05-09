@@ -236,9 +236,7 @@ class EnrichProperty:
         results: list[CategoryDiscoveryResult] = await gather_with_concurrency(
             PLACES_CONCURRENCY_LIMIT,
             *(
-                self._discover_category(
-                    cat, prop.latitude, prop.longitude, country=country
-                )
+                self._discover_category(cat, prop.latitude, prop.longitude, country=country)
                 for cat in categories_to_run
             ),
         )
@@ -414,9 +412,7 @@ class EnrichProperty:
         # categories whose places had no place_id untouched.
         sanitized: dict[PoiCategory, list[NearbyPlace]] = {}
         for category, places in ranked_results.items():
-            sanitized[category] = [
-                p for p in places if not p.place_id or p.place_id in kept_ids
-            ]
+            sanitized[category] = [p for p in places if not p.place_id or p.place_id in kept_ids]
         return sanitized
 
     async def _enrich_metadata(self, pois: list[PropertyPoi]) -> None:

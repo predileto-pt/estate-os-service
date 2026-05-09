@@ -126,12 +126,8 @@ class PropertyListingModel(Base):
     # the legacy `ListingRepository` (read mapping over the live
     # `properties` table). Lean shape — see `ListingImage` /
     # `ListingPrice` value objects in `domain/property_listing.py`.
-    images: Mapped[list] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb")
-    )
-    prices: Mapped[list] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb")
-    )
+    images: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    prices: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
 
     description: Mapped[str | None] = mapped_column(Text)
     latitude: Mapped[float | None] = mapped_column(Float)

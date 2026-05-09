@@ -1,18 +1,18 @@
 """Integration tests for the admin org-scoped listings endpoint.
 
-Status-exclusion is intentionally not asserted — see spec §"Status
-filtering". The in-memory adapter has no `status` field on
-`ListedProperty` to filter on; the SQL `WHERE status = ACTIVE`
-predicate is the canonical enforcement and is documented on the
-SQLAlchemy adapter method.
+Migrated from the legacy `ListingRepository` (read mapping over the
+live `properties` table) to `PropertyListingRepository` (carried-state
+projection). The route now reads from the projection — status filtering
+is real (`property_listings.status='active'`), and the response shape
+is the lean projection shape (no `filename`/`content_type`/`size_bytes`
+on images, no `id` on prices).
 """
 
 from datetime import datetime, timezone
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
-from listings.domain.models import ListedProperty, ListingType, Typology
 from tests.conftest import TEST_ORGANIZATION_ID
 
 OTHER_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000099"
@@ -26,43 +26,46 @@ def _auto_seed_member(seed_test_member):
     return seed_test_member
 
 
-def _make_listed(
+async def _seed_listing(
+    property_listing_repo,
     *,
     organization_id: str = TEST_ORGANIZATION_ID,
-    address: str = "Rua A",
     description: str | None = None,
-) -> ListedProperty:
-    """Build a `ListedProperty` for in-memory seeding.
-
-    `ListedProperty` carries no `status` field — the in-memory adapter
-    treats every seeded row as visible. See the spec §"Status filtering"
-    for why that's intentional.
-    """
-    now = datetime.now(timezone.utc)
-    return ListedProperty(
-        id=uuid4(),
-        organization_id=UUID(organization_id),
-        address=address,
-        listing_type=ListingType.SALE,
-        typology=Typology.APARTMENT,
-        description=description,
-        characteristics=None,
-        latitude=None,
-        longitude=None,
-        created_at=now,
-        updated_at=now,
+    status: str = "active",
+    listing_type: str = "sale",
+    typology: str = "apartment",
+    address: str = "Rua A, Lisboa",
+):
+    """Drop a row directly via the projection upsert. Mirrors the
+    snapshot shape `build_property_snapshot()` produces."""
+    snapshot = {
+        "id": str(uuid4()),
+        "organization_id": organization_id,
+        "aggregate_version": 1,
+        "address": address,
+        "listing_type": listing_type,
+        "typology": typology,
+        "status": status,
+        "description": description,
+        "latitude": None,
+        "longitude": None,
+        "characteristics": None,
+        "prices": [],
+        "images": [],
+    }
+    await property_listing_repo.upsert_from_event(
+        event_data=snapshot,
+        source_occurred_at=datetime.now(timezone.utc),
     )
+    return snapshot
 
 
 class TestAdminOrgActiveListings:
     async def test_happy_path_returns_only_calling_org_rows(
-        self, client, auth_headers, listing_repo
+        self, client, auth_headers, property_listing_repo
     ):
-        # Description is used as the per-row tag now that `address` is
-        # no longer in the public response (privacy fix, spec
-        # 2026-05-property-address-enrichment-fix).
-        listing_repo.add(_make_listed(address="Mine — 1", description="Mine — 1"))
-        listing_repo.add(_make_listed(address="Mine — 2", description="Mine — 2"))
+        await _seed_listing(property_listing_repo, description="Mine — 1")
+        await _seed_listing(property_listing_repo, description="Mine — 2")
 
         response = await client.get(
             f"/api/v1/admin/listings/properties?organization_id={TEST_ORGANIZATION_ID}",
@@ -70,7 +73,6 @@ class TestAdminOrgActiveListings:
         )
         assert response.status_code == 200
         data = response.json()
-        # No `address` exposed. Use description as a stable per-row marker.
         descs = {item["description"] for item in data["items"]}
         assert descs == {"Mine — 1", "Mine — 2"}
         assert all("address" not in item for item in data["items"])
@@ -78,12 +80,14 @@ class TestAdminOrgActiveListings:
         assert data["limit"] == 20
         assert data["offset"] == 0
 
-    async def test_other_orgs_rows_are_not_included(self, client, auth_headers, listing_repo):
-        listing_repo.add(_make_listed(address="Mine", description="Mine"))
-        listing_repo.add(
-            _make_listed(
-                organization_id=OTHER_ORGANIZATION_ID, address="Theirs", description="Theirs"
-            )
+    async def test_other_orgs_rows_are_not_included(
+        self, client, auth_headers, property_listing_repo
+    ):
+        await _seed_listing(property_listing_repo, description="Mine")
+        await _seed_listing(
+            property_listing_repo,
+            organization_id=OTHER_ORGANIZATION_ID,
+            description="Theirs",
         )
 
         response = await client.get(
@@ -94,9 +98,14 @@ class TestAdminOrgActiveListings:
         descs = {item["description"] for item in response.json()["items"]}
         assert descs == {"Mine"}
 
-    async def test_empty_org_returns_200_with_empty_items(self, client, auth_headers, listing_repo):
-        # Other orgs have rows; calling org has none.
-        listing_repo.add(_make_listed(organization_id=OTHER_ORGANIZATION_ID, address="Theirs"))
+    async def test_empty_org_returns_200_with_empty_items(
+        self, client, auth_headers, property_listing_repo
+    ):
+        await _seed_listing(
+            property_listing_repo,
+            organization_id=OTHER_ORGANIZATION_ID,
+            description="Theirs",
+        )
 
         response = await client.get(
             f"/api/v1/admin/listings/properties?organization_id={TEST_ORGANIZATION_ID}",
@@ -107,10 +116,29 @@ class TestAdminOrgActiveListings:
         assert data["items"] == []
         assert data["total"] == 0
 
-    async def test_cross_org_call_returns_403(self, client, auth_headers, listing_repo):
+    async def test_non_active_rows_excluded(self, client, auth_headers, property_listing_repo):
+        """The projection has `status` as a real column. Non-ACTIVE
+        rows are filtered out at the repo level."""
+        await _seed_listing(property_listing_repo, description="Active", status="active")
+        await _seed_listing(property_listing_repo, description="Draft", status="draft")
+        await _seed_listing(property_listing_repo, description="Sold", status="sold")
+
+        response = await client.get(
+            f"/api/v1/admin/listings/properties?organization_id={TEST_ORGANIZATION_ID}",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        descs = {item["description"] for item in response.json()["items"]}
+        assert descs == {"Active"}
+
+    async def test_cross_org_call_returns_403(self, client, auth_headers, property_listing_repo):
         """Caller is a member of TEST_ORGANIZATION_ID only — querying
         OTHER_ORGANIZATION_ID must be blocked by require_org_member."""
-        listing_repo.add(_make_listed(organization_id=OTHER_ORGANIZATION_ID, address="Theirs"))
+        await _seed_listing(
+            property_listing_repo,
+            organization_id=OTHER_ORGANIZATION_ID,
+            description="Theirs",
+        )
 
         response = await client.get(
             f"/api/v1/admin/listings/properties?organization_id={OTHER_ORGANIZATION_ID}",
@@ -118,19 +146,18 @@ class TestAdminOrgActiveListings:
         )
         assert response.status_code == 403
 
-    async def test_unauthenticated_returns_401(self, client, listing_repo):
-        listing_repo.add(_make_listed(address="Mine"))
+    async def test_unauthenticated_returns_401(self, client, property_listing_repo):
+        await _seed_listing(property_listing_repo, description="Mine")
 
         response = await client.get(
             f"/api/v1/admin/listings/properties?organization_id={TEST_ORGANIZATION_ID}",
         )
         assert response.status_code == 401
 
-    async def test_pagination_limit_and_offset(self, client, auth_headers, listing_repo):
+    async def test_pagination_limit_and_offset(self, client, auth_headers, property_listing_repo):
         for i in range(5):
-            listing_repo.add(_make_listed(address=f"Row {i}"))
+            await _seed_listing(property_listing_repo, description=f"Row {i}")
 
-        # First page: limit=2, offset=0 — expect 2 items, total=5.
         page_one = await client.get(
             f"/api/v1/admin/listings/properties?organization_id={TEST_ORGANIZATION_ID}"
             f"&limit=2&offset=0",
@@ -143,7 +170,6 @@ class TestAdminOrgActiveListings:
         assert page_one_data["limit"] == 2
         assert page_one_data["offset"] == 0
 
-        # Second page: limit=2, offset=2 — expect 2 items, total still 5.
         page_two = await client.get(
             f"/api/v1/admin/listings/properties?organization_id={TEST_ORGANIZATION_ID}"
             f"&limit=2&offset=2",
@@ -162,9 +188,9 @@ class TestAdminOrgActiveListings:
         assert response.status_code == 422
 
     async def test_response_shape_matches_listed_property_response(
-        self, client, auth_headers, listing_repo
+        self, client, auth_headers, property_listing_repo
     ):
-        listing_repo.add(_make_listed(address="Shape check"))
+        await _seed_listing(property_listing_repo, description="Shape check")
 
         response = await client.get(
             f"/api/v1/admin/listings/properties?organization_id={TEST_ORGANIZATION_ID}",
@@ -173,14 +199,17 @@ class TestAdminOrgActiveListings:
         assert response.status_code == 200
         item = response.json()["items"][0]
         # Same field set as the public endpoint's response.
-        # `address` removed (privacy fix, spec
-        # 2026-05-property-address-enrichment-fix).
+        # `address` removed (privacy fix). Structured location now exposed.
         for key in (
             "id",
             "listing_type",
             "typology",
             "description",
             "characteristics",
+            "parish",
+            "municipality",
+            "district",
+            "country",
             "latitude",
             "longitude",
             "created_at",

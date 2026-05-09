@@ -33,6 +33,7 @@ from listings.application.ports.repositories.property_listing_repository import 
     PropertyListingRepository,
 )
 from listings.domain.models import ListingType, PropertyStatus, Typology
+from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import (
     ListingImage,
     ListingPoi,
@@ -124,6 +125,80 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             )
             row = result.scalar_one_or_none()
             return self._to_domain(row) if row else None
+
+    # ──────────── Read side (public + admin route handlers) ────────────
+
+    def _build_active_query(self, filters: PropertyFilters):
+        from listings.domain.models import PropertyStatus as _PStatus
+
+        query = select(PropertyListingModel).where(PropertyListingModel.status == _PStatus.ACTIVE)
+        if filters.listing_type is not None:
+            query = query.where(PropertyListingModel.listing_type == filters.listing_type.value)
+        if filters.typology is not None:
+            query = query.where(PropertyListingModel.typology == filters.typology.value)
+        if filters.parish is not None:
+            query = query.where(PropertyListingModel.parish == filters.parish)
+        if filters.municipality is not None:
+            query = query.where(PropertyListingModel.municipality == filters.municipality)
+        if filters.district is not None:
+            query = query.where(PropertyListingModel.district == filters.district)
+        if filters.min_price is not None:
+            query = query.where(PropertyListingModel.min_price >= filters.min_price)
+        if filters.max_price is not None:
+            query = query.where(PropertyListingModel.min_price <= filters.max_price)
+        return query
+
+    async def list_active(self, filters: PropertyFilters) -> list[PropertyListing]:
+        async with self._session_factory() as session:
+            query = (
+                self._build_active_query(filters)
+                .order_by(
+                    PropertyListingModel.created_at.desc(),
+                    PropertyListingModel.id.desc(),
+                )
+                .limit(filters.limit)
+                .offset(filters.offset)
+            )
+            result = await session.execute(query)
+            return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def count_active(self, filters: PropertyFilters) -> int:
+        async with self._session_factory() as session:
+            count_query = select(func.count()).select_from(
+                self._build_active_query(filters).subquery()
+            )
+            result = await session.execute(count_query)
+            return result.scalar_one()
+
+    async def list_active_for_organization(
+        self, organization_id: UUID, filters: PropertyFilters
+    ) -> list[PropertyListing]:
+        async with self._session_factory() as session:
+            query = (
+                self._build_active_query(filters)
+                .where(PropertyListingModel.organization_id == str(organization_id))
+                .order_by(
+                    PropertyListingModel.created_at.desc(),
+                    PropertyListingModel.id.desc(),
+                )
+                .limit(filters.limit)
+                .offset(filters.offset)
+            )
+            result = await session.execute(query)
+            return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def count_active_for_organization(
+        self, organization_id: UUID, filters: PropertyFilters
+    ) -> int:
+        async with self._session_factory() as session:
+            query = self._build_active_query(filters).where(
+                PropertyListingModel.organization_id == str(organization_id)
+            )
+            count_query = select(func.count()).select_from(query.subquery())
+            result = await session.execute(count_query)
+            return result.scalar_one()
+
+    # ──────────── Write side (listings worker handlers) ───────────────
 
     async def upsert_from_event(
         self,

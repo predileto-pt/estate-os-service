@@ -37,9 +37,7 @@ class DropByPlaceIdPoiLocalityFilter(PoiLocalityFilter):
 
     def __init__(self, drop_place_ids: set[str] | None = None) -> None:
         self._drop = drop_place_ids or set()
-        self.calls: list[
-            tuple[str, str, LocalityKind, tuple[PoiCandidate, ...]]
-        ] = []
+        self.calls: list[tuple[str, str, LocalityKind, tuple[PoiCandidate, ...]]] = []
 
     async def keep_in_locality(
         self,

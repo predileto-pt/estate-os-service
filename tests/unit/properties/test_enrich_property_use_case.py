@@ -234,10 +234,7 @@ async def test_pt_municipality_wide_category_uses_wide_radius_and_keeps_every_re
     await property_repo.save(prop)
 
     # 25 restaurants — would be truncated to 5 under the old top-N.
-    restaurants = [
-        _place(f"Tasca {i}", place_id=f"r-{i}", distance=100.0 + i)
-        for i in range(25)
-    ]
+    restaurants = [_place(f"Tasca {i}", place_id=f"r-{i}", distance=100.0 + i) for i in range(25)]
     places = TrackingPlacesService(results_by_place_type={"restaurant": restaurants})
 
     use_case = EnrichProperty(
@@ -300,9 +297,7 @@ async def test_tire_shop_and_auto_shop_share_place_type_disambiguated_by_keyword
     assert [p.name for p in auto_rows] == ["Oficina do João"]
 
 
-async def test_pt_default_category_keeps_top_n_and_focused_radius(
-    property_repo, property_poi_repo
-):
+async def test_pt_default_category_keeps_top_n_and_focused_radius(property_repo, property_poi_repo):
     """Bank is not in the PT municipality-wide set, so it stays at the
     focused default policy: small radius + top-5 cap."""
     from properties.domain.services.poi_discovery_policy import DEFAULT_POLICY

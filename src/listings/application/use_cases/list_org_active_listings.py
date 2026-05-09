@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from listings.application.ports.listing_repository import ListingRepository, PropertyFilters
-from listings.domain.models import ListedProperty
+from listings.application.ports.repositories.property_listing_repository import (
+    PropertyListingRepository,
+)
+from listings.domain.property_filters import PropertyFilters
+from listings.domain.property_listing import PropertyListing
 
 
 class ListOrgActiveListings:
@@ -13,12 +16,16 @@ class ListOrgActiveListings:
     `require_org_member` — the use case is permission-agnostic.
     """
 
-    def __init__(self, listing_repo: ListingRepository) -> None:
-        self._listing_repo = listing_repo
+    def __init__(self, property_listing_repo: PropertyListingRepository) -> None:
+        self._property_listing_repo = property_listing_repo
 
     async def execute(
         self, *, organization_id: UUID, filters: PropertyFilters
-    ) -> tuple[list[ListedProperty], int]:
-        properties = await self._listing_repo.list_active_for_organization(organization_id, filters)
-        total = await self._listing_repo.count_active_for_organization(organization_id, filters)
+    ) -> tuple[list[PropertyListing], int]:
+        properties = await self._property_listing_repo.list_active_for_organization(
+            organization_id, filters
+        )
+        total = await self._property_listing_repo.count_active_for_organization(
+            organization_id, filters
+        )
         return properties, total

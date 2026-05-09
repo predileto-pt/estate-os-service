@@ -138,7 +138,8 @@ class OpenAiPoiLocalityFilter(PoiLocalityFilter):
         # dropping rows. Missing rows default to KEEP — fail-open is
         # the same invariant as the exception path above.
         verdicts: dict[str, bool] = {
-            v.place_id: v.is_same_locality for v in result.verdicts  # type: ignore[union-attr]
+            v.place_id: v.is_same_locality
+            for v in result.verdicts  # type: ignore[union-attr]
         }
         kept = [c for c in candidates if verdicts.get(c.place_id, True)]
 

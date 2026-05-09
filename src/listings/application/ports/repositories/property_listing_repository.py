@@ -1,15 +1,26 @@
 """Repository port for the `property_listings` read-model table.
 
-Three distinct methods:
+Two responsibilities, sharing one port:
 
-- `upsert` — idempotent INSERT/UPDATE from a full carried-state event
-  payload. Guarded by `source_aggregate_version > current` — older
-  events are silently dropped so out-of-order redelivery is safe.
-- `delete_if_newer` — guarded delete. Same version guard as upsert.
-- `update_location` — patch just the enrichment columns after the LLM
-  parses the free-text address. Idempotent (always safe to reapply).
-- `get_by_id` — lookup for testing + the enrichment handler's
-  "increment attempts" path.
+- **Write side** (called by the listings worker handlers):
+    - `upsert_from_event` — idempotent INSERT/UPDATE from a full
+      carried-state event payload. Guarded by
+      `source_aggregate_version > current` — older events are silently
+      dropped so out-of-order redelivery is safe.
+    - `delete_if_newer` — guarded delete. Same version guard as upsert.
+    - `update_location` — patch enrichment columns after the LLM
+      parses the free-text address.
+    - `increment_enrichment_attempts` — bump-only counter.
+    - `set_embedding_indexed` / `set_embedding_status` — embedding
+      handler write paths.
+
+- **Read side** (called by the public + admin route handlers; absorbed
+  from the deprecated `ListingRepository`):
+    - `get_by_id` — single-property fetch.
+    - `list_active` / `count_active` — public-facing structured-filter
+      list.
+    - `list_active_for_organization` / `count_active_for_organization`
+      — admin variant scoped to one org.
 """
 
 from __future__ import annotations
@@ -19,12 +30,39 @@ from datetime import datetime
 from uuid import UUID
 
 from listings.application.ports.address_searcher import ParsedAddress
+from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import PropertyListing
 
 
 class PropertyListingRepository(ABC):
     @abstractmethod
     async def get_by_id(self, property_id: UUID) -> PropertyListing | None: ...
+
+    # ──────────── Read side (public / admin route handlers) ────────────
+
+    @abstractmethod
+    async def list_active(self, filters: PropertyFilters) -> list[PropertyListing]:
+        """Return rows where `status='active'`, applying structured
+        filters from `PropertyFilters`. Sorted by `created_at DESC, id
+        DESC`. Bounded by `filters.limit`/`filters.offset`."""
+
+    @abstractmethod
+    async def count_active(self, filters: PropertyFilters) -> int:
+        """Count of `list_active` matches before limit/offset."""
+
+    @abstractmethod
+    async def list_active_for_organization(
+        self, organization_id: UUID, filters: PropertyFilters
+    ) -> list[PropertyListing]:
+        """Same as `list_active`, scoped to one organization. Permission
+        enforcement is route-side via `require_org_member`."""
+
+    @abstractmethod
+    async def count_active_for_organization(
+        self, organization_id: UUID, filters: PropertyFilters
+    ) -> int: ...
+
+    # ──────────── Write side (listings worker handlers) ───────────────
 
     @abstractmethod
     async def upsert_from_event(

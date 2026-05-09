@@ -12,9 +12,10 @@ from listings.adapters.api.schemas import (
     PropertyImageResponse,
     PropertyPriceResponse,
 )
-from listings.application.ports.listing_repository import PropertyFilters
 from listings.domain.exceptions import PropertyNotFoundError
-from listings.domain.models import ListedProperty, ListingType, Typology
+from listings.domain.models import ListingType, Typology
+from listings.domain.property_filters import PropertyFilters
+from listings.domain.property_listing import PropertyListing
 from organizations.domain.models.membership import Membership
 from shared.api.dependencies import require_org_member
 
@@ -24,7 +25,7 @@ router = APIRouter(tags=["property-listings"])
 admin_router = APIRouter(tags=["property-listings-admin"])
 
 
-async def _generate_image_urls(request: Request, prop: ListedProperty) -> dict[str, str]:
+async def _generate_image_urls(request: Request, prop: PropertyListing) -> dict[str, str]:
     document_storage = getattr(request.app.state, "_listing_document_storage", None)
     if not document_storage or not prop.images:
         return {}
@@ -34,53 +35,55 @@ async def _generate_image_urls(request: Request, prop: ListedProperty) -> dict[s
     return urls
 
 
-def _to_response(prop: ListedProperty, image_urls: dict[str, str]) -> ListedPropertyResponse:
-    # NOTE: prop.address is intentionally NOT copied to the response —
-    # privacy fix (spec 2026-05-property-address-enrichment-fix). The
-    # public listings page no longer leaks the exact street address to
-    # anonymous visitors. Structured location fields will land in a
-    # follow-up that switches this route to read from
-    # `property_listings` instead of the legacy `ListedProperty`.
+def _to_response(prop: PropertyListing, image_urls: dict[str, str]) -> ListedPropertyResponse:
+    """Map the projection row to the public response.
+
+    `address` intentionally absent (privacy fix). Structured location
+    fields (parish/municipality/district/country) are now exposed from
+    the projection. Characteristics are flattened into a response sub-
+    object — `PropertyListing` carries them as flat columns rather
+    than a nested `PropertyCharacteristics` object.
+    """
+    # Build the characteristics block only if any field is populated.
+    char_fields = {
+        "area_in_m2": prop.area_in_m2,
+        "num_of_bedrooms": prop.num_of_bedrooms,
+        "num_of_bathrooms": prop.num_of_bathrooms,
+        "built_at": prop.built_at,
+        "energy_rating": prop.energy_rating,
+        "floor": prop.floor,
+        "parking_spaces": prop.parking_spaces,
+        "has_elevator": prop.has_elevator,
+        "has_garden": prop.has_garden,
+        "has_pool": prop.has_pool,
+    }
+    characteristics = (
+        PropertyCharacteristicsResponse(**char_fields)
+        if any(v is not None for v in char_fields.values())
+        else None
+    )
+
     return ListedPropertyResponse(
         id=prop.id,
         organization_id=prop.organization_id,
         listing_type=prop.listing_type,
         typology=prop.typology,
         description=prop.description,
-        characteristics=(
-            PropertyCharacteristicsResponse(
-                area_in_m2=prop.characteristics.area_in_m2,
-                num_of_bedrooms=prop.characteristics.num_of_bedrooms,
-                num_of_bathrooms=prop.characteristics.num_of_bathrooms,
-                built_at=prop.characteristics.built_at,
-                energy_rating=prop.characteristics.energy_rating,
-                floor=prop.characteristics.floor,
-                parking_spaces=prop.characteristics.parking_spaces,
-                has_elevator=prop.characteristics.has_elevator,
-                has_garden=prop.characteristics.has_garden,
-                has_pool=prop.characteristics.has_pool,
-            )
-            if prop.characteristics
-            else None
-        ),
+        characteristics=characteristics,
+        parish=prop.parish,
+        municipality=prop.municipality,
+        district=prop.district,
+        country=prop.country,
         latitude=prop.latitude,
         longitude=prop.longitude,
         created_at=prop.created_at,
         updated_at=prop.updated_at,
         prices=[
-            PropertyPriceResponse(
-                id=p.id,
-                amount=p.amount,
-                listing_type=p.listing_type,
-            )
-            for p in prop.prices
+            PropertyPriceResponse(amount=p.amount, listing_type=p.listing_type) for p in prop.prices
         ],
         images=[
             PropertyImageResponse(
                 id=img.id,
-                filename=img.filename,
-                content_type=img.content_type,
-                size_bytes=img.size_bytes,
                 display_order=img.display_order,
                 download_url=image_urls.get(str(img.id), ""),
             )

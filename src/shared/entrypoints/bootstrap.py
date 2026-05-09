@@ -60,7 +60,6 @@ from shared.jobs.adapters.persistence.supabase_job_repository import (
 )
 from shared.jobs.container import SharedJobsContainer
 
-from listings.adapters.database.listing_repository import SqlAlchemyListingRepository
 from listings.container import Container as ListingContainer
 
 from screening.adapters.ai.langchain_screening import LangChainScreeningAssessor
@@ -343,7 +342,6 @@ async def get_listing_container() -> ListingContainer:
         )
 
     _listing_container = ListingContainer(
-        listing_repo=SqlAlchemyListingRepository(session_factory),
         property_listing_repo=SqlAlchemyPropertyListingRepository(session_factory),
         portugal_address_searcher=portugal_address_searcher,
         embedding_provider=embedding_provider,

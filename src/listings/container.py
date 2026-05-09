@@ -1,6 +1,5 @@
 from listings.application.ports.address_searcher import AddressSearcher
 from listings.application.ports.embedding_provider import EmbeddingProvider
-from listings.application.ports.listing_repository import ListingRepository
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
@@ -13,26 +12,26 @@ from listings.application.use_cases.list_properties import ListProperties
 class Container:
     def __init__(
         self,
-        listing_repo: ListingRepository,
-        property_listing_repo: PropertyListingRepository | None = None,
+        property_listing_repo: PropertyListingRepository,
         portugal_address_searcher: AddressSearcher | None = None,
         embedding_provider: EmbeddingProvider | None = None,
         vector_index: VectorIndex | None = None,
         vector_index_namespace: str = "openai-text-embedding-3-small-v1",
         embedding_model_version: str = "text-embedding-3-small",
     ) -> None:
-        # Legacy read-model (mirrors properties table; served by the
-        # current `GET /api/v1/listings/*` route).
-        self.listing_repo = listing_repo
-        self.list_properties = ListProperties(listing_repo=listing_repo)
-        self.get_property = GetProperty(listing_repo=listing_repo)
-        self.list_org_active_listings = ListOrgActiveListings(listing_repo=listing_repo)
-
-        # New carried-state read-model (property_listings table, populated
-        # by the projector). Consumed by the events_worker handlers.
-        # Optional for backwards-compat with existing tests that only
-        # need the legacy read path.
+        # Single read-model: the carried-state `property_listings`
+        # projection. The legacy `ListingRepository` (read mapping over
+        # the live `properties` table) was collapsed into this port —
+        # its read methods were absorbed and the legacy port deleted.
         self.property_listing_repo = property_listing_repo
+
+        # Public + admin route use cases.
+        self.list_properties = ListProperties(property_listing_repo=property_listing_repo)
+        self.get_property = GetProperty(property_listing_repo=property_listing_repo)
+        self.list_org_active_listings = ListOrgActiveListings(
+            property_listing_repo=property_listing_repo
+        )
+
         # Country-specific AddressSearcher (spec
         # `2026-05-property-address-enrichment-fix`). The handler picks
         # the right implementation via `select_address_searcher`; v1

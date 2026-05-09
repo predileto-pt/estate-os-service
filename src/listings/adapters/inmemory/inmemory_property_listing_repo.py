@@ -17,6 +17,7 @@ from listings.application.ports.repositories.property_listing_repository import 
     PropertyListingRepository,
 )
 from listings.domain.models import ListingType, PropertyStatus, Typology
+from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import (
     ListingImage,
     ListingPoi,
@@ -31,6 +32,59 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
 
     async def get_by_id(self, property_id: UUID) -> PropertyListing | None:
         return self._rows.get(property_id)
+
+    # ──────────── Read side (public + admin route handlers) ────────────
+
+    def _matches_filters(self, listing: PropertyListing, filters: PropertyFilters) -> bool:
+        if listing.status != PropertyStatus.ACTIVE:
+            return False
+        if filters.listing_type is not None and listing.listing_type != filters.listing_type:
+            return False
+        if filters.typology is not None and listing.typology != filters.typology:
+            return False
+        if filters.parish is not None and listing.parish != filters.parish:
+            return False
+        if filters.municipality is not None and listing.municipality != filters.municipality:
+            return False
+        if filters.district is not None and listing.district != filters.district:
+            return False
+        if filters.min_price is not None:
+            if listing.min_price is None or listing.min_price < filters.min_price:
+                return False
+        if filters.max_price is not None:
+            if listing.min_price is None or listing.min_price > filters.max_price:
+                return False
+        return True
+
+    def _matched_rows(
+        self, filters: PropertyFilters, organization_id: UUID | None = None
+    ) -> list[PropertyListing]:
+        rows = list(self._rows.values())
+        if organization_id is not None:
+            rows = [r for r in rows if r.organization_id == organization_id]
+        rows = [r for r in rows if self._matches_filters(r, filters)]
+        rows.sort(key=lambda r: (r.created_at, str(r.id)), reverse=True)
+        return rows
+
+    async def list_active(self, filters: PropertyFilters) -> list[PropertyListing]:
+        rows = self._matched_rows(filters)
+        return rows[filters.offset : filters.offset + filters.limit]
+
+    async def count_active(self, filters: PropertyFilters) -> int:
+        return len(self._matched_rows(filters))
+
+    async def list_active_for_organization(
+        self, organization_id: UUID, filters: PropertyFilters
+    ) -> list[PropertyListing]:
+        rows = self._matched_rows(filters, organization_id=organization_id)
+        return rows[filters.offset : filters.offset + filters.limit]
+
+    async def count_active_for_organization(
+        self, organization_id: UUID, filters: PropertyFilters
+    ) -> int:
+        return len(self._matched_rows(filters, organization_id=organization_id))
+
+    # ──────────── Write side (listings worker handlers) ───────────────
 
     async def upsert_from_event(
         self,

@@ -53,9 +53,7 @@ DEFAULT_POLICY = CategoryDiscoveryPolicy(radius_meters=1500, result_limit=5)
 # 15km comfortably contains every typical municipality. Provider's own
 # cap (Google: 50_000m) still applies. `result_limit=None` lets every
 # match surface — pagination is the adapter's responsibility.
-MUNICIPALITY_WIDE_POLICY = CategoryDiscoveryPolicy(
-    radius_meters=15000, result_limit=None
-)
+MUNICIPALITY_WIDE_POLICY = CategoryDiscoveryPolicy(radius_meters=15000, result_limit=None)
 
 
 # Categories surfaced municipality-wide for Portugal listings:
@@ -89,9 +87,6 @@ def resolve_discovery_policy(
     if country is None:
         return DEFAULT_POLICY
     country_value = country.value if isinstance(country, Country) else country
-    if (
-        country_value == Country.PORTUGAL.value
-        and category in _PT_MUNICIPALITY_WIDE_CATEGORIES
-    ):
+    if country_value == Country.PORTUGAL.value and category in _PT_MUNICIPALITY_WIDE_CATEGORIES:
         return MUNICIPALITY_WIDE_POLICY
     return DEFAULT_POLICY

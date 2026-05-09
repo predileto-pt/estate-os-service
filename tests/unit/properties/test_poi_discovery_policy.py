@@ -30,9 +30,7 @@ class TestPortugalMunicipalityWideCategories:
         ],
     )
     def test_resolves_to_municipality_wide_for_pt(self, category: PoiCategory) -> None:
-        assert (
-            resolve_discovery_policy(Country.PORTUGAL, category) is MUNICIPALITY_WIDE_POLICY
-        )
+        assert resolve_discovery_policy(Country.PORTUGAL, category) is MUNICIPALITY_WIDE_POLICY
 
     def test_municipality_policy_is_unbounded(self) -> None:
         assert MUNICIPALITY_WIDE_POLICY.result_limit is None
@@ -43,8 +41,7 @@ class TestPortugalMunicipalityWideCategories:
     def test_string_country_works_without_enum(self) -> None:
         # Free-text country (matches what listings carries today).
         assert (
-            resolve_discovery_policy("Portugal", PoiCategory.RESTAURANT)
-            is MUNICIPALITY_WIDE_POLICY
+            resolve_discovery_policy("Portugal", PoiCategory.RESTAURANT) is MUNICIPALITY_WIDE_POLICY
         )
 
 
@@ -73,9 +70,7 @@ class TestDefaultPolicyFallback:
 
     def test_unknown_country_uses_default_even_for_wide_category(self) -> None:
         # The wide-category set is PT-specific. Other countries fall back.
-        assert (
-            resolve_discovery_policy("Spain", PoiCategory.RESTAURANT) is DEFAULT_POLICY
-        )
+        assert resolve_discovery_policy("Spain", PoiCategory.RESTAURANT) is DEFAULT_POLICY
 
     def test_none_country_uses_default(self) -> None:
         assert resolve_discovery_policy(None, PoiCategory.RESTAURANT) is DEFAULT_POLICY

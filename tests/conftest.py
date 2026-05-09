@@ -143,25 +143,21 @@ def places_service():
 
 
 @pytest.fixture
-def listing_repo():
-    from listings.adapters.inmemory.inmemory_listing_repository import (
-        InMemoryListingRepository,
-    )
-
-    return InMemoryListingRepository()
-
-
-@pytest.fixture
-def listing_container(listing_repo):
-    from listings.adapters.inmemory.inmemory_address_searcher import InMemoryAddressSearcher
+def property_listing_repo():
     from listings.adapters.inmemory.inmemory_property_listing_repo import (
         InMemoryPropertyListingRepository,
     )
+
+    return InMemoryPropertyListingRepository()
+
+
+@pytest.fixture
+def listing_container(property_listing_repo):
+    from listings.adapters.inmemory.inmemory_address_searcher import InMemoryAddressSearcher
     from listings.container import Container as ListingContainer
 
     return ListingContainer(
-        listing_repo=listing_repo,
-        property_listing_repo=InMemoryPropertyListingRepository(),
+        property_listing_repo=property_listing_repo,
         portugal_address_searcher=InMemoryAddressSearcher(),
     )
 

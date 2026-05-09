@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -66,20 +66,9 @@ class PropertyPrice:
     updated_at: datetime
 
 
-@dataclass
-class ListedProperty:
-    """Read-only property view for public listing. No owners."""
-
-    id: UUID
-    organization_id: UUID
-    address: str
-    listing_type: ListingType
-    typology: Typology
-    description: str | None
-    characteristics: PropertyCharacteristics | None
-    latitude: float | None
-    longitude: float | None
-    created_at: datetime
-    updated_at: datetime
-    prices: list[PropertyPrice] = field(default_factory=list)
-    images: list[PropertyImage] = field(default_factory=list)
+# `ListedProperty` was the read-only domain type returned by the
+# legacy `ListingRepository` (read mapping over the live `properties`
+# table). It was collapsed into `PropertyListing` (the carried-state
+# projection) when the routes migrated; this file now holds only the
+# enums + `PropertyImage` / `PropertyPrice` / `PropertyCharacteristics`
+# value objects that are still used elsewhere.
