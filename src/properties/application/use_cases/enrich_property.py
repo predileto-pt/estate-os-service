@@ -280,6 +280,10 @@ class EnrichProperty:
             run_categories=len(categories_to_run),
             skipped_categories=len(skipped_categories),
             discovered_count=len(discovered_pois),
+            # `persisted_count` is what `replace_for_property` returned —
+            # if this is 0 while `discovered_count` > 0, the Supabase
+            # write silently failed (RLS / wrong DB / etc).
+            persisted_count=len(persisted),
             preserved_count=len(preserved_pois),
             force=force,
         )

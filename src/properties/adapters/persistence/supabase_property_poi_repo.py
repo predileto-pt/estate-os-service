@@ -3,12 +3,15 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
+import structlog
 from supabase import AsyncClient
 
 from properties.application.ports.repositories.property_poi_repository import (
     PropertyPoiRepository,
 )
 from properties.domain.models.property_poi import PoiCategory, PropertyPoi
+
+log = structlog.get_logger()
 
 
 def _parse_datetime(value: str | datetime | None) -> datetime | None:
@@ -90,11 +93,16 @@ class SupabasePropertyPoiRepository(PropertyPoiRepository):
         # Two-step delete-then-insert. PostgREST has no transactional
         # batch primitive; the small race window where the property has
         # zero POIs is acceptable for an interactive agent action.
-        await (
+        delete_result = await (
             self._client.table("property_pois")
             .delete()
             .eq("property_id", str(property_id))
             .execute()
+        )
+        log.info(
+            "property_poi_repo.delete_existing",
+            property_id=str(property_id),
+            deleted_count=len(delete_result.data) if delete_result.data else 0,
         )
 
         if not pois:
@@ -102,6 +110,14 @@ class SupabasePropertyPoiRepository(PropertyPoiRepository):
 
         rows = [self._to_row(p) for p in pois]
         result = await self._client.table("property_pois").insert(rows).execute()
+        # Log the actual returned count so we can spot silent PostgREST
+        # rejections (RLS/constraint failures the client doesn't raise on).
+        log.info(
+            "property_poi_repo.insert_complete",
+            property_id=str(property_id),
+            attempted=len(rows),
+            persisted=len(result.data) if result.data else 0,
+        )
         return [self._to_domain(r) for r in result.data]
 
     async def update(self, poi: PropertyPoi) -> PropertyPoi:

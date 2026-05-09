@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
+import structlog
 from supabase import AsyncClient
 
 from properties.application.ports.repositories.property_repository import (
@@ -13,13 +14,15 @@ from properties.domain.models.property import (
     PropertyStatus,
     Typology,
 )
+from properties.domain.models.property_image import PropertyImage
 from properties.domain.models.property_owner import (
     CivilStatus,
     DocumentType,
     PropertyOwner,
 )
-from properties.domain.models.property_image import PropertyImage
 from properties.domain.models.property_price import PropertyPrice
+
+log = structlog.get_logger()
 
 
 class SupabasePropertyRepository(PropertyRepository):
@@ -337,7 +340,7 @@ class SupabasePropertyRepository(PropertyRepository):
         if not prop:
             raise PropertyNotFoundError(str(property_id))
         new_version = prop.aggregate_version + 1
-        await (
+        result = await (
             self._client.table("properties")
             .update(
                 {
@@ -347,6 +350,16 @@ class SupabasePropertyRepository(PropertyRepository):
             )
             .eq("id", str(property_id))
             .execute()
+        )
+        # Log the actual returned row count so silent RLS / PostgREST
+        # rejections show up in observability instead of just an in-memory
+        # mutation that doesn't reach the DB.
+        log.info(
+            "property_repo.bump_aggregate_version",
+            property_id=str(property_id),
+            previous_version=prop.aggregate_version,
+            new_version=new_version,
+            returned_rows=len(result.data) if result.data else 0,
         )
         prop.aggregate_version = new_version
         return prop
