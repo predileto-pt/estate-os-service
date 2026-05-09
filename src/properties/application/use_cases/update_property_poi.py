@@ -25,6 +25,15 @@ class PoiPatch:
     place_type: str | None = None
     place_id: str | None = None
     metadata: dict | None = None
+    # Place-details fields (spec 2026-05-poi-rich-metadata). Optional
+    # so PATCH can override Phase 2 results if needed.
+    address: str | None = None
+    image_urls: list[str] | None = None
+    reviews: list[dict] | None = None
+    # Sentinel: True when the PATCH explicitly cleared `reviews` to
+    # None (vs the field being omitted from the request body). Without
+    # this we can't distinguish "leave unchanged" from "set to null".
+    clear_reviews: bool = False
 
 
 class UpdatePropertyPoi:
@@ -74,6 +83,15 @@ class UpdatePropertyPoi:
             place_id=patch.place_id if patch.place_id is not None else existing.place_id,
             metadata=patch.metadata if patch.metadata is not None else existing.metadata,
             manually_edited=True,
+            address=patch.address if patch.address is not None else existing.address,
+            image_urls=(
+                list(patch.image_urls) if patch.image_urls is not None else existing.image_urls
+            ),
+            reviews=(
+                patch.reviews
+                if patch.reviews is not None
+                else (None if patch.clear_reviews else existing.reviews)
+            ),
             created_at=existing.created_at,
             updated_at=existing.updated_at,
         )

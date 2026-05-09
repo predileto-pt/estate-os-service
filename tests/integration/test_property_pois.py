@@ -61,6 +61,64 @@ class TestPropertyPois:
         assert all("id" in p for p in data)
         assert all(p["created_at"] for p in data)
         assert all(p["updated_at"] for p in data)
+        # Place-details fields exist with their not-yet-enriched defaults.
+        for p in data:
+            assert p["address"] is None
+            assert p["image_urls"] == []
+            assert p["reviews"] is None
+
+    async def test_replace_accepts_place_details_fields(self, client, auth_headers):
+        """Manual create can include address / image_urls / reviews."""
+        property_id = await _create_property(client, auth_headers)
+
+        response = await client.post(
+            f"/api/v1/admin/properties/{property_id}/pois?organization_id={TEST_ORGANIZATION_ID}",
+            json={
+                "pois": [
+                    _poi_payload(
+                        name="Manually-attached",
+                        address="Rua Manual 1, Lisboa",
+                        image_urls=["https://example.com/a.jpg", "https://example.com/b.jpg"],
+                        reviews=[{"author_name": "Agent", "rating": 5, "text": "Loved it"}],
+                    ),
+                ]
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["address"] == "Rua Manual 1, Lisboa"
+        assert data[0]["image_urls"] == [
+            "https://example.com/a.jpg",
+            "https://example.com/b.jpg",
+        ]
+        assert data[0]["reviews"] == [{"author_name": "Agent", "rating": 5, "text": "Loved it"}]
+
+    async def test_patch_can_override_place_details_fields(self, client, auth_headers):
+        property_id = await _create_property(client, auth_headers)
+        replace_resp = await client.post(
+            f"/api/v1/admin/properties/{property_id}/pois?organization_id={TEST_ORGANIZATION_ID}",
+            json={"pois": [_poi_payload(name="Original")]},
+            headers=auth_headers,
+        )
+        poi_id = replace_resp.json()[0]["id"]
+
+        patch_resp = await client.patch(
+            f"/api/v1/admin/properties/{property_id}/pois/{poi_id}"
+            f"?organization_id={TEST_ORGANIZATION_ID}",
+            json={
+                "address": "Updated address",
+                "image_urls": ["https://cdn/x.jpg"],
+                "reviews": [{"author_name": "New", "rating": 4, "text": "ok"}],
+            },
+            headers=auth_headers,
+        )
+        assert patch_resp.status_code == 200
+        body = patch_resp.json()
+        assert body["address"] == "Updated address"
+        assert body["image_urls"] == ["https://cdn/x.jpg"]
+        assert body["reviews"] == [{"author_name": "New", "rating": 4, "text": "ok"}]
 
     async def test_replace_replaces(self, client, auth_headers):
         property_id = await _create_property(client, auth_headers)

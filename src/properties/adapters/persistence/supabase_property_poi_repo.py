@@ -35,6 +35,9 @@ class SupabasePropertyPoiRepository(PropertyPoiRepository):
             place_id=row.get("place_id"),
             metadata=row.get("metadata") or {},
             manually_edited=row.get("manually_edited", False),
+            address=row.get("address"),
+            image_urls=row.get("image_urls") or [],
+            reviews=row.get("reviews"),
             created_at=_parse_datetime(row.get("created_at")),
             updated_at=_parse_datetime(row.get("updated_at")),
         )
@@ -53,6 +56,9 @@ class SupabasePropertyPoiRepository(PropertyPoiRepository):
             "place_id": poi.place_id,
             "metadata": poi.metadata,
             "manually_edited": poi.manually_edited,
+            "address": poi.address,
+            "image_urls": poi.image_urls,
+            "reviews": poi.reviews,
         }
 
     async def list_by_property(self, property_id: UUID) -> list[PropertyPoi]:
@@ -111,6 +117,30 @@ class SupabasePropertyPoiRepository(PropertyPoiRepository):
 
             raise PropertyNotFoundError(str(poi.id))
         return self._to_domain(rows[0])
+
+    async def update_place_details(
+        self,
+        *,
+        poi_id: UUID,
+        address: str | None,
+        image_urls: list[str],
+        reviews: list[dict] | None,
+    ) -> None:
+        # Touch only the place-details columns (spec
+        # 2026-05-poi-rich-metadata §Repository). Other columns are
+        # untouched, so Phase 1's ranking-time data is safe.
+        await (
+            self._client.table("property_pois")
+            .update(
+                {
+                    "address": address,
+                    "image_urls": image_urls,
+                    "reviews": reviews,
+                }
+            )
+            .eq("id", str(poi_id))
+            .execute()
+        )
 
     async def delete(self, poi_id: UUID) -> bool:
         result = await self._client.table("property_pois").delete().eq("id", str(poi_id)).execute()

@@ -23,3 +23,22 @@ class NearbyPlace:
     longitude: float
     place_id: str | None = None
     google_maps_url: str | None = None
+
+
+@dataclass(frozen=True)
+class PlaceDetails:
+    """Rich metadata for a place — fetched from `PlacesService.get_place_details`.
+
+    Phase 2 of the enrichment workflow consumes this to populate the
+    `address`, `image_urls`, `reviews` columns on `PropertyPoi`. See spec
+    `.claude/specs/active/2026-05-poi-rich-metadata.md`.
+
+    Provider-agnostic. Google's `formatted_address` becomes `address`;
+    photo references are resolved to CDN URLs by the adapter; reviews
+    are pre-trimmed (≤5, only the fields we render).
+    """
+
+    place_id: str
+    address: str | None
+    image_urls: list[str]  # already resolved (CDN), at most 5
+    reviews: list[dict] | None  # raw Google review objects, at most 5; None on failure or blacklist

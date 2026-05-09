@@ -31,6 +31,9 @@ def _poi_response(poi: PropertyPoi) -> dict:
         "place_id": poi.place_id,
         "metadata": poi.metadata,
         "manually_edited": poi.manually_edited,
+        "address": poi.address,
+        "image_urls": poi.image_urls,
+        "reviews": poi.reviews,
         "created_at": poi.created_at,
         "updated_at": poi.updated_at,
     }
@@ -98,6 +101,9 @@ async def replace_property_pois(
             place_type=p.place_type,
             place_id=p.place_id,
             metadata=p.metadata,
+            address=p.address,
+            image_urls=p.image_urls,
+            reviews=p.reviews,
         )
         for p in body.pois
     ]
@@ -137,6 +143,11 @@ async def update_property_poi(
     _member: tuple[User, Membership] = Depends(require_org_member),
 ):
     use_case = request.app.state.property_container.update_property_poi
+    # Detect explicit nulling of `reviews` so the use case can clear it.
+    # `body.reviews` is None either when omitted or when explicitly null —
+    # we use Pydantic's `model_fields_set` to disambiguate.
+    body_set = body.model_fields_set
+    clear_reviews = "reviews" in body_set and body.reviews is None
     patch = PoiPatch(
         category=body.category,
         name=body.name,
@@ -146,6 +157,10 @@ async def update_property_poi(
         place_type=body.place_type,
         place_id=body.place_id,
         metadata=body.metadata,
+        address=body.address,
+        image_urls=body.image_urls,
+        reviews=body.reviews,
+        clear_reviews=clear_reviews,
     )
     try:
         persisted = await use_case.execute(

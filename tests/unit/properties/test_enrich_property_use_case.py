@@ -114,6 +114,11 @@ class TrackingPlacesService(PlacesService):
             raise RuntimeError(f"Simulated provider failure for {place_type}")
         return self.results.get(place_type, [])
 
+    async def get_place_details(self, place_id, *, include_reviews=True):
+        # Phase 2 (rich metadata) is irrelevant to these tests — return
+        # None so _enrich_metadata is a no-op.
+        return None
+
 
 @pytest.fixture
 def property_repo() -> InMemoryPropertyRepository:

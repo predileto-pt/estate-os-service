@@ -6,11 +6,28 @@ import httpx
 import structlog
 
 from properties.application.ports.places_service import PlacesService
-from properties.domain.models.nearby_place import GOOGLE_MAPS_PLACE_URL, NearbyPlace
+from properties.domain.models.nearby_place import (
+    GOOGLE_MAPS_PLACE_URL,
+    NearbyPlace,
+    PlaceDetails,
+)
 
 log = structlog.get_logger()
 
 NEARBY_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+PLACE_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json"
+PHOTO_URL = "https://maps.googleapis.com/maps/api/place/photo"
+
+# Per spec 2026-05-poi-rich-metadata: hard caps so the persisted JSONB
+# columns stay small and a malicious / abusive Google response can't
+# blow up our row size.
+MAX_IMAGES_PER_POI = 5
+MAX_REVIEWS_PER_POI = 5
+PHOTO_MAX_WIDTH = 800
+
+# Fields we actually use from a review object — anything else (user IDs,
+# profile photo URLs) is dropped before persisting.
+_REVIEW_FIELDS_KEEP = ("author_name", "rating", "text", "time", "language")
 
 
 def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -99,3 +116,112 @@ class GooglePlacesService(PlacesService):
             results_count=len(places),
         )
         return places
+
+    async def get_place_details(
+        self,
+        place_id: str,
+        *,
+        include_reviews: bool = True,
+    ) -> PlaceDetails | None:
+        """Fetch rich place metadata. Returns `None` on any failure.
+
+        Cost-aware `fields=` filter (spec §Reviews blacklist): when
+        `include_reviews=False` we don't request `reviews`, so Google
+        doesn't bill us for the atmosphere SKU.
+        """
+        # Build a minimal `fields=` to avoid paying for data we don't use.
+        fields = ["formatted_address", "photos"]
+        if include_reviews:
+            fields.append("reviews")
+
+        params: dict[str, str] = {
+            "place_id": place_id,
+            "fields": ",".join(fields),
+            "key": self._api_key,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.get(PLACE_DETAILS_URL, params=params)
+                response.raise_for_status()
+                data = response.json()
+        except Exception:
+            log.exception("google_places.details_request_failed", place_id=place_id)
+            return None
+
+        status = data.get("status")
+        if status not in ("OK",):
+            log.warning(
+                "google_places.details_api_error",
+                place_id=place_id,
+                status=status,
+                error_message=data.get("error_message"),
+            )
+            return None
+
+        result = data.get("result") or {}
+        formatted_address = result.get("formatted_address")
+
+        photo_refs = [
+            p.get("photo_reference")
+            for p in (result.get("photos") or [])[:MAX_IMAGES_PER_POI]
+            if p.get("photo_reference")
+        ]
+        image_urls: list[str] = []
+        if photo_refs:
+            try:
+                image_urls = await self._resolve_photo_urls(photo_refs)
+            except Exception:
+                log.exception("google_places.photo_resolution_aborted", place_id=place_id)
+                image_urls = []
+
+        reviews: list[dict] | None = None
+        if include_reviews:
+            raw_reviews = result.get("reviews") or []
+            reviews = [
+                {k: r.get(k) for k in _REVIEW_FIELDS_KEEP if k in r}
+                for r in raw_reviews[:MAX_REVIEWS_PER_POI]
+            ]
+
+        return PlaceDetails(
+            place_id=place_id,
+            address=formatted_address,
+            image_urls=image_urls,
+            reviews=reviews,
+        )
+
+    async def _resolve_photo_urls(self, photo_references: list[str]) -> list[str]:
+        """Each Photos API call returns a 302 to the resolved CDN URL.
+        We follow the redirect manually (HEAD-then-Location) instead of
+        downloading the photo bytes — saves bandwidth, gives us a
+        renderable URL.
+        """
+        urls: list[str] = []
+        async with httpx.AsyncClient(follow_redirects=False, timeout=15) as client:
+            for ref in photo_references:
+                try:
+                    resp = await client.get(
+                        PHOTO_URL,
+                        params={
+                            "maxwidth": PHOTO_MAX_WIDTH,
+                            "photoreference": ref,
+                            "key": self._api_key,
+                        },
+                    )
+                except Exception:
+                    log.exception("google_places.photo_redirect_failed")
+                    continue
+
+                if resp.status_code in (301, 302, 303, 307, 308):
+                    location = resp.headers.get("Location")
+                    if location:
+                        urls.append(location)
+                        continue
+
+                # Non-redirect response (e.g. 404) → skip this photo,
+                # don't abort the whole batch.
+                log.warning(
+                    "google_places.photo_unexpected_status",
+                    status_code=resp.status_code,
+                )
+        return urls

@@ -27,12 +27,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Drop the table, its triggers/policies, and the enum."""
-    op.execute(
-        "DROP POLICY IF EXISTS property_amenities_service_role ON property_amenities"
-    )
-    op.execute(
-        "DROP TRIGGER IF EXISTS update_property_amenities_updated_at ON property_amenities"
-    )
+    op.execute("DROP POLICY IF EXISTS property_amenities_service_role ON property_amenities")
+    op.execute("DROP TRIGGER IF EXISTS update_property_amenities_updated_at ON property_amenities")
     op.drop_index("idx_property_amenities_property_id", table_name="property_amenities")
     op.drop_table("property_amenities")
     op.execute("DROP TYPE IF EXISTS amenity_category")

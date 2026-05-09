@@ -28,6 +28,12 @@ class PoiInput:
     place_type: str | None = None
     place_id: str | None = None
     metadata: dict | None = None
+    # Place-details fields (spec 2026-05-poi-rich-metadata). Manual
+    # entry can attach these; defaults match the auto-discovery
+    # not-yet-enriched state.
+    address: str | None = None
+    image_urls: list[str] | None = None
+    reviews: list[dict] | None = None
 
 
 class ReplacePropertyPois:
@@ -69,6 +75,9 @@ class ReplacePropertyPois:
                 place_id=poi.place_id,
                 metadata=poi.metadata or {},
                 manually_edited=True,
+                address=poi.address,
+                image_urls=list(poi.image_urls) if poi.image_urls is not None else [],
+                reviews=poi.reviews,
             )
             for poi in pois
         ]

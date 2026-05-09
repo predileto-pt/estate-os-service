@@ -159,6 +159,9 @@ async def test_provider_outage_marks_job_failed_provider_unavailable():
         async def find_nearby(self, *args, **kwargs):
             raise RuntimeError("places api down")
 
+        async def get_place_details(self, place_id, *, include_reviews=True):
+            return None
+
     property_repo = InMemoryPropertyRepository()
     poi_repo = InMemoryPropertyPoiRepository()
     job_repo = InMemoryJobRepository()

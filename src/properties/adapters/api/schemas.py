@@ -270,6 +270,13 @@ class PropertyPoiBase(BaseModel):
     place_type: str | None = None
     place_id: str | None = None
     metadata: dict = Field(default_factory=dict)
+    # Place-details fields (spec 2026-05-poi-rich-metadata).
+    # Manual create/update accepts these; auto-discovery (Phase 2)
+    # writes them via update_place_details. No URL or schema validation
+    # on `image_urls` / `reviews` in v1 — agent-mediated trust.
+    address: str | None = None
+    image_urls: list[str] = Field(default_factory=list, max_length=5)
+    reviews: list[dict] | None = None
 
 
 class CreatePropertyPoiRequest(PropertyPoiBase):
@@ -291,6 +298,11 @@ class UpdatePropertyPoiRequest(BaseModel):
     place_type: str | None = None
     place_id: str | None = None
     metadata: dict | None = None
+    # Place-details fields (spec 2026-05-poi-rich-metadata). Optional on
+    # PATCH so manual edits can override Phase 2 results if needed.
+    address: str | None = None
+    image_urls: list[str] | None = Field(default=None, max_length=5)
+    reviews: list[dict] | None = None
 
 
 class PropertyPoiResponse(PropertyPoiBase):

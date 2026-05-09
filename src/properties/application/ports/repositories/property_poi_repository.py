@@ -36,6 +36,24 @@ class PropertyPoiRepository(ABC):
         ...
 
     @abstractmethod
+    async def update_place_details(
+        self,
+        *,
+        poi_id: UUID,
+        address: str | None,
+        image_urls: list[str],
+        reviews: list[dict] | None,
+    ) -> None:
+        """Touch only the place-details columns (address, image_urls,
+        reviews). Used by Phase 2 of the enrichment workflow so we
+        don't clobber ranking-time fields between Phase 1 (insert) and
+        Phase 2 (metadata) writes. Named distinctly from `update` to
+        avoid confusion with the existing `metadata: dict` column on
+        the aggregate.
+        """
+        ...
+
+    @abstractmethod
     async def delete(self, poi_id: UUID) -> bool:
         """Returns True if the row existed and was deleted."""
         ...

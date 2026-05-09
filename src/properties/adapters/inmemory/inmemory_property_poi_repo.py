@@ -45,6 +45,9 @@ class InMemoryPropertyPoiRepository(PropertyPoiRepository):
                 place_id=poi.place_id,
                 metadata=dict(poi.metadata),
                 manually_edited=poi.manually_edited,
+                address=poi.address,
+                image_urls=list(poi.image_urls),
+                reviews=list(poi.reviews) if poi.reviews is not None else None,
                 created_at=now,
                 updated_at=now,
             )
@@ -71,11 +74,48 @@ class InMemoryPropertyPoiRepository(PropertyPoiRepository):
             place_id=poi.place_id,
             metadata=dict(poi.metadata),
             manually_edited=poi.manually_edited,
+            address=poi.address,
+            image_urls=list(poi.image_urls),
+            reviews=list(poi.reviews) if poi.reviews is not None else None,
             created_at=existing.created_at,
             updated_at=datetime.now(timezone.utc),
         )
         self._pois[poi.id] = updated
         return updated
+
+    async def update_place_details(
+        self,
+        *,
+        poi_id: UUID,
+        address: str | None,
+        image_urls: list[str],
+        reviews: list[dict] | None,
+    ) -> None:
+        existing = self._pois.get(poi_id)
+        if existing is None:
+            from properties.domain.exceptions import PropertyNotFoundError
+
+            raise PropertyNotFoundError(str(poi_id))
+
+        # Patch only the three new columns; everything else preserved.
+        self._pois[poi_id] = PropertyPoi(
+            id=existing.id,
+            property_id=existing.property_id,
+            category=existing.category,
+            name=existing.name,
+            distance_meters=existing.distance_meters,
+            latitude=existing.latitude,
+            longitude=existing.longitude,
+            place_type=existing.place_type,
+            place_id=existing.place_id,
+            metadata=dict(existing.metadata),
+            manually_edited=existing.manually_edited,
+            address=address,
+            image_urls=list(image_urls),
+            reviews=list(reviews) if reviews is not None else None,
+            created_at=existing.created_at,
+            updated_at=datetime.now(timezone.utc),
+        )
 
     async def delete(self, poi_id: UUID) -> bool:
         if poi_id in self._pois:

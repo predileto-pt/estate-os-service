@@ -73,6 +73,19 @@ DISCOVERY_RADIUS_METERS = 1500
 TOP_N_PER_CATEGORY = 5
 PLACES_CONCURRENCY_LIMIT = 5
 
+# Categories whose Place Details we still fetch (for address + photos)
+# but whose `reviews` we deliberately drop. Sensitive contexts where
+# Google reviews are inappropriate or irrelevant in a real-estate
+# listing. Spec: 2026-05-poi-rich-metadata §Reviews blacklist.
+REVIEWS_BLACKLIST: frozenset[PoiCategory] = frozenset(
+    {
+        PoiCategory.HOSPITAL,
+        PoiCategory.SCHOOL,
+        PoiCategory.KINDERGARTEN,
+        PoiCategory.POLICE_STATION,
+    }
+)
+
 
 @dataclass(frozen=True)
 class CategoryDiscoveryResult:
@@ -242,6 +255,12 @@ class EnrichProperty:
 
         await self.property_repo.bump_aggregate_version(property_id)
 
+        # Phase 2: fan out Place Details for the persisted POIs to fetch
+        # address + image_urls + reviews. Per-POI fail-silent — Phase 1
+        # is already committed; Phase 2 is best-effort. Spec:
+        # 2026-05-poi-rich-metadata §Workflow integration.
+        await self._enrich_metadata(persisted)
+
         log.info(
             "enrich_property.completed",
             property_id=str(property_id),
@@ -257,6 +276,51 @@ class EnrichProperty:
             "run_categories": len(categories_to_run),
             "had_failures": any_failures,
         }
+
+    async def _enrich_metadata(self, pois: list[PropertyPoi]) -> None:
+        """Phase 2 of the enrichment workflow.
+
+        For each persisted POI with a `place_id`, fan out a Place Details
+        call and update the row with address / image_urls / reviews.
+        Per-POI fail-silent: a failure on one POI doesn't affect the
+        others. The outer caller never sees an exception.
+
+        Reviews are dropped for blacklisted categories — see
+        `REVIEWS_BLACKLIST`. The Google adapter also passes
+        `include_reviews=False` to the API for those categories so we
+        don't pay the atmosphere SKU on them.
+        """
+        targets = [p for p in pois if p.place_id]
+        if not targets:
+            return
+
+        async def _one(poi: PropertyPoi) -> None:
+            try:
+                include_reviews = poi.category not in REVIEWS_BLACKLIST
+                details = await self.places_service.get_place_details(
+                    poi.place_id,  # type: ignore[arg-type]  # filtered above
+                    include_reviews=include_reviews,
+                )
+                if details is None:
+                    return
+                # Defensive: enforce the blacklist on our side too in
+                # case a future PlacesService implementation ignores
+                # include_reviews and returns reviews anyway.
+                reviews = None if poi.category in REVIEWS_BLACKLIST else details.reviews
+                await self.property_poi_repo.update_place_details(
+                    poi_id=poi.id,
+                    address=details.address,
+                    image_urls=details.image_urls,
+                    reviews=reviews,
+                )
+            except Exception:
+                log.exception(
+                    "enrich_property.metadata_fetch_failed",
+                    poi_id=str(poi.id),
+                    place_id=poi.place_id,
+                )
+
+        await gather_with_concurrency(PLACES_CONCURRENCY_LIMIT, *(_one(p) for p in targets))
 
     async def _discover_category(
         self,

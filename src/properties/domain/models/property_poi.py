@@ -49,5 +49,11 @@ class PropertyPoi:
     place_id: str | None = None
     metadata: dict = field(default_factory=dict)
     manually_edited: bool = False
+    # Place-details fields (ADR / spec 2026-05-poi-rich-metadata).
+    # Populated by Phase 2 of the enrichment workflow; nullable / empty
+    # for manually-entered POIs that haven't been enriched.
+    address: str | None = None
+    image_urls: list[str] = field(default_factory=list)
+    reviews: list[dict] | None = None
     created_at: datetime | None = None  # set by the adapter on insert
     updated_at: datetime | None = None

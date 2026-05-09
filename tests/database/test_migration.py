@@ -5,7 +5,28 @@ async def test_current_revision_is_head(session):
     result = await session.execute(text("SELECT version_num FROM alembic_version"))
     row = result.first()
     assert row is not None
-    assert row[0] == "ed01e7809f3d"
+    assert row[0] == "ecdb36cf8489"
+
+
+async def test_property_pois_has_place_details_columns(session):
+    """Spec 2026-05-poi-rich-metadata: address (text nullable),
+    image_urls (jsonb NOT NULL default '[]'), reviews (jsonb nullable)."""
+    result = await session.execute(
+        text("""
+        SELECT column_name, is_nullable, data_type, column_default
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'property_pois'
+          AND column_name IN ('address', 'image_urls', 'reviews')
+        ORDER BY column_name
+    """)
+    )
+    cols = {row[0]: (row[1], row[2], row[3]) for row in result.fetchall()}
+    assert "address" in cols and cols["address"][0] == "YES" and cols["address"][1] == "text"
+    assert "image_urls" in cols and cols["image_urls"][0] == "NO"
+    assert cols["image_urls"][1] == "jsonb"
+    assert cols["image_urls"][2] is not None and "[]" in cols["image_urls"][2]
+    assert "reviews" in cols and cols["reviews"][0] == "YES" and cols["reviews"][1] == "jsonb"
 
 
 async def test_all_tables_exist(session):
