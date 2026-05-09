@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 
 import httpx
@@ -24,6 +25,14 @@ PHOTO_URL = "https://maps.googleapis.com/maps/api/place/photo"
 MAX_IMAGES_PER_POI = 5
 MAX_REVIEWS_PER_POI = 5
 PHOTO_MAX_WIDTH = 800
+
+# Google Nearby Search returns up to 20 results per page, with at most
+# three pages (60 results total) chained via `next_page_token`. The
+# token isn't immediately valid — Google's docs require a short delay
+# before the follow-up request. We pause `NEXT_PAGE_TOKEN_DELAY_S`
+# between pages so the second/third call doesn't 400 with INVALID_REQUEST.
+MAX_NEARBY_PAGES = 3
+NEXT_PAGE_TOKEN_DELAY_S = 2.0
 
 # Fields we actually use from a review object — anything else (user IDs,
 # profile photo URLs) is dropped before persisting.
@@ -52,41 +61,85 @@ class GooglePlacesService(PlacesService):
         radius_meters: int = 5000,
         keyword: str | None = None,
     ) -> list[NearbyPlace]:
-        params: dict[str, str | int] = {
+        """Run a Nearby Search and follow `next_page_token` up to
+        `MAX_NEARBY_PAGES`. Pagination keeps the public port shape but
+        lets municipality-wide policies see more than the first 20.
+        """
+        base_params: dict[str, str | int] = {
             "location": f"{latitude},{longitude}",
             "radius": radius_meters,
             "type": place_type,
             "key": self._api_key,
         }
         if keyword:
-            params["keyword"] = keyword
+            base_params["keyword"] = keyword
 
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(NEARBY_SEARCH_URL, params=params)
-                response.raise_for_status()
-                data = response.json()
-        except Exception:
-            log.exception(
-                "google_places.request_failed",
-                place_type=place_type,
-                keyword=keyword,
-            )
-            return []
-
-        status = data.get("status")
-        if status not in ("OK", "ZERO_RESULTS"):
-            log.warning(
-                "google_places.api_error",
-                status=status,
-                error_message=data.get("error_message"),
-            )
-            return []
-
-        results = data.get("results", [])
         places: list[NearbyPlace] = []
+        next_page_token: str | None = None
 
-        for result in results:
+        async with httpx.AsyncClient(timeout=30) as client:
+            for page_index in range(MAX_NEARBY_PAGES):
+                params: dict[str, str | int] = (
+                    {"pagetoken": next_page_token, "key": self._api_key}
+                    if next_page_token
+                    else dict(base_params)
+                )
+                if page_index > 0:
+                    # Google rejects the token if used too quickly.
+                    await asyncio.sleep(NEXT_PAGE_TOKEN_DELAY_S)
+
+                try:
+                    response = await client.get(NEARBY_SEARCH_URL, params=params)
+                    response.raise_for_status()
+                    data = response.json()
+                except Exception:
+                    log.exception(
+                        "google_places.request_failed",
+                        place_type=place_type,
+                        keyword=keyword,
+                        page_index=page_index,
+                    )
+                    break
+
+                status = data.get("status")
+                if status not in ("OK", "ZERO_RESULTS"):
+                    log.warning(
+                        "google_places.api_error",
+                        status=status,
+                        error_message=data.get("error_message"),
+                        page_index=page_index,
+                    )
+                    break
+
+                places.extend(
+                    self._parse_results(
+                        data.get("results", []),
+                        origin_lat=latitude,
+                        origin_lng=longitude,
+                    )
+                )
+
+                next_page_token = data.get("next_page_token")
+                if not next_page_token:
+                    break
+
+        log.info(
+            "google_places.search_completed",
+            place_type=place_type,
+            keyword=keyword,
+            results_count=len(places),
+        )
+        return places
+
+    @staticmethod
+    def _parse_results(
+        raw_results: list[dict],
+        *,
+        origin_lat: float,
+        origin_lng: float,
+    ) -> list[NearbyPlace]:
+        parsed: list[NearbyPlace] = []
+        for result in raw_results:
             location = result.get("geometry", {}).get("location", {})
             place_lat = location.get("lat")
             place_lng = location.get("lng")
@@ -96,9 +149,9 @@ class GooglePlacesService(PlacesService):
             if place_lat is None or place_lng is None or not name:
                 continue
 
-            distance = _haversine_distance(latitude, longitude, place_lat, place_lng)
+            distance = _haversine_distance(origin_lat, origin_lng, place_lat, place_lng)
             google_maps_url = GOOGLE_MAPS_PLACE_URL.format(place_id=place_id) if place_id else None
-            places.append(
+            parsed.append(
                 NearbyPlace(
                     name=name,
                     distance_meters=round(distance, 1),
@@ -106,16 +159,10 @@ class GooglePlacesService(PlacesService):
                     longitude=place_lng,
                     place_id=place_id,
                     google_maps_url=google_maps_url,
+                    vicinity=result.get("vicinity"),
                 )
             )
-
-        log.info(
-            "google_places.search_completed",
-            place_type=place_type,
-            keyword=keyword,
-            results_count=len(places),
-        )
-        return places
+        return parsed
 
     async def get_place_details(
         self,

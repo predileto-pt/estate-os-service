@@ -19,6 +19,10 @@ import structlog
 
 from properties.application.events.property_event import emit_property_updated
 from properties.application.ports.places_service import PlacesService
+from properties.application.ports.poi_locality_filter import (
+    PoiCandidate,
+    PoiLocalityFilter,
+)
 from properties.application.ports.repositories.property_poi_repository import (
     PropertyPoiRepository,
 )
@@ -31,6 +35,12 @@ from properties.domain.exceptions import (
 )
 from properties.domain.models.nearby_place import NearbyPlace
 from properties.domain.models.property_poi import PoiCategory, PropertyPoi
+from properties.domain.services.locality_scope import resolve_locality_scope
+from properties.domain.services.poi_discovery_policy import (
+    Country,
+    CategoryDiscoveryPolicy,
+    resolve_discovery_policy,
+)
 from properties.domain.services.proximity_ranker import (
     KNOWN_BRANDS_BY_CATEGORY,
     rank_top_places,
@@ -42,38 +52,63 @@ from shared.utils.concurrency import gather_with_concurrency
 log = structlog.get_logger()
 
 
-# Category → underlying provider place_type(s). Multi-type categories
-# like PUBLIC_TRANSIT produce multiple find_nearby calls per category.
-CATEGORY_TO_PLACE_TYPES: dict[PoiCategory, list[str]] = {
-    PoiCategory.HOSPITAL: ["hospital"],
-    PoiCategory.BANK: ["bank"],
-    PoiCategory.GROCERY: ["supermarket"],
-    PoiCategory.SCHOOL: ["school"],
-    PoiCategory.PHARMACY: ["pharmacy"],
-    PoiCategory.GYM: ["gym"],
-    PoiCategory.RESTAURANT: ["restaurant"],
-    PoiCategory.COFFEE_SHOP: ["cafe"],
-    PoiCategory.LAUNDRY: ["laundry"],
-    PoiCategory.GAS_STATION: ["gas_station"],
+@dataclass(frozen=True)
+class PlaceQuery:
+    """One provider call shape for a category.
+
+    `place_type` is the Google Nearby Search type. `keyword` is an
+    optional substring filter — used when several categories share the
+    same `place_type` (e.g. TIRE_SHOP / AUTO_SHOP both ride on
+    `car_repair`) and need to be disambiguated by name.
+    """
+
+    place_type: str
+    keyword: str | None = None
+
+
+# Category → underlying provider queries. Multi-query categories like
+# PUBLIC_TRANSIT fan out multiple `find_nearby` calls and dedup by
+# `place_id` afterwards. Categories that share a `place_type` rely on
+# `keyword` to keep their results disjoint.
+CATEGORY_TO_QUERIES: dict[PoiCategory, list[PlaceQuery]] = {
+    PoiCategory.HOSPITAL: [PlaceQuery("hospital")],
+    PoiCategory.BANK: [PlaceQuery("bank")],
+    PoiCategory.GROCERY: [PlaceQuery("supermarket")],
+    PoiCategory.SCHOOL: [PlaceQuery("school")],
+    PoiCategory.PHARMACY: [PlaceQuery("pharmacy")],
+    PoiCategory.GYM: [PlaceQuery("gym")],
+    PoiCategory.RESTAURANT: [PlaceQuery("restaurant")],
+    PoiCategory.COFFEE_SHOP: [PlaceQuery("cafe")],
+    PoiCategory.LAUNDRY: [PlaceQuery("laundry")],
+    PoiCategory.GAS_STATION: [PlaceQuery("gas_station")],
     PoiCategory.PUBLIC_TRANSIT: [
-        "bus_station",
-        "subway_station",
-        "train_station",
-        "transit_station",
+        PlaceQuery("bus_station"),
+        PlaceQuery("subway_station"),
+        PlaceQuery("train_station"),
+        PlaceQuery("transit_station"),
     ],
     # Google Places has no "kindergarten" — closest match is primary_school.
-    PoiCategory.KINDERGARTEN: ["primary_school"],
-    PoiCategory.PARK: ["park"],
-    PoiCategory.POST_OFFICE: ["post_office"],
-    PoiCategory.LIBRARY: ["library"],
-    PoiCategory.SHOPPING_MALL: ["shopping_mall"],
-    PoiCategory.BAKERY: ["bakery"],
-    PoiCategory.POLICE_STATION: ["police"],
+    PoiCategory.KINDERGARTEN: [PlaceQuery("primary_school")],
+    PoiCategory.PARK: [PlaceQuery("park")],
+    PoiCategory.POST_OFFICE: [PlaceQuery("post_office")],
+    PoiCategory.LIBRARY: [PlaceQuery("library")],
+    PoiCategory.SHOPPING_MALL: [PlaceQuery("shopping_mall")],
+    PoiCategory.BAKERY: [PlaceQuery("bakery")],
+    PoiCategory.POLICE_STATION: [PlaceQuery("police")],
+    # Both ride on Google's `car_repair`; PT keywords keep them
+    # disjoint. Generic English fallback names are intentionally
+    # omitted — the product is PT-first today.
+    PoiCategory.TIRE_SHOP: [PlaceQuery("car_repair", keyword="pneus")],
+    PoiCategory.AUTO_SHOP: [PlaceQuery("car_repair", keyword="oficina mecânica")],
 }
 
-DISCOVERY_RADIUS_METERS = 1500
-TOP_N_PER_CATEGORY = 5
 PLACES_CONCURRENCY_LIMIT = 5
+
+# Country defaulted onto every Property today — the write-side aggregate
+# doesn't yet carry a country field. Flipping this to a per-aggregate
+# read is a follow-up; the policy resolver already accepts `Country`,
+# raw strings, or `None`.
+DEFAULT_COUNTRY: Country = Country.PORTUGAL
 
 # Categories whose Place Details we still fetch (for address + photos)
 # but whose `reviews` we deliberately drop. Sensitive contexts where
@@ -94,6 +129,7 @@ class CategoryDiscoveryResult:
     category: PoiCategory
     places: list[NearbyPlace]
     had_failures: bool
+    policy: CategoryDiscoveryPolicy
 
 
 # Maps known exceptions raised inside `_run` to a stable `error_code`
@@ -113,12 +149,16 @@ class EnrichProperty:
         places_service: PlacesService,
         job_tracker: JobTracker | None = None,
         domain_event_publisher: EventPublisher | None = None,
+        locality_filter: PoiLocalityFilter | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.property_poi_repo = property_poi_repo
         self.places_service = places_service
         self.job_tracker = job_tracker
         self.domain_event_publisher = domain_event_publisher
+        # When unset, sanitization is a no-op — useful for early-stage
+        # tests / environments without an OpenAI key.
+        self.locality_filter = locality_filter
 
     async def execute(
         self,
@@ -190,11 +230,15 @@ class EnrichProperty:
         )
         categories_to_run = [cat for cat in PoiCategory if cat not in skipped_categories]
 
-        # 3. Discover + rank per category, concurrently.
+        # 3. Discover + rank per category, concurrently. Country drives
+        # `CategoryDiscoveryPolicy` selection (radius + result_limit).
+        country = DEFAULT_COUNTRY
         results: list[CategoryDiscoveryResult] = await gather_with_concurrency(
             PLACES_CONCURRENCY_LIMIT,
             *(
-                self._discover_category(cat, prop.latitude, prop.longitude)
+                self._discover_category(
+                    cat, prop.latitude, prop.longitude, country=country
+                )
                 for cat in categories_to_run
             ),
         )
@@ -203,8 +247,19 @@ class EnrichProperty:
         for r in results:
             brands = KNOWN_BRANDS_BY_CATEGORY.get(r.category.value)
             ranked_results[r.category] = rank_top_places(
-                r.places, known_brands=brands, limit=TOP_N_PER_CATEGORY
+                r.places, known_brands=brands, limit=r.policy.result_limit
             )
+
+        # 3b. Locality sanitization. One batched LLM call: drop POIs
+        #     whose vicinity puts them in a different concelho (PT) /
+        #     city (everywhere else) from the property. Fail-open is
+        #     handled inside the filter — exceptions there keep every
+        #     candidate; we do not have to.
+        ranked_results = await self._filter_by_locality(
+            ranked_results=ranked_results,
+            property_address=prop.address,
+            country=country,
+        )
 
         # 4. Provider-down guard: every run category empty AND any failure.
         any_failures = any(r.had_failures for r in results)
@@ -294,6 +349,76 @@ class EnrichProperty:
             "had_failures": any_failures,
         }
 
+    async def _filter_by_locality(
+        self,
+        *,
+        ranked_results: dict[PoiCategory, list[NearbyPlace]],
+        property_address: str,
+        country: Country | str | None,
+    ) -> dict[PoiCategory, list[NearbyPlace]]:
+        """Drop ranked candidates whose `vicinity` puts them outside
+        the property's locality (PT concelho / non-PT city). No-op when
+        no filter is wired or when the run yielded no place_id-bearing
+        candidates. Survivors keep their `(category, NearbyPlace)`
+        association so the persistence step downstream is unchanged.
+        """
+        if self.locality_filter is None:
+            return ranked_results
+
+        # Index NearbyPlaces by place_id, dropping any without one
+        # (Google rarely omits it, but the type allows it). Skipping
+        # them is the conservative choice — we can't ask the LLM about
+        # an anonymous row.
+        candidates: list[PoiCandidate] = []
+        place_lookup: dict[str, tuple[PoiCategory, NearbyPlace]] = {}
+        for category, places in ranked_results.items():
+            for place in places:
+                if not place.place_id:
+                    continue
+                place_lookup[place.place_id] = (category, place)
+                candidates.append(
+                    PoiCandidate(
+                        place_id=place.place_id,
+                        name=place.name,
+                        address=place.vicinity or "",
+                    )
+                )
+
+        if not candidates:
+            return ranked_results
+
+        country_str = country.value if isinstance(country, Country) else (country or "")
+        locality_kind = resolve_locality_scope(country_str)
+
+        try:
+            kept = await self.locality_filter.keep_in_locality(
+                property_address=property_address,
+                country=country_str,
+                locality_kind=locality_kind,
+                candidates=candidates,
+            )
+        except Exception:
+            # Fail-open at this layer too. The default LLM adapter
+            # already swallows its own exceptions, but a custom impl
+            # might not — preserve the same invariant either way.
+            log.exception(
+                "enrich_property.locality_filter_failed_keeping_all",
+                country=country_str,
+                candidate_count=len(candidates),
+            )
+            return ranked_results
+
+        kept_ids = {c.place_id for c in kept}
+
+        # Rebuild per-category survivor lists in stable order; keep
+        # categories whose places had no place_id untouched.
+        sanitized: dict[PoiCategory, list[NearbyPlace]] = {}
+        for category, places in ranked_results.items():
+            sanitized[category] = [
+                p for p in places if not p.place_id or p.place_id in kept_ids
+            ]
+        return sanitized
+
     async def _enrich_metadata(self, pois: list[PropertyPoi]) -> None:
         """Phase 2 of the enrichment workflow.
 
@@ -344,18 +469,22 @@ class EnrichProperty:
         category: PoiCategory,
         latitude: float,
         longitude: float,
+        *,
+        country: Country | str | None,
     ) -> CategoryDiscoveryResult:
-        place_types = CATEGORY_TO_PLACE_TYPES[category]
+        policy = resolve_discovery_policy(country, category)
+        queries = CATEGORY_TO_QUERIES[category]
         all_places: list[NearbyPlace] = []
         had_failures = False
 
-        for place_type in place_types:
+        for query in queries:
             try:
                 places = await self.places_service.find_nearby(
                     latitude=latitude,
                     longitude=longitude,
-                    place_type=place_type,
-                    radius_meters=DISCOVERY_RADIUS_METERS,
+                    place_type=query.place_type,
+                    radius_meters=policy.radius_meters,
+                    keyword=query.keyword,
                 )
                 all_places.extend(places)
             except Exception:
@@ -363,7 +492,8 @@ class EnrichProperty:
                 log.exception(
                     "enrich_property.find_nearby_failed",
                     category=category.value,
-                    place_type=place_type,
+                    place_type=query.place_type,
+                    keyword=query.keyword,
                 )
 
         # Dedup by place_id (multi-type categories like PUBLIC_TRANSIT can
@@ -377,7 +507,12 @@ class EnrichProperty:
                 seen.add(p.place_id)
             deduped.append(p)
 
-        return CategoryDiscoveryResult(category=category, places=deduped, had_failures=had_failures)
+        return CategoryDiscoveryResult(
+            category=category,
+            places=deduped,
+            had_failures=had_failures,
+            policy=policy,
+        )
 
 
 class ProviderUnavailableError(RuntimeError):

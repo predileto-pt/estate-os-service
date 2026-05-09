@@ -71,6 +71,7 @@ CANONICAL_TEXT_VERSION = "v2"
 # the actual canonical-text ordering is by `(category, distance, name)`
 # so the dict iteration order doesn't matter at render time.
 _POI_CATEGORY_PT: dict[str, str] = {
+    "auto_shop": "oficina mecânica",
     "bakery": "padaria",
     "bank": "banco",
     "coffee_shop": "café",
@@ -89,6 +90,7 @@ _POI_CATEGORY_PT: dict[str, str] = {
     "restaurant": "restaurante",
     "school": "escola",
     "shopping_mall": "centro comercial",
+    "tire_shop": "borracharia",
 }
 
 # The category allowlist is implicit in the keys of `_POI_CATEGORY_PT` —

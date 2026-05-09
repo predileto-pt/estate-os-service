@@ -15,6 +15,11 @@ class NearbyPlace:
     Provider-agnostic value object: what Google Places (and any future
     POI provider) returns after normalization. Consumed by the
     `proximity_ranker` and the POI auto-discovery workflow.
+
+    `vicinity` is a short address string (e.g. "Rua Augusta 1, Lisboa")
+    when the provider returns one — used by the locality sanitizer to
+    drop POIs that fall outside the property's municipality / city
+    without paying the Place Details cost.
     """
 
     name: str
@@ -23,6 +28,7 @@ class NearbyPlace:
     longitude: float
     place_id: str | None = None
     google_maps_url: str | None = None
+    vicinity: str | None = None
 
 
 @dataclass(frozen=True)

@@ -25,6 +25,12 @@ class PoiCategory(str, enum.Enum):
     SHOPPING_MALL = "shopping_mall"
     BAKERY = "bakery"
     POLICE_STATION = "police_station"
+    # Auto services. Both share Google's `car_repair` place_type — the
+    # discovery layer disambiguates with a per-category keyword
+    # (PT: "pneus" / "oficina mecânica") so the same shop doesn't
+    # appear in both buckets.
+    TIRE_SHOP = "tire_shop"
+    AUTO_SHOP = "auto_shop"
 
 
 @dataclass

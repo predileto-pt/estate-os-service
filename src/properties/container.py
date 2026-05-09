@@ -3,6 +3,7 @@ from properties.application.ports.document_data_extractor import DocumentDataExt
 from properties.application.ports.document_parser import DocumentParser
 from properties.application.ports.document_storage import DocumentStorage
 from properties.application.ports.places_service import PlacesService
+from properties.application.ports.poi_locality_filter import PoiLocalityFilter
 from properties.application.ports.property_extractor import PropertyExtractorService
 from properties.application.ports.repositories.document_content_repository import (
     DocumentContentRepository,
@@ -87,6 +88,7 @@ class Container:
         property_poi_repo: PropertyPoiRepository | None = None,
         enrichment_queue_url: str = "",
         job_tracker: JobTracker | None = None,
+        poi_locality_filter: PoiLocalityFilter | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.document_extractor = document_extractor
@@ -102,6 +104,7 @@ class Container:
         self.places_service = places_service
         self.property_poi_repo = property_poi_repo
         self.enrichment_queue_url = enrichment_queue_url
+        self.poi_locality_filter = poi_locality_filter
         self.job_tracker = job_tracker
 
         # Existing use cases
@@ -185,6 +188,7 @@ class Container:
                 places_service=places_service,
                 job_tracker=job_tracker,
                 domain_event_publisher=domain_event_publisher,
+                locality_filter=poi_locality_filter,
             )
         else:
             self.enrich_property = None

@@ -261,6 +261,20 @@ async def get_property_container() -> PropertyContainer:
     places_service = GooglePlacesService(api_key=settings.google_maps_api_key)
     property_poi_repo = SupabasePropertyPoiRepository(client)
 
+    # Locality sanitizer — drops Google results that fall outside the
+    # property's concelho (PT) / city (BR/US/etc) before they're
+    # persisted. Skipped when no OpenAI key is configured so dev /
+    # CI without a key keeps working.
+    poi_locality_filter = None
+    if settings.openai_api_key:
+        from properties.adapters.ai.openai_poi_locality_filter import (
+            OpenAiPoiLocalityFilter,
+        )
+
+        poi_locality_filter = OpenAiPoiLocalityFilter(
+            openai_api_key=settings.openai_api_key,
+        )
+
     # Shared jobs infra is built first so its tracker can be injected.
     jobs = await get_jobs_container()
 
@@ -280,6 +294,7 @@ async def get_property_container() -> PropertyContainer:
         property_poi_repo=property_poi_repo,
         enrichment_queue_url=settings.sqs_property_enrichment_queue_url,
         job_tracker=jobs.job_tracker,
+        poi_locality_filter=poi_locality_filter,
     )
     return _property_container
 
