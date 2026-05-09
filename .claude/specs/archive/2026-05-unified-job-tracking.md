@@ -1,6 +1,6 @@
 # Unified background-job tracking (ADR-012 v3 implementation)
 
-**Status:** draft (sharpened from review)
+**Status:** shipped (commit `ec48a7f9c482` — feat(jobs): unified background-job tracking, ADR-012)
 **Owner:** Peter
 **Created:** 2026-05-09
 

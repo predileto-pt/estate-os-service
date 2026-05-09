@@ -1,6 +1,6 @@
 # POI rich metadata: address, images, reviews
 
-**Status:** in-progress (sharpened from review, ready to implement)
+**Status:** shipped (commit `d76f0baa09ea` — feat(properties): POI rich metadata — address, images, reviews)
 **Owner:** Peter
 **Created:** 2026-05-09
 
