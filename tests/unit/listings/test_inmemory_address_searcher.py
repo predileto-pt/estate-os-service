@@ -33,13 +33,17 @@ async def test_canonical_three_chunks_yields_pt_envelope(searcher):
     assert parsed.state is None
 
 
-async def test_postal_code_passes_through_to_envelope(searcher):
+async def test_postal_code_is_input_only_not_in_envelope(searcher):
+    """Postal code is an LLM-input signal; the searcher consumes it but
+    does NOT echo it on the returned envelope (spec
+    2026-05-property-address-enrichment-fix v5 §Non-goals)."""
     parsed = await searcher.search(
         address="Arca, Ponte de Lima, Viana do Castelo",
         postal_code="4990-001",
         country="Portugal",
     )
-    assert parsed.postal_code == "4990-001"
+    # ParsedAddress no longer has postal_code field at all.
+    assert not hasattr(parsed, "postal_code")
 
 
 async def test_two_chunks_raises(searcher):

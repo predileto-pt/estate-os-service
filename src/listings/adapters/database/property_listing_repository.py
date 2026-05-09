@@ -70,7 +70,6 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             country=m.country,
             city=m.city,
             state=m.state,
-            postal_code=m.postal_code,
             region=m.region,
             min_price=m.min_price,
             first_image_s3_key=m.first_image_s3_key,
@@ -141,7 +140,6 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
                         "country",
                         "city",
                         "state",
-                        "postal_code",
                         "region",
                         "location_enriched_at",
                         "location_enrichment_attempts",
@@ -216,7 +214,6 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             model.country = parsed.country
             model.city = parsed.city
             model.state = parsed.state
-            model.postal_code = parsed.postal_code
             model.region = parsed.region
             model.location_enriched_at = func.now()
             model.location_enrichment_attempts = (model.location_enrichment_attempts or 0) + 1
@@ -326,7 +323,6 @@ def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:
         "country": data.get("country") or "Portugal",
         "city": None,
         "state": None,
-        "postal_code": None,
         "region": None,
         "location_enriched_at": None,
         "location_enrichment_attempts": 0,

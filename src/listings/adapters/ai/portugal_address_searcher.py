@@ -126,10 +126,12 @@ class PortugalAddressSearcher(AddressSearcher):
 
         # `with_structured_output` returns _PortugalLLMResult directly.
         pt: _PortugalLLMResult = result  # type: ignore[assignment]
+        # `postal_code` was an LLM input only (helps the model resolve
+        # parish/municipality/district from the prefix). We don't carry
+        # it on the returned envelope — it's not persisted on the row.
         return ParsedAddress(
             country="Portugal",
             parish=pt.parish,
             municipality=pt.municipality,
             district=pt.district,
-            postal_code=postal_code,
         )

@@ -45,10 +45,11 @@ class InMemoryAddressSearcher(AddressSearcher):
                 f"got {address!r}"
             )
 
+        # `postal_code` is accepted by the port but not echoed on the
+        # returned envelope — it's an LLM-input signal only.
         return ParsedAddress(
             country="Portugal",
             parish=chunks[0],
             municipality=chunks[1],
             district=chunks[2],
-            postal_code=postal_code,
         )

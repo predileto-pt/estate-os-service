@@ -1,6 +1,6 @@
 # Property listing address enrichment — country-aware searcher, no exposed street
 
-**Status:** in-progress (v4 — Path A: strip street from public response; structured fields stay internal until the public route migrates to `property_listings`)
+**Status:** in-progress (v5 — postal_code is an event-only / LLM-input signal, never persisted on `property_listings`)
 **Owner:** Peter
 **Created:** 2026-05-09
 
@@ -29,7 +29,8 @@ The "never null" invariant is enforced at the **searcher level** (per-country), 
 - **No reverse-geocoding via Google Geocoding API.** The current LLM-based parser is the chosen tool; sharper prompt is the entire fix on the parser side.
 - **No changes to the property write side.** `Property.address` (full street address) stays unchanged on `properties`. The admin dashboard still shows it. Only the public read-model loses it.
 - **No backfill of existing un-enriched rows.** Migration uses an empty-string placeholder for currently-null parish/municipality/district to satisfy the new `NOT NULL` constraint; the user re-runs enrichment manually for those rows. (One-shot ops job, out of scope here.)
-- **No multi-country business logic in v1.** `country` defaults to `'Portugal'` server-side. The new nullable columns (`city`, `state`, `postal_code`, `region`) exist for forward-compat only — they're written by no one and read by no one until the platform expands.
+- **No multi-country business logic in v1.** `country` defaults to `'Portugal'` server-side. The new nullable columns (`city`, `state`, `region`) exist for forward-compat only — they're written by no one and read by no one until the platform expands.
+- **No `postal_code` column on `property_listings`.** Postal code is purely an *input signal* to the LLM searcher (it helps the model resolve parish/municipality/district from the postal-code prefix) — once the searcher has used it, its job is done. We don't persist it on the row.
 - **No new column on `properties`.** Postal code is *extracted on the fly* in the event-snapshot builder (regex over `Property.address`); the property aggregate is untouched. The user's directive: "keep the properties untouched."
 - **No frontend-coordination guidance in this spec.** Pre-production project; FE is handled out-of-band.
 - **No public exposure of structured location fields in v1 (Path A).** `parish` / `municipality` / `district` / `country` and the forward-scope columns stay internal — only the projector / embedding handler read them. Exposing them publicly requires switching the public route to `property_listings` (separate spec).

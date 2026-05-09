@@ -28,8 +28,14 @@ class ParsedAddress(BaseModel):
     - United States (future): `city`, `state` required; PT-shaped
       fields are None.
 
-    `country` is always present. `postal_code` is present when the
-    upstream regex extracted it from the property's free-text address.
+    `country` is always present.
+
+    NOTE: no `postal_code` field. Postal code is an *input* to the
+    searcher (passed via `search(..., postal_code=...)` kwarg, used
+    by the LLM prompt to anchor the parish/municipality/district
+    answer) but it's never persisted to `property_listings`. Once the
+    searcher has used it, its job is done — see spec
+    `2026-05-property-address-enrichment-fix` §Non-goals.
     """
 
     country: str
@@ -38,7 +44,6 @@ class ParsedAddress(BaseModel):
     district: str | None = None
     city: str | None = None
     state: str | None = None
-    postal_code: str | None = None
     region: str | None = None
 
 

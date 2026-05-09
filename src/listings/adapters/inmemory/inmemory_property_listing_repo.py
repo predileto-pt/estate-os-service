@@ -99,7 +99,6 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             country=existing.country if existing else (event_data.get("country") or "Portugal"),
             city=existing.city if existing else None,
             state=existing.state if existing else None,
-            postal_code=existing.postal_code if existing else None,
             region=existing.region if existing else None,
             min_price=min_price,
             first_image_s3_key=first_image,
@@ -152,7 +151,6 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
         existing.country = parsed.country
         existing.city = parsed.city
         existing.state = parsed.state
-        existing.postal_code = parsed.postal_code
         existing.region = parsed.region
         existing.location_enriched_at = datetime.now(timezone.utc)
         existing.location_enrichment_attempts += 1

@@ -5,13 +5,16 @@ async def test_current_revision_is_head(session):
     result = await session.execute(text("SELECT version_num FROM alembic_version"))
     row = result.first()
     assert row is not None
-    assert row[0] == "cd7dc6b929a3"
+    assert row[0] == "e6eb6e539aea"
 
 
 async def test_property_listings_address_dropped_country_added(session):
-    """Spec 2026-05-property-address-enrichment-fix: drop `address`,
-    add `country` (NOT NULL default 'Portugal'), `city`, `state`,
-    `postal_code`, `region` (all nullable)."""
+    """Spec 2026-05-property-address-enrichment-fix v5:
+    - DROP `address` (privacy)
+    - DROP `postal_code` (LLM-input only — never stored)
+    - ADD `country` (NOT NULL default 'Portugal'), `city`, `state`,
+      `region` (all nullable)
+    """
     result = await session.execute(
         text("""
         SELECT column_name, is_nullable, data_type, column_default
@@ -22,8 +25,11 @@ async def test_property_listings_address_dropped_country_added(session):
     )
     cols = {row[0]: (row[1], row[2], row[3]) for row in result.fetchall()}
 
-    # `address` is gone (privacy fix).
+    # Both leak/transient columns gone.
     assert "address" not in cols
+    assert "postal_code" not in cols, (
+        "postal_code is an LLM-input signal only; must not be persisted"
+    )
 
     # `country` is NOT NULL with default 'Portugal'.
     assert "country" in cols
@@ -32,7 +38,7 @@ async def test_property_listings_address_dropped_country_added(session):
     assert cols["country"][2] is not None and "Portugal" in cols["country"][2]
 
     # Forward-scope columns exist and are nullable.
-    for forward_col in ("city", "state", "postal_code", "region"):
+    for forward_col in ("city", "state", "region"):
         assert forward_col in cols, f"missing {forward_col}"
         assert cols[forward_col][0] == "YES", f"{forward_col} should be nullable"
         assert cols[forward_col][1] == "text"

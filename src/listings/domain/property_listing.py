@@ -90,11 +90,11 @@ class PropertyListing:
     # Forward-scope multi-country location columns. Populated by future
     # per-country `AddressSearcher` implementations (spec
     # `2026-05-property-address-enrichment-fix`); not written by anyone
-    # in v1.
+    # in v1. NOTE: no `postal_code` here — it's an LLM-input signal,
+    # not a persisted field.
     country: str = "Portugal"
     city: str | None = None
     state: str | None = None
-    postal_code: str | None = None
     region: str | None = None
 
     # Embedding pipeline state (ADR-013, spec

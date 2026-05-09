@@ -92,8 +92,12 @@ class PropertyListingModel(Base):
     )
     city: Mapped[str | None] = mapped_column(Text)
     state: Mapped[str | None] = mapped_column(Text)
-    postal_code: Mapped[str | None] = mapped_column(Text)
     region: Mapped[str | None] = mapped_column(Text)
+    # NOTE: no `postal_code` column. Postal code is an input signal to
+    # the LLM searcher (it rides on every PROPERTY_* event and into the
+    # enrichment event) — once the searcher uses it to resolve parish/
+    # municipality/district, we don't keep it. Spec
+    # 2026-05-property-address-enrichment-fix v5.
     location_enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     location_enrichment_attempts: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
