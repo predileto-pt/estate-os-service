@@ -12,11 +12,14 @@ from shared.api.dependencies import (
 from properties.adapters.api.schemas import (
     CreatePropertyRequest,
     EnrichPropertyRequest,
+    EnrichPropertyResponse,
     PropertyResponse,
     PropertySummaryResponse,
     PublicPropertyResponse,
     UpdatePropertyAddressRequest,
 )
+from shared.jobs.adapters.api.schemas import JobResponse
+from shared.jobs.domain.job import JobEntityType, JobKind
 from properties.domain.exceptions import (
     PropertyMissingCoordinatesError,
     PropertyNotFoundError,
@@ -345,16 +348,19 @@ async def publish_property(
 
 @router.post(
     "/{property_id}/enrich",
+    response_model=EnrichPropertyResponse,
     status_code=202,
     summary="Trigger POI auto-discovery for a property",
     description=(
-        "Enqueues an `ENRICH_PROPERTY_REQUESTED.v1` command. The worker "
+        "Enqueues an `ENRICH_PROPERTY_REQUESTED.v1` command and registers a "
+        "unified background-job row (ADR-012). Returns the `job_id` so the "
+        "frontend can poll `GET /admin/jobs/{id}` for status. The worker "
         "discovers nearby POIs via the configured `PlacesService`, ranks "
         "them, and replaces the property's POI catalog. Manually-edited "
         "categories are preserved unless `force=true` is sent."
     ),
     responses={
-        202: {"description": "Enrichment command queued"},
+        202: {"description": "Enrichment command queued; job_id returned"},
         401: {"description": "Not authenticated"},
         403: {"description": "Not a member of this organization"},
         404: {"description": "Property not found"},
@@ -371,7 +377,7 @@ async def enrich_property(
     user, _membership = member
     use_case = request.app.state.property_container.enqueue_enrich_property
     try:
-        await use_case.execute(
+        tracked_job_id = await use_case.execute(
             property_id=property_id,
             organization_id=organization_id,
             force=body.force,
@@ -381,4 +387,63 @@ async def enrich_property(
         raise HTTPException(status_code=404, detail="Property not found")
     except PropertyMissingCoordinatesError:
         raise HTTPException(status_code=422, detail="Property missing coordinates")
-    return {"status": "enrichment_queued", "property_id": str(property_id)}
+    return {
+        "job_id": tracked_job_id,
+        "status": "processing",
+        "property_id": property_id,
+    }
+
+
+@router.get(
+    "/{property_id}/jobs",
+    response_model=list[JobResponse],
+    summary="List background jobs for a property",
+    description=(
+        "Returns the most recent background-job rows scoped to this property "
+        "(`entity_type=PROPERTY, entity_id=property_id`). Filter by `kind` "
+        "to scope to a specific workflow (e.g. `property_enrichment`). "
+        "Backed by the shared `jobs` infra (ADR-012)."
+    ),
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not a member of this organization"},
+    },
+)
+async def list_property_jobs(
+    property_id: UUID,
+    organization_id: UUID,
+    request: Request,
+    kind: JobKind | None = None,
+    limit: int = 10,
+    _member: tuple[User, Membership] = Depends(require_org_member),
+):
+    if not (1 <= limit <= 50):
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 50")
+    use_case = request.app.state.jobs_container.list_jobs
+    jobs = await use_case.execute(
+        organization_id=organization_id,
+        kind=kind,
+        entity_type=JobEntityType.PROPERTY,
+        entity_id=property_id,
+        limit=limit,
+    )
+    return [
+        {
+            "id": j.id,
+            "organization_id": j.organization_id,
+            "requested_by_user_id": j.requested_by_user_id,
+            "kind": j.kind,
+            "status": j.status,
+            "entity_type": j.entity_type,
+            "entity_id": j.entity_id,
+            "title": j.title,
+            "error_code": j.error_code,
+            "error_message": j.error_message,
+            "result_summary": j.result_summary,
+            "started_at": j.started_at,
+            "completed_at": j.completed_at,
+            "created_at": j.created_at,
+            "updated_at": j.updated_at,
+        }
+        for j in jobs
+    ]

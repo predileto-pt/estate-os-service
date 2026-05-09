@@ -27,6 +27,10 @@ class ExtractionJob:
     typology: str | None = None
     property_id: UUID | None = None
     error_message: str | None = None
+    # Link to the unified `background_jobs` row (ADR-012). Nullable
+    # for backward-compat with rows created before the unified surface
+    # existed; new rows always populate it.
+    tracked_job_id: UUID | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 

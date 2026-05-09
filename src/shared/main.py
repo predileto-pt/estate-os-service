@@ -33,6 +33,7 @@ from properties.adapters.api.routes import (
     property_pois,
     property_prices,
 )
+from shared.jobs.adapters.api.routes import jobs as shared_jobs_routes
 from screening.adapters.api.routes import (
     applicants as screening_applicants,
     intake_forms,
@@ -61,6 +62,7 @@ def create_app(
     listing_container=None,
     booking_container=None,
     contract_intelligence_container=None,
+    jobs_container=None,
 ) -> FastAPI:
     setup_logging(settings.log_level)
 
@@ -73,6 +75,7 @@ def create_app(
                 get_container,
                 get_contract_intelligence_container,
                 get_identity_container,
+                get_jobs_container,
                 get_listing_container,
                 get_property_container,
                 get_screening_container,
@@ -86,6 +89,9 @@ def create_app(
             # Alias used by IdentityMiddleware so the naming reads cleanly;
             # the legacy `app.state.container` stays for existing route code.
             app.state.organizations_container = app.state.container
+            # Shared jobs infra (ADR-012). Built before producing-context
+            # containers so its `JobTracker` port can be injected.
+            app.state.jobs_container = await get_jobs_container()
             app.state.property_container = await get_property_container()
             app.state.screening_container = await get_screening_container()
             listing_cont = await get_listing_container()
@@ -126,6 +132,7 @@ def create_app(
             {"name": "property-prices", "description": "Property price management"},
             {"name": "property-images", "description": "Property image management"},
             {"name": "property-listings", "description": "Public property listings"},
+            {"name": "jobs", "description": "Unified background-job tracking (ADR-012)"},
             {
                 "name": "applicant-submissions",
                 "description": "Applicant document submission and screening",
@@ -201,6 +208,9 @@ def create_app(
     app.include_router(property_pois.router, prefix="/api/v1/admin")
     app.include_router(extraction_jobs.router, prefix="/api/v1/admin")
 
+    # Shared background-jobs surface (ADR-012). Cross-context, lives in shared infra.
+    app.include_router(shared_jobs_routes.router, prefix="/api/v1/admin")
+
     # Public property listings (no auth)
     app.include_router(listings.router, prefix="/api/v1/listings")
     # Admin property listings (auth-gated, org-scoped via require_org_member)
@@ -244,6 +254,8 @@ def create_app(
         app.state.booking_container = booking_container
     if contract_intelligence_container:
         app.state.contract_intelligence_container = contract_intelligence_container
+    if jobs_container:
+        app.state.jobs_container = jobs_container
 
     return app
 

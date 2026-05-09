@@ -5,7 +5,7 @@ async def test_current_revision_is_head(session):
     result = await session.execute(text("SELECT version_num FROM alembic_version"))
     row = result.first()
     assert row is not None
-    assert row[0] == "b58514282ab5"
+    assert row[0] == "ed01e7809f3d"
 
 
 async def test_all_tables_exist(session):
@@ -30,6 +30,7 @@ async def test_all_tables_exist(session):
         "document_contents",
         "property_prices",
         "property_images",
+        "background_jobs",
     }
     assert expected.issubset(tables), f"Missing tables: {expected - tables}"
 
@@ -50,3 +51,33 @@ async def test_updated_at_trigger_exists(session):
     assert ("trg_property_owners_updated_at", "property_owners") in triggers
     assert ("trg_property_prices_updated_at", "property_prices") in triggers
     assert ("update_property_images_updated_at", "property_images") in triggers
+    assert ("update_background_jobs_updated_at", "background_jobs") in triggers
+
+
+async def test_extraction_jobs_has_tracked_job_id(session):
+    result = await session.execute(
+        text("""
+        SELECT column_name, is_nullable, data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'extraction_jobs'
+          AND column_name = 'tracked_job_id'
+    """)
+    )
+    row = result.first()
+    assert row is not None
+    assert row[1] == "YES"  # nullable
+    assert row[2] == "uuid"
+
+
+async def test_background_jobs_indexes_exist(session):
+    result = await session.execute(
+        text("""
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname = 'public' AND tablename = 'background_jobs'
+    """)
+    )
+    indexes = {row[0] for row in result.fetchall()}
+    assert "idx_background_jobs_org_status_created" in indexes
+    assert "idx_background_jobs_entity" in indexes
+    assert "idx_background_jobs_kind_status_created" in indexes

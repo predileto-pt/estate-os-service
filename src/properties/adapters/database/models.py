@@ -233,6 +233,8 @@ class ExtractionJobModel(Base):
         UUID(as_uuid=False), ForeignKey("properties.id")
     )
     error_message: Mapped[str | None] = mapped_column(Text)
+    # FK-by-id link to background_jobs (shared infra). No SQL FK constraint.
+    tracked_job_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False))
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 

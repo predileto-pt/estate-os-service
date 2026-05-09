@@ -85,6 +85,9 @@ async def test_happy_path_publishes_command(property_repo, publisher):
         "organization_id": str(ORG_ID),
         "force": False,
         "requested_by_user_id": str(USER_ID),
+        # Set when a JobTracker is wired (ADR-012); None when constructed
+        # without one — this test runs without a tracker.
+        "tracked_job_id": None,
     }
 
 

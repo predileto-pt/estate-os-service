@@ -55,6 +55,10 @@ from properties.adapters.storage.s3_document_storage import S3DocumentStorage
 from properties.container import Container as PropertyContainer
 from shared.events.adapters.sns_event_publisher import SNSEventPublisher
 from shared.events.adapters.sqs_command_publisher import SQSCommandPublisher
+from shared.jobs.adapters.persistence.supabase_job_repository import (
+    SupabaseJobRepository,
+)
+from shared.jobs.container import SharedJobsContainer
 
 from listings.adapters.database.listing_repository import SqlAlchemyListingRepository
 from listings.container import Container as ListingContainer
@@ -88,6 +92,23 @@ _screening_container: ApplicantScreeningContainer | None = None
 _listing_container: ListingContainer | None = None
 _booking_container: BookingContainer | None = None
 _contract_intelligence_container: ContractIntelligenceContainer | None = None
+_jobs_container: SharedJobsContainer | None = None
+
+
+async def get_jobs_container() -> SharedJobsContainer:
+    """Shared `jobs` infrastructure container (ADR-012).
+
+    Owns one Supabase-backed `JobRepository` and exposes the `JobTracker`
+    write port other contexts inject + the read use cases (ListJobs,
+    GetJob) the `/admin/jobs` routes call.
+    """
+    global _jobs_container
+    if _jobs_container is not None:
+        return _jobs_container
+    settings = Settings()
+    client = await acreate_client(settings.supabase_url, settings.supabase_service_role_key)
+    _jobs_container = SharedJobsContainer(job_repo=SupabaseJobRepository(client))
+    return _jobs_container
 
 
 async def get_identity_container() -> IdentityContainer:
@@ -240,6 +261,9 @@ async def get_property_container() -> PropertyContainer:
     places_service = GooglePlacesService(api_key=settings.google_maps_api_key)
     property_poi_repo = SupabasePropertyPoiRepository(client)
 
+    # Shared jobs infra is built first so its tracker can be injected.
+    jobs = await get_jobs_container()
+
     _property_container = PropertyContainer(
         property_repo=SupabasePropertyRepository(client),
         document_extractor=document_data_extractor,
@@ -255,6 +279,7 @@ async def get_property_container() -> PropertyContainer:
         places_service=places_service,
         property_poi_repo=property_poi_repo,
         enrichment_queue_url=settings.sqs_property_enrichment_queue_url,
+        job_tracker=jobs.job_tracker,
     )
     return _property_container
 
