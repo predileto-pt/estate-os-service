@@ -1,6 +1,6 @@
 # Property listing address enrichment — country-aware searcher, no exposed street
 
-**Status:** draft
+**Status:** draft (v3 — country-aware searcher, postal_code internal-only)
 **Owner:** Peter
 **Created:** 2026-05-09
 
@@ -9,7 +9,7 @@
 Two related defects in the public-facing `property_listings` read-model:
 
 1. **Privacy leak.** The table carries `address` (the raw free-text street address from the property aggregate). The public listings API exposes this to anonymous visitors, leaking the exact location of every listed property. Agents share *the listing*, not *the address*.
-2. **`district` (and friends) can be null.** The async LLM enrichment handler accepts a parsed result with `district=null` and persists it. The schema permits null. Public listings render with broken or missing geographic context.
+2. **PT-required fields can be null.** For a Portuguese property, `parish` / `municipality` / `district` must always resolve — they're how the public UI shows location. The async LLM handler today accepts a parsed result with any of them null, and the schema permits null. The result: PT listings render with broken geographic context. (For non-PT countries, *different* fields are required — `city` / `state` for US, etc. — but that's a future implementation, see §Non-goals.)
 
 The fix is small and focused: remove the street address from the public read-model, add a structured location hierarchy that's required, and make the existing LLM enrichment refuse to return null.
 
@@ -30,7 +30,7 @@ The "never null" invariant is enforced at the **searcher level** (per-country), 
 - **No frontend-coordination guidance in this spec.** The dashboard team is handling FE adjustments separately. Backend just guarantees the new API shape.
 - **No `postal_code` in the public response.** PT postal codes are granular enough (one block) that exposing them defeats the privacy fix. Internal column only — written by the projector for forward-compat use cases (search filters, multi-country dispatch); never serialised on `/api/v1/listings/...`.
 - **No `NOT NULL` schema constraint on `parish`/`municipality`/`district`.** With country-aware dispatch, future US listings will leave those null and fill `city`/`state` instead. Application invariant ("PT properties have non-null PT fields") lives in `PortugalAddressSearcher`, not in the schema.
-- **No US implementation.** `UnitedStatesAddressSearcher` is mentioned for shape only — no class, no prompt, no tests. Dispatcher raises `NotImplementedError` for `country != 'Portugal'`. Lands when the platform expands.
+- **No US implementation.** `UnitedStatesAddressSearcher` is mentioned for shape only — no class, no prompt, no tests. Dispatcher raises `NotImplementedError` for `country != 'Portugal'`. Lands when the platform expands. Each future country owns its own LangChain prompt + structured-output schema.
 - **No multi-country property write side.** The property aggregate doesn't gain a `country` field in v1; the handler hard-defaults to `'Portugal'` for dispatch. When `Property.country` exists, the dispatcher reads it from the event payload.
 
 ## Approach
@@ -112,6 +112,8 @@ class AddressSearcher(Protocol):
 ```
 
 `PortugalAddressSearcher` (concrete, replaces `LangChainAddressParser`) implements `search(...)` with the LangChain + GPT pipeline. Its result invariant: **`parish`, `municipality`, `district` are non-null** and `country == "Portugal"`; if the LLM returns null on any required field, Pydantic ValidationError raises (still caught one frame up by the handler).
+
+**The PT prompt is a per-country implementation detail, not a shared template.** It lives inside `portugal_address_searcher.py` and is tuned to PT geography (postal-code prefix table, cities-that-are-also-districts list, parish/municipality/district vocabulary). Future per-country searchers will carry their own prompts tuned to their countries' administrative structures — there is no shared "LLM address-parsing prompt" abstraction. This is intentional: each country's geographic conventions are different enough that a unified prompt would be more confusing than helpful, and structured-output schemas differ per country anyway.
 
 ```python
 # src/listings/adapters/ai/portugal_address_searcher.py
@@ -303,58 +305,71 @@ Frontend (out of scope): user is handling on a separate terminal.
 ## Affected files / surfaces
 
 ### New files
-- `alembic/versions/<new>_property_listings_required_location.py`
+- `alembic/versions/<new>_property_listings_country_aware_location.py`
+- `src/listings/application/ports/address_searcher.py` — new port; `ParsedAddress` (universal envelope) + `AddressSearcher` Protocol.
+- `src/listings/adapters/ai/portugal_address_searcher.py` — concrete `PortugalAddressSearcher` (LangChain + GPT, replaces `LangChainAddressParser`).
+- `src/listings/adapters/inmemory/inmemory_address_searcher.py` — replaces `inmemory_address_parser.py`.
+- `src/listings/application/use_cases/select_address_searcher.py` (or similar location) — the country-dispatch factory.
+
+### Deleted files
+- `src/listings/application/ports/address_parser.py`
+- `src/listings/adapters/ai/langchain_address_parser.py`
+- `src/listings/adapters/inmemory/inmemory_address_parser.py`
 
 ### Updated files
 
 **Schema / domain (listings):**
 - `src/listings/adapters/database/property_listing_model.py` — column changes per §`PropertyListingModel`.
-- `src/listings/application/ports/address_parser.py` — `ParsedAddress.parish/municipality/district` non-optional; `parse(...)` gains `postal_code` kwarg.
 
 **Repository (listings):**
 - `src/listings/adapters/database/property_listing_repository.py` — drop `address` references; read/write the new columns; default `country='Portugal'`.
 - `src/listings/adapters/inmemory/inmemory_property_listing_repo.py` — same.
 
-**LLM parser (listings):**
-- `src/listings/adapters/ai/langchain_address_parser.py` — new prompt; accepts `postal_code` kwarg; structured output enforces non-null fields.
-- `src/listings/adapters/inmemory/inmemory_address_parser.py` — raises when fields can't be synthesized; accepts `postal_code` kwarg (ignored in the no-LLM fake).
+**Container (listings):**
+- `src/listings/container.py` — replace `address_parser` with `portugal_address_searcher` (or expose `address_searcher_factory` directly).
 
 **Worker handlers (listings):**
-- `src/listings/adapters/workers/property_event_handler.py` — forward `postal_code` into the `PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1` payload.
-- `src/listings/adapters/workers/address_enrichment_handler.py` — read `postal_code` from `event.data`; pass it to `address_parser.parse(...)`.
+- `src/listings/adapters/workers/property_event_handler.py` — forward `postal_code` AND `country` into the `PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1` payload.
+- `src/listings/adapters/workers/address_enrichment_handler.py` — read `country` and `postal_code` from `event.data`; call `select_address_searcher(country, ...)`; call `searcher.search(...)`.
 
 **API (listings — public-facing, breaking shape change):**
-- `src/listings/adapters/api/schemas.py` — drop `address` from the public listing response models; add the structured location fields.
-- `src/listings/adapters/api/routes/listings.py` — response-builder dicts drop `address`, add the new fields. Audit every route in this file to ensure no `address` leak remains.
+- `src/listings/adapters/api/schemas.py` — drop `address` from public response models; add `country` (required) and the per-country structured fields (all optional). **No `postal_code` field.**
+- `src/listings/adapters/api/routes/listings.py` — response-builder dicts drop `address`, add the new fields (excluding `postal_code`). Audit every route in this file.
+
+**Bootstrap:**
+- `src/shared/entrypoints/bootstrap.py` — listings container construction wires `PortugalAddressSearcher` instead of `LangChainAddressParser`.
 
 **Event snapshot (properties — postal_code extraction only, no domain change):**
 - `src/properties/application/events/property_event.py` — `build_property_snapshot` regex-extracts `postal_code` from `prop.address` and adds to the event payload.
 
 **Tests:**
-- `tests/database/test_migration.py` — bump revision; assert `address` column gone, `country` exists with default `'Portugal'`, parish/municipality/district are `NOT NULL`, the four new nullable columns exist.
-- `tests/integration/test_listings.py` — the public listing response asserts `"address" not in body`; asserts the new structured fields are present.
-- `tests/unit/listings/test_address_enrichment_handler.py` — `postal_code` from the event is passed through to the parser.
-- `tests/unit/listings/test_langchain_address_parser.py` (new or extended) — prompt renders both `ADDRESS:` and `POSTAL CODE:` lines; LLM null responses raise ValidationError; postal-code-only inputs yield correct district.
+- `tests/database/test_migration.py` — bump revision; assert `address` column gone, `country` exists with default `'Portugal'`, the four new nullable columns exist. **No assertion that parish/municipality/district are NOT NULL** (they stay nullable).
+- `tests/integration/test_listings.py` — the public listing response asserts `"address" not in body` AND `"postal_code" not in body`; asserts `country == "Portugal"` plus the PT-specific fields are present.
+- `tests/unit/listings/test_address_enrichment_handler.py` — `country` and `postal_code` from the event are passed through to the dispatcher → searcher.
+- `tests/unit/listings/test_select_address_searcher.py` — dispatcher returns `PortugalAddressSearcher` for `"Portugal"`; raises `NotImplementedError` for other countries.
+- `tests/unit/listings/test_portugal_address_searcher.py` (replaces `test_langchain_address_parser.py`) — prompt renders both `ADDRESS:` and `POSTAL CODE:` lines; LLM stub returning null on any required field causes `ValidationError`; happy-path returns `ParsedAddress` with PT fields populated and US fields null.
 - `tests/unit/properties/test_property_event.py` (or wherever `build_property_snapshot` is tested) — postal_code extraction: regex matches; missing → `null` in payload; non-PT format ignored.
 
 ## Acceptance criteria
 
-- [ ] Migration `upgrade()` adds `country` (NOT NULL default `'Portugal'`), `city`, `state`, `postal_code`, `region` (all nullable). Backfills null parish/municipality/district to `''`. Adds `NOT NULL` on those three. Drops `address`. `downgrade()` reverses cleanly.
-- [ ] `tests/database/test_migration.py` is bumped to the new revision and asserts:
+- [ ] Migration `upgrade()` adds `country` (NOT NULL default `'Portugal'`), `city`, `state`, `postal_code`, `region` (all nullable). Drops `address`. Does NOT touch parish/municipality/district nullability. `downgrade()` reverses cleanly.
+- [ ] `tests/database/test_migration.py` asserts:
   - `address` column does not exist on `property_listings`.
   - `country` exists with `column_default LIKE '%Portugal%'` and `is_nullable='NO'`.
-  - `parish`, `municipality`, `district` are `is_nullable='NO'`.
   - `city`, `state`, `postal_code`, `region` exist and are nullable.
-- [ ] `ParsedAddress` has non-optional `parish`, `municipality`, `district`. Pydantic raises ValidationError when the LLM returns null on any of them.
-- [ ] `LangChainAddressParser` uses the new prompt; a test parametrized over typical PT addresses (`"Rua A, 1100-001"`, `"Av. da Liberdade 12, Lisboa"`, `"Arca, Ponte de Lima"`) asserts non-null outputs across all three fields. (LLM responses are mocked.)
+  - `parish`, `municipality`, `district` remain nullable (no schema-level NOT NULL).
+- [ ] `AddressSearcher` Protocol exists at `src/listings/application/ports/address_searcher.py`; universal `ParsedAddress(country: str, parish: str | None, ..., postal_code: str | None, region: str | None)`.
+- [ ] `PortugalAddressSearcher.search(...)` returns `ParsedAddress` with non-null `parish`/`municipality`/`district` and `country == "Portugal"`; the LLM-result internal model rejects null on those three fields → `ValidationError` → propagates to the handler.
+- [ ] `select_address_searcher("Portugal", portugal=...)` returns the PT searcher; `select_address_searcher("United States", ...)` raises `NotImplementedError`.
+- [ ] `address_enrichment_handler` reads `country` (defaulting `"Portugal"`) and `postal_code` from `event.data` (using `.get(...)` for backward-compat); calls the dispatcher; calls `searcher.search(address=..., postal_code=..., country=...)`.
 - [ ] `address_enrichment_handler` re-raises on parse failure (existing behavior); structlog → Logfire emits the failure event with the offending address; SQS redrives until `maxReceiveCount=5` then DLQs.
-- [ ] `SqlAlchemyPropertyListingRepository` and the in-memory variant: no `address` references; default `country='Portugal'` when not supplied.
-- [ ] Public listings response no longer carries `address`. Carries `parish`, `municipality`, `district`, `country` (required) and `city`, `state`, `postal_code`, `region` (optional).
+- [ ] `SqlAlchemyPropertyListingRepository` and the in-memory variant: no `address` references; default `country='Portugal'` when not supplied; `update_location` writes ALL location fields (PT + US shape) from the searcher's result.
+- [ ] Public listings response no longer carries `address` OR `postal_code`. Carries `country` (required), and `parish`/`municipality`/`district`/`city`/`state`/`region` (all optional, populated per country).
 - [ ] Admin properties response is unchanged — `Property.address` still serialised on `/api/v1/admin/properties/...`.
 - [ ] `build_property_snapshot` returns a dict with `postal_code` matching the PT format `XXXX-XXX` when extractable, `None` otherwise. Property events (`PROPERTY_CREATED.v1`, `PROPERTY_UPDATED.v1`, `PROPERTY_PUBLISHED.v1`) all carry it.
-- [ ] `property_event_handler` forwards `postal_code` into the `PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1` payload.
-- [ ] `address_enrichment_handler` passes `postal_code` to `address_parser.parse(...)`.
-- [ ] `LangChainAddressParser` user-message format includes both `ADDRESS:` and `POSTAL CODE:` lines (the latter set to `"unknown"` when null).
+- [ ] `property_event_handler` forwards `country` AND `postal_code` into the `PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1` payload.
+- [ ] Projector does NOT populate `property_listings.postal_code` (or `city`/`state`/`region`) in v1 — those columns stay null until the US searcher writes them or a future v2 needs them.
+- [ ] `PortugalAddressSearcher` user-message format includes both `ADDRESS:` and `POSTAL CODE:` lines (the latter set to `"unknown"` when null).
 - [ ] All existing tests still pass. `uv run ruff check .` clean.
 
 ## Open questions
@@ -363,33 +378,39 @@ Frontend (out of scope): user is handling on a separate terminal.
 
 ## Out of scope follow-ups
 
-- Backfill of empty-string parish/municipality/district rows by re-emitting events / re-running enrichment.
-- Multi-country business logic (uses of the new nullable columns).
-- Removal of the `country` server default once a multi-country property exists.
-- Listing search filters on `country` / `city` / `state`.
+- Backfill of existing null parish/municipality/district rows by re-emitting events / re-running enrichment.
+- `UnitedStatesAddressSearcher` implementation (city/state extraction prompt + dispatcher case).
+- `Property.country` field on the write side; events carrying it; dispatcher reading it from `event.data["country"]` instead of defaulting.
+- Listing search filters on `country` / `city` / `state` (the new columns exist; no query path uses them yet).
 - LLM model bump (configurable via the existing `address_parser_model` env var — operational change, no code).
+- **Embedding pipeline change for LAND properties.** `embedding_handler.py` currently reads characteristics into the canonical text for embedding. Land properties don't have characteristics (`num_of_bedrooms`, etc. are null). The composer should branch on `typology == LAND` to skip the characteristics block entirely, keeping the embedding from being polluted with "0 bedrooms / 0 bathrooms" noise. Separate concern from address enrichment; flagged here so we don't lose the breadcrumb.
 
 ## Commits
 
 ```
-fix(listings): drop address from public listings; require structured location
+feat(listings): country-aware AddressSearcher; drop street + postal_code from public response
 
 - property_listings drops `address`; adds country (NOT NULL default
   'Portugal'), city/state/postal_code/region (nullable, future-scope).
-- parish/municipality/district transitioned to NOT NULL with an
-  empty-string placeholder backfill for existing null rows.
-- ParsedAddress.parish/municipality/district are non-optional;
-  LangChain `with_structured_output` rejects null responses; existing
-  handler re-raises so SQS redrives → DLQ → Logfire surfaces.
-- LLM prompt rewritten: `ADDRESS:` + `POSTAL CODE:` two-line input;
-  postal-code prefix table; city-is-also-district enumeration.
+  parish/municipality/district stay nullable — per-country invariant
+  enforced by the searcher, not the schema.
+- New AddressSearcher port with country-keyed dispatch
+  (`select_address_searcher`). PortugalAddressSearcher is the only v1
+  implementation; UnitedStatesAddressSearcher is a placeholder.
+- PortugalAddressSearcher (replaces LangChainAddressParser): same
+  LangChain backbone, new prompt with `ADDRESS:` + `POSTAL CODE:`
+  two-line input, postal-code prefix table, city-is-also-district
+  enumeration. Internal LLM result type forces non-null PT fields
+  → ValidationError on null → handler raises → SQS redrives → DLQ →
+  Logfire surfaces.
 - `build_property_snapshot` regex-extracts the postal code from
   `Property.address` (no schema change to `properties`); event payload
-  carries it; projector forwards it; enrichment handler passes it
-  through to the LLM.
-- Public listings response no longer carries the street address;
-  carries the structured hierarchy. Admin response unchanged.
+  carries it AND `country`; projector forwards both; enrichment
+  handler dispatches to the right country-specific searcher.
+- Public listings response no longer carries the street address OR
+  the postal code (privacy: PT postal codes are too granular). Carries
+  the structured hierarchy keyed off country. Admin response unchanged.
 
-Privacy: stops leaking exact street addresses to anonymous visitors of
-the public listings page.
+Privacy: stops leaking exact street addresses and granular postal codes
+to anonymous visitors of the public listings page.
 ```
