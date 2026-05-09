@@ -1,8 +1,9 @@
 # Listing semantic search — indexing pipeline (ADR-013 phase 1)
 
-**Status:** in-progress
+**Status:** shipped
 **Owner:** Peter
 **Created:** 2026-05-09
+**Shipped:** 2026-05-09
 
 ## Problem
 
