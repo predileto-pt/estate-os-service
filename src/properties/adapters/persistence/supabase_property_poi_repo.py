@@ -110,15 +110,25 @@ class SupabasePropertyPoiRepository(PropertyPoiRepository):
 
         rows = [self._to_row(p) for p in pois]
         result = await self._client.table("property_pois").insert(rows).execute()
-        # Log the actual returned count so we can spot silent PostgREST
-        # rejections (RLS/constraint failures the client doesn't raise on).
+        persisted = result.data or []
+        # Defense against silent failures (RLS, constraint violations,
+        # PostgREST swallowing errors). PostgREST returns 0 rows when
+        # RLS filters the new rows out; the client doesn't raise on
+        # this. We refuse to silently lie to the caller about success.
+        if len(persisted) != len(rows):
+            raise RuntimeError(
+                f"property_pois insert: attempted {len(rows)}, persisted "
+                f"{len(persisted)} for property_id={property_id}. "
+                "Possible causes: RLS policy denying writes, FK violation, "
+                "or PostgREST swallowing an error."
+            )
         log.info(
             "property_poi_repo.insert_complete",
             property_id=str(property_id),
             attempted=len(rows),
-            persisted=len(result.data) if result.data else 0,
+            persisted=len(persisted),
         )
-        return [self._to_domain(r) for r in result.data]
+        return [self._to_domain(r) for r in persisted]
 
     async def update(self, poi: PropertyPoi) -> PropertyPoi:
         result = (

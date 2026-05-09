@@ -351,15 +351,23 @@ class SupabasePropertyRepository(PropertyRepository):
             .eq("id", str(property_id))
             .execute()
         )
-        # Log the actual returned row count so silent RLS / PostgREST
-        # rejections show up in observability instead of just an in-memory
-        # mutation that doesn't reach the DB.
+        # Defense against silent RLS / PostgREST rejections — without
+        # this, an empty `result.data` would still return a Property
+        # with the bumped version, and downstream `emit_property_updated`
+        # would publish a snapshot whose aggregate_version is ahead of
+        # what's actually in the DB. Refuse to lie to the caller.
+        if not result.data:
+            raise RuntimeError(
+                f"properties UPDATE returned 0 rows for property_id={property_id}. "
+                "Possible causes: RLS policy denying writes, the row was deleted "
+                "between the SELECT and the UPDATE, or PostgREST swallowing an error."
+            )
         log.info(
             "property_repo.bump_aggregate_version",
             property_id=str(property_id),
             previous_version=prop.aggregate_version,
             new_version=new_version,
-            returned_rows=len(result.data) if result.data else 0,
+            returned_rows=len(result.data),
         )
         prop.aggregate_version = new_version
         return prop
