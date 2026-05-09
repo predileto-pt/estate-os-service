@@ -127,6 +127,12 @@ The `<poi_summary>` field is rendered by the listings canonical-text composer fr
 - **Distance-precision rounding** (default 100m). Micro-jitter from re-geocoding the same POI must not invalidate the hash.
 - **Filter-before-render.** Excluded POIs (low confidence, categories outside the allowlist) are dropped from the input set *before* rendering, not after. The rendered string reflects the post-filter set.
 
+**v2 amendments** (2026-05-09, mid-implementation refinement of the canonical text — does NOT renumber the ADR's own iteration plan, just bumps `LISTING_CANONICAL_TEXT_V1` → `V2`):
+
+- POI categories render with PT-PT terms (`escola`, `ginásio`, `farmácia`, `padaria`, …) instead of the underlying en-keyed enum strings. Multilingual embedders cope across languages but PT-PT match is strictly stronger than PT-EN — the canonical text is the input, not a viewer-locale concern. Mapping lives in `_POI_CATEGORY_PT` in `src/listings/application/services/canonical_text.py`. Unknown categories fall back to the raw string so a future properties-side category addition renders harmlessly.
+- New `FEATURES:` line for boolean amenities. Renders only TRUE values (no negative-feature signal): `FEATURES: piscina, jardim, elevador`. Order is fixed (pool → garden → elevator) for hash stability. Schema field-list grows to: LOCATION, LISTING_TYPE, TYPOLOGY, SIZE, BUILT, **FEATURES**, PRICE, NEARBY, DESCRIPTION.
+- **Migration impact**: every existing listing's `embedding_text_hash` is invalidated (the new rendering produces a different hash). Listings re-embed naturally on the next `PROPERTY_LISTING_UPDATED.v1` event. Stagnant listings (no event traffic) need a backfill — captured as a follow-up spec.
+
 **Composition rules** (locked; any change is a `LISTING_CANONICAL_TEXT_V2` bump):
 
 1. **Field order is fixed** (above). Reordering changes embeddings → reordering = new schema version.

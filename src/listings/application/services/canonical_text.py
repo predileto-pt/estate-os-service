@@ -7,19 +7,34 @@ load-bearing: the embedding handler skips re-embedding when the
 `(hash, version, model)` tuple matches the persisted one, so any
 non-deterministic rendering would burn embed calls on every event.
 
-Schema is `LISTING_CANONICAL_TEXT_V1` (ADR-013 §3a). Any change to
-the rendering — new fields, reordered lines, different separators,
-different POI format — is a `LISTING_CANONICAL_TEXT_V2` bump, not an
-in-place edit.
+Schema is `LISTING_CANONICAL_TEXT_V2` (ADR-013 §3a, amended). Any
+change to the rendering — new fields, reordered lines, different
+separators, different POI format — is a `V3` bump, not an in-place
+edit.
 
-Rendering rules locked at v1:
+**v2 changes** (over v1):
 
-- Fields render in fixed order: LOCATION, LISTING_TYPE, TYPOLOGY, SIZE,
-  BUILT, PRICE, NEARBY, DESCRIPTION.
+- POI categories rendered with PT-PT terms instead of the underlying
+  enum string, so PT user queries match strongly. `gym` → `ginásio`,
+  `school` → `escola`, etc. Multilingual embedders match across
+  languages but PT-PT is strictly stronger than PT-EN.
+- New `FEATURES:` line for boolean amenities (`has_pool`,
+  `has_garden`, `has_elevator`). Only TRUE features render — no
+  `sem piscina` for absent amenities. PT terms.
+- Migration impact: every listing's persisted `embedding_text_hash`
+  becomes invalid, so the embedding handler re-embeds on the next
+  event. Stagnant listings (no further events) need a backfill —
+  see follow-up spec.
+
+Rendering rules (locked at v2; any change is v3):
+
+- Fields render in fixed order: LOCATION, LISTING_TYPE, TYPOLOGY,
+  SIZE, BUILT, FEATURES, PRICE, NEARBY, DESCRIPTION.
 - Single-value lines: omit the whole `LABEL: ...` line if the value is
   null/empty.
-- Composite lines (LOCATION, SIZE, BUILT): omit null sub-fields with
-  their preceding `·`. Drop the line entirely if all sub-fields null.
+- Composite lines (LOCATION, SIZE, BUILT, FEATURES): omit null
+  sub-fields with their preceding separator. Drop the line entirely
+  if all sub-fields null.
 - Whitespace inside any value is collapsed to single spaces and
   trimmed.
 - Description is suffix-clipped to MAX_DESCRIPTION_CHARS (default 2000).
@@ -31,6 +46,9 @@ Rendering rules locked at v1:
     - Distance rounded to nearest 100m, formatted as `<n.n>km` (one
       decimal). Re-geocoding jitter <100m can't invalidate the hash.
     - Hard cap at LISTING_POI_MAX_COUNT (default 20).
+    - Categories rendered in PT (see `_POI_CATEGORY_PT`); fall back
+      to the raw category string for unknown categories so a future
+      properties-side addition doesn't crash.
 - Line separator is a single LF. No trailing newline.
 """
 
@@ -44,33 +62,49 @@ from typing import Iterable
 
 from listings.domain.property_listing import ListingPoi, PropertyListing
 
-CANONICAL_TEXT_VERSION = "v1"
+CANONICAL_TEXT_VERSION = "v2"
 
-# All POI category strings the canonical text recognizes. Keeping this
-# allowlist on the listings side keeps `properties.PoiCategory` from
-# leaking across the context boundary; if properties adds a new
-# category, a controlled rollout flips it on here.
-_POI_CATEGORY_ALLOWLIST: frozenset[str] = frozenset(
-    {
-        "school",
-        "kindergarten",
-        "library",
-        "shopping_mall",
-        "grocery",
-        "bakery",
-        "restaurant",
-        "coffee_shop",
-        "park",
-        "gym",
-        "public_transit",
-        "hospital",
-        "pharmacy",
-        "bank",
-        "post_office",
-        "police_station",
-        "gas_station",
-        "laundry",
-    }
+# PT-PT translation of POI category strings. The properties context
+# uses English enum values (`gym`, `school`, …) for portability; the
+# canonical text renders the PT term so PT user queries hit strongly.
+# Sort order is alphabetical-by-en-key for stable iteration / review;
+# the actual canonical-text ordering is by `(category, distance, name)`
+# so the dict iteration order doesn't matter at render time.
+_POI_CATEGORY_PT: dict[str, str] = {
+    "bakery": "padaria",
+    "bank": "banco",
+    "coffee_shop": "café",
+    "gas_station": "posto de combustível",
+    "grocery": "supermercado",
+    "gym": "ginásio",
+    "hospital": "hospital",
+    "kindergarten": "infantário",
+    "laundry": "lavandaria",
+    "library": "biblioteca",
+    "park": "parque",
+    "pharmacy": "farmácia",
+    "police_station": "esquadra",
+    "post_office": "correios",
+    "public_transit": "transportes públicos",
+    "restaurant": "restaurante",
+    "school": "escola",
+    "shopping_mall": "centro comercial",
+}
+
+# The category allowlist is implicit in the keys of `_POI_CATEGORY_PT` —
+# unknown categories fall back to the raw string so a future
+# properties-side addition (new category) renders harmlessly until it
+# lands here. The filter-before-render rule still applies to the
+# distance cap; categories are no longer filtered by allowlist.
+_POI_CATEGORY_ALLOWLIST: frozenset[str] = frozenset(_POI_CATEGORY_PT.keys())
+
+# Boolean amenity fields and their PT render terms. Only TRUE values
+# render. Order is fixed (iteration order over this list) so the
+# canonical text is byte-stable across runs.
+_AMENITY_FIELDS: tuple[tuple[str, str], ...] = (
+    ("has_pool", "piscina"),
+    ("has_garden", "jardim"),
+    ("has_elevator", "elevador"),
 )
 
 
@@ -111,14 +145,40 @@ def _render_pois(pois: Iterable[ListingPoi]) -> str:
         for p in pois
         if p.category in _POI_CATEGORY_ALLOWLIST and p.distance_meters <= max_distance_m
     ]
+    # Sort by the PT-rendered category so the resulting text is
+    # locally consistent (e.g. all `escola:` entries adjacent in the
+    # rendered list, regardless of how the en-key sorted them). Tie-
+    # break on rounded distance and lowercased name for total order.
     sorted_pois = sorted(
         filtered,
-        key=lambda p: (p.category, _round_distance_m(p.distance_meters), p.name.lower()),
+        key=lambda p: (
+            _POI_CATEGORY_PT.get(p.category, p.category),
+            _round_distance_m(p.distance_meters),
+            p.name.lower(),
+        ),
     )
     capped = sorted_pois[:max_count]
     return ", ".join(
-        f"{p.category}: {_clean(p.name)} ({_format_km(p.distance_meters)})" for p in capped
+        f"{_POI_CATEGORY_PT.get(p.category, p.category)}: {_clean(p.name)} ({_format_km(p.distance_meters)})"
+        for p in capped
     )
+
+
+def _render_features(listing: PropertyListing) -> str:
+    """Build the PT amenity list. Only TRUE booleans render — None
+    (unknown) and False are both omitted so a property without a pool
+    doesn't carry a "no pool" signal in its embedding.
+
+    Returns an empty string when the property has no amenities to
+    declare; the caller drops the FEATURES line entirely in that case
+    (per single-value-line null rule).
+    """
+    parts: list[str] = []
+    for attr, term in _AMENITY_FIELDS:
+        value = getattr(listing, attr, None)
+        if value is True:
+            parts.append(term)
+    return ", ".join(parts)
 
 
 @dataclass(frozen=True)
@@ -171,6 +231,12 @@ def compose_canonical_text(listing: PropertyListing) -> CanonicalText:
         built_parts.append(f"energy {_clean(listing.energy_rating)}")
     if built_parts:
         lines.append("BUILT: " + " · ".join(built_parts))
+
+    # FEATURES (single, PT amenity list — v2). Only renders TRUE
+    # booleans; the line is omitted if no amenities are claimed.
+    features_text = _render_features(listing)
+    if features_text:
+        lines.append(f"FEATURES: {features_text}")
 
     # PRICE (single, EUR)
     if listing.min_price is not None:

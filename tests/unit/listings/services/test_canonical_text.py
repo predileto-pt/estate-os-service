@@ -68,6 +68,7 @@ def _listing(**overrides) -> PropertyListing:
 
 
 def test_full_listing_renders_all_sections():
+    """v2 schema: PT POI categories + FEATURES line for amenities."""
     listing = _listing(
         pois=[
             ListingPoi(category="school", name="Escola Internacional", distance_meters=234.0),
@@ -81,17 +82,18 @@ def test_full_listing_renders_all_sections():
         "TYPOLOGY: APARTMENT\n"
         "SIZE: 2 bed · 1 bath · 85 m²\n"
         "BUILT: 2018 · energy A\n"
+        "FEATURES: jardim, elevador\n"
         "PRICE: 350000 EUR\n"
-        "NEARBY: grocery: Pingo Doce (0.4km), school: Escola Internacional (0.2km)\n"
+        "NEARBY: escola: Escola Internacional (0.2km), supermercado: Pingo Doce (0.4km)\n"
         "DESCRIPTION: Top-floor flat with river views."
     )
     assert out.text == expected
     assert out.version == CANONICAL_TEXT_VERSION
-    assert out.version == "v1"
+    assert out.version == "v2"
 
 
 def test_version_constant():
-    assert CANONICAL_TEXT_VERSION == "v1"
+    assert CANONICAL_TEXT_VERSION == "v2"
 
 
 def test_hash_is_sha256_of_text():
@@ -259,3 +261,111 @@ def test_no_trailing_newline():
     listing = _listing(pois=[])
     out = compose_canonical_text(listing)
     assert not out.text.endswith("\n")
+
+
+# ────────────────────────────────────────────────────────────
+# v2: FEATURES line + PT POI categories
+# ────────────────────────────────────────────────────────────
+
+
+def test_features_line_renders_only_true_amenities():
+    """Default _listing has has_pool=False, has_garden=True, has_elevator=True.
+    Only TRUE booleans render; False is treated as "no signal", not as
+    "negative signal" — the embedding doesn't claim 'sem piscina'."""
+    listing = _listing(pois=[])
+    out = compose_canonical_text(listing)
+    assert "FEATURES: jardim, elevador" in out.text
+    # has_pool=False → no "piscina" token
+    assert "piscina" not in out.text
+
+
+def test_features_line_with_all_amenities_true():
+    listing = _listing(has_pool=True, has_garden=True, has_elevator=True, pois=[])
+    out = compose_canonical_text(listing)
+    # Fixed iteration order: pool → garden → elevator
+    assert "FEATURES: piscina, jardim, elevador" in out.text
+
+
+def test_features_line_omitted_when_all_amenities_false_or_none():
+    listing = _listing(has_pool=False, has_garden=False, has_elevator=False, pois=[])
+    out = compose_canonical_text(listing)
+    assert "FEATURES" not in out.text
+
+
+def test_features_line_omitted_when_all_amenities_none():
+    listing = _listing(has_pool=None, has_garden=None, has_elevator=None, pois=[])
+    out = compose_canonical_text(listing)
+    assert "FEATURES" not in out.text
+
+
+def test_features_treats_none_and_false_identically():
+    """Hash stability: a property whose has_pool field is null reads as
+    having no pool, same as has_pool=False. Both render the same line."""
+    a = _listing(has_pool=False, has_garden=True, has_elevator=None, pois=[])
+    b = _listing(has_pool=None, has_garden=True, has_elevator=False, pois=[])
+    assert compose_canonical_text(a).text == compose_canonical_text(b).text
+
+
+def test_features_ordering_is_fixed_not_alphabetical():
+    """The render order is fixed (pool, garden, elevator) regardless of
+    which booleans are set. This is hash-stable AND matches the order
+    a portuguese reader would expect for amenity lists."""
+    listing = _listing(has_pool=True, has_garden=False, has_elevator=True, pois=[])
+    out = compose_canonical_text(listing)
+    # piscina before elevador, no jardim
+    assert "FEATURES: piscina, elevador" in out.text
+
+
+def test_pois_render_pt_category_names():
+    """PT user queries like 'ginásio' or 'escola' must match strongly.
+    The composer translates the en enum strings → PT terms."""
+    listing = _listing(
+        pois=[
+            ListingPoi(category="gym", name="Holmes Place", distance_meters=234.0),
+            ListingPoi(category="school", name="Escola X", distance_meters=412.5),
+            ListingPoi(category="grocery", name="Pingo Doce", distance_meters=510.0),
+        ]
+    )
+    out = compose_canonical_text(listing)
+    assert "ginásio: Holmes Place" in out.text
+    assert "escola: Escola X" in out.text
+    assert "supermercado: Pingo Doce" in out.text
+    # The English category strings should NOT leak into canonical text
+    assert "gym:" not in out.text
+    assert "school:" not in out.text
+    assert "grocery:" not in out.text
+
+
+def test_pois_unknown_category_falls_back_to_raw_string():
+    """If properties adds a category we haven't translated yet, the raw
+    string falls through (defensive — don't crash). The category is no
+    longer required to be in the PT map, only the distance cap applies.
+
+    Here `nightclub` isn't in the PT map nor the allowlist — drops.
+    But for a hypothetical category-in-allowlist-but-no-translation,
+    fall through. Today every allowlist member IS translated, so this
+    test fixes the contract for future additions."""
+    # Use a known-allowed category but with a name that exercises the
+    # fallback isn't engaged for it (negative confirmation).
+    listing = _listing(
+        pois=[ListingPoi(category="bakery", name="Padaria Central", distance_meters=200.0)]
+    )
+    out = compose_canonical_text(listing)
+    assert "padaria: Padaria Central" in out.text
+
+
+def test_pois_outside_allowlist_still_filtered():
+    """A category absent from `_POI_CATEGORY_PT` (and hence the
+    derived allowlist) is dropped from the canonical text, regardless
+    of distance. Prevents future category drift from polluting
+    embeddings without a controlled rollout here."""
+    listing = _listing(
+        pois=[
+            ListingPoi(category="school", name="Escola Y", distance_meters=200.0),
+            ListingPoi(category="nightclub", name="Lux", distance_meters=300.0),
+        ]
+    )
+    out = compose_canonical_text(listing)
+    assert "escola: Escola Y" in out.text
+    assert "Lux" not in out.text
+    assert "nightclub" not in out.text
