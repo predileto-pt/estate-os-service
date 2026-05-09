@@ -1,0 +1,197 @@
+"""Canonical-text composer for the listings semantic-search index.
+
+Pure function `compose_canonical_text(listing) -> CanonicalText`. The
+output is a deterministic, labeled, line-oriented string fed to the
+embedder; same input ⇒ same output, byte-for-byte. Hash stability is
+load-bearing: the embedding handler skips re-embedding when the
+`(hash, version, model)` tuple matches the persisted one, so any
+non-deterministic rendering would burn embed calls on every event.
+
+Schema is `LISTING_CANONICAL_TEXT_V1` (ADR-013 §3a). Any change to
+the rendering — new fields, reordered lines, different separators,
+different POI format — is a `LISTING_CANONICAL_TEXT_V2` bump, not an
+in-place edit.
+
+Rendering rules locked at v1:
+
+- Fields render in fixed order: LOCATION, LISTING_TYPE, TYPOLOGY, SIZE,
+  BUILT, PRICE, NEARBY, DESCRIPTION.
+- Single-value lines: omit the whole `LABEL: ...` line if the value is
+  null/empty.
+- Composite lines (LOCATION, SIZE, BUILT): omit null sub-fields with
+  their preceding `·`. Drop the line entirely if all sub-fields null.
+- Whitespace inside any value is collapsed to single spaces and
+  trimmed.
+- Description is suffix-clipped to MAX_DESCRIPTION_CHARS (default 2000).
+- POI rendering invariants (spec §3a):
+    - Filter-before-render: POIs outside the category allowlist or
+      beyond LISTING_POI_MAX_DISTANCE_M are dropped.
+    - Sort key: (category, distance_m_rounded, name.lower()) — total
+      order, locale-independent.
+    - Distance rounded to nearest 100m, formatted as `<n.n>km` (one
+      decimal). Re-geocoding jitter <100m can't invalidate the hash.
+    - Hard cap at LISTING_POI_MAX_COUNT (default 20).
+- Line separator is a single LF. No trailing newline.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import re
+from dataclasses import dataclass
+from typing import Iterable
+
+from listings.domain.property_listing import ListingPoi, PropertyListing
+
+CANONICAL_TEXT_VERSION = "v1"
+
+# All POI category strings the canonical text recognizes. Keeping this
+# allowlist on the listings side keeps `properties.PoiCategory` from
+# leaking across the context boundary; if properties adds a new
+# category, a controlled rollout flips it on here.
+_POI_CATEGORY_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "school",
+        "kindergarten",
+        "library",
+        "shopping_mall",
+        "grocery",
+        "bakery",
+        "restaurant",
+        "coffee_shop",
+        "park",
+        "gym",
+        "public_transit",
+        "hospital",
+        "pharmacy",
+        "bank",
+        "post_office",
+        "police_station",
+        "gas_station",
+        "laundry",
+    }
+)
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _clean(value: str) -> str:
+    return _WHITESPACE_RE.sub(" ", value).strip()
+
+
+def _round_distance_m(distance_meters: float) -> int:
+    """Round to nearest 100m. Locks distance precision against geocoder
+    jitter so the same physical POI distance always renders the same."""
+    return int(round(distance_meters / 100.0)) * 100
+
+
+def _format_km(distance_meters: float) -> str:
+    """Render rounded distance as `<n.n>km`."""
+    rounded_m = _round_distance_m(distance_meters)
+    return f"{rounded_m / 1000:.1f}km"
+
+
+def _render_pois(pois: Iterable[ListingPoi]) -> str:
+    max_count = _int_env("LISTING_POI_MAX_COUNT", 20)
+    max_distance_m = _int_env("LISTING_POI_MAX_DISTANCE_M", 3000)
+    filtered = [
+        p
+        for p in pois
+        if p.category in _POI_CATEGORY_ALLOWLIST and p.distance_meters <= max_distance_m
+    ]
+    sorted_pois = sorted(
+        filtered,
+        key=lambda p: (p.category, _round_distance_m(p.distance_meters), p.name.lower()),
+    )
+    capped = sorted_pois[:max_count]
+    return ", ".join(
+        f"{p.category}: {_clean(p.name)} ({_format_km(p.distance_meters)})" for p in capped
+    )
+
+
+@dataclass(frozen=True)
+class CanonicalText:
+    text: str
+    version: str
+    hash: str  # SHA-256 hex
+
+
+def compose_canonical_text(listing: PropertyListing) -> CanonicalText:
+    """Render `LISTING_CANONICAL_TEXT_V1` for a listing.
+
+    Pure / deterministic. Reads no I/O.
+    """
+    lines: list[str] = []
+
+    # LOCATION (composite)
+    location_parts = [
+        _clean(part)
+        for part in (listing.parish, listing.municipality, listing.district)
+        if part and _clean(part)
+    ]
+    if location_parts:
+        lines.append("LOCATION: " + " · ".join(location_parts))
+
+    # LISTING_TYPE (single)
+    if listing.listing_type:
+        lines.append(f"LISTING_TYPE: {listing.listing_type.value.upper()}")
+
+    # TYPOLOGY (single)
+    if listing.typology:
+        lines.append(f"TYPOLOGY: {listing.typology.value.upper()}")
+
+    # SIZE (composite: bedrooms · bathrooms · area)
+    size_parts: list[str] = []
+    if listing.num_of_bedrooms is not None:
+        size_parts.append(f"{listing.num_of_bedrooms} bed")
+    if listing.num_of_bathrooms is not None:
+        size_parts.append(f"{listing.num_of_bathrooms} bath")
+    if listing.area_in_m2 is not None:
+        size_parts.append(f"{listing.area_in_m2} m²")
+    if size_parts:
+        lines.append("SIZE: " + " · ".join(size_parts))
+
+    # BUILT (composite: year_built · energy <energy_rating>)
+    built_parts: list[str] = []
+    if listing.built_at is not None:
+        built_parts.append(str(listing.built_at))
+    if listing.energy_rating:
+        built_parts.append(f"energy {_clean(listing.energy_rating)}")
+    if built_parts:
+        lines.append("BUILT: " + " · ".join(built_parts))
+
+    # PRICE (single, EUR)
+    if listing.min_price is not None:
+        # Render whole-EUR integer for hash stability — listings carry
+        # `Decimal(12, 2)` but the embedding doesn't need the cents.
+        lines.append(f"PRICE: {int(listing.min_price)} EUR")
+
+    # NEARBY (single, derived from POIs)
+    poi_summary = _render_pois(listing.pois)
+    if poi_summary:
+        lines.append(f"NEARBY: {poi_summary}")
+
+    # DESCRIPTION (single, truncated)
+    if listing.description:
+        cleaned = _clean(listing.description)
+        max_chars = _int_env("LISTING_DESCRIPTION_MAX_CHARS", 2000)
+        if len(cleaned) > max_chars:
+            cleaned = cleaned[:max_chars]
+        if cleaned:
+            lines.append(f"DESCRIPTION: {cleaned}")
+
+    text = "\n".join(lines)
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return CanonicalText(text=text, version=CANONICAL_TEXT_VERSION, hash=digest)

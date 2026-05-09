@@ -76,6 +76,10 @@ class PropertyListing:
     created_at: datetime
     updated_at: datetime
 
+    # Read by the canonical-text composer (`BUILT: ...` line).
+    built_at: int | None = None
+    energy_rating: str | None = None
+
     # Embedding pipeline state (ADR-013, spec
     # `2026-05-listing-semantic-search`). Default values match a freshly
     # projected row that hasn't been embedded yet.

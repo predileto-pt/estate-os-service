@@ -91,6 +91,8 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             has_pool=chars.get("has_pool"),
             has_garden=chars.get("has_garden"),
             has_elevator=chars.get("has_elevator"),
+            built_at=chars.get("built_at"),
+            energy_rating=chars.get("energy_rating"),
             min_price=min_price,
             first_image_s3_key=first_image,
             description=event_data.get("description"),
