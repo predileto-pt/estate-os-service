@@ -62,7 +62,9 @@ Edit `.env` with your values:
 | `VECTOR_INDEX_PROVIDER` | Vector store backing the `VectorIndex` port (default `pinecone`). |
 | `VECTOR_INDEX_NAMESPACE` | Pinecone namespace = embedding model version (default `openai-text-embedding-3-small-v1`). Atomically flipped on a model bump after the new namespace is backfilled. |
 | `PINECONE_API_KEY` | Pinecone API key. Required when `LISTINGS_EMBEDDING_ENABLED=true`. |
-| `PINECONE_INDEX` | Pinecone index name / host (default `listings-prod`). |
+| `PINECONE_HOST` | Direct Pinecone host URL, e.g. `listings-prod-abc123.svc.aped-1234-xyz.pinecone.io`. **Preferred** — skips a control-plane `describe_index` RTT at startup. Find it on the index's detail page in the dashboard or via `pc index describe --name <index> --json | jq -r '.host'`. |
+| `PINECONE_INDEX` | Pinecone index name (default `listings-prod`). Used as the fallback when `PINECONE_HOST` is empty (host resolved lazily on first use) and by ops scripts. |
+| `PINECONE_CLOUD` / `PINECONE_REGION` | Informational — used when provisioning the index (defaults `aws` / `us-east-1`). The runtime adapter doesn't read these; the host already encodes the region. |
 | `LISTING_POI_MAX_COUNT` / `LISTING_POI_MAX_DISTANCE_M` / `LISTING_DESCRIPTION_MAX_CHARS` | Canonical-text composer knobs (defaults `20` / `3000` / `2000`). |
 | `CORS_ORIGINS` | Comma-separated allowed origins |
 
@@ -983,12 +985,14 @@ Pinecone organizes resources as `account → project → index`. One index per e
 In the [Pinecone Dashboard](https://app.pinecone.io/):
 
 1. **Create a project** (one-time per environment). Name it after the environment, e.g. `predileto-prod`.
-2. **Create a serverless index:**
-   - **Name:** `listings-prod` (or whatever you set in `PINECONE_INDEX`).
-   - **Dimensions:** `1536` — must match `EMBEDDING_DIMENSIONS` and the OpenAI model. `text-embedding-3-small` outputs 1536; if you switch to `text-embedding-3-large`, use 3072 and bump both env vars.
-   - **Metric:** `cosine`. The canonical-text composer doesn't pre-normalize, and Pinecone v3+ cosine handles that internally. Other metrics will silently mis-rank.
-   - **Cloud / region:** pick to co-locate with the rest of the infra. AWS `us-east-1` matches LocalStack for local mirrors; production typically uses the same region as the API.
-3. **Get the API key:** Project → API Keys → "Create API key". Copy the value into `PINECONE_API_KEY`. The key is project-scoped, so dev/staging/prod each get their own.
+2. **Create a serverless index** with these locked settings:
+   - **Name** (`PINECONE_INDEX`): `listings-prod` (or whatever your env-specific value is).
+   - **Dimensions** (`EMBEDDING_DIMENSIONS`): `1536` — must match the OpenAI model. `text-embedding-3-small` outputs 1536; bumping to `text-embedding-3-large` means provisioning a *new* index at 3072 (Pinecone indexes are dimension-locked) and bumping both env vars.
+   - **Metric:** `cosine`. The canonical-text composer doesn't pre-normalize and Pinecone cosine handles that internally. Other metrics silently mis-rank.
+   - **Cloud** (`PINECONE_CLOUD`): typically `aws` to co-locate with the rest of the infra.
+   - **Region** (`PINECONE_REGION`): typically `us-east-1` (or whichever matches your API region).
+3. **Copy the host URL** (`PINECONE_HOST`) shown on the index detail page. Format: `<index>-<projectid>.svc.<region>.pinecone.io`. The host is what the runtime actually connects to; passing it directly skips a control-plane `describe_index` call at startup. If you don't set `PINECONE_HOST`, the adapter falls back to looking up the host from `PINECONE_INDEX` lazily on first use — works fine, costs one extra RTT at startup.
+4. **Create the API key** (`PINECONE_API_KEY`): Project → API Keys → "Create API key". Project-scoped, so dev/staging/prod each get their own.
 
 You can also do all of this from the CLI ([Pinecone CLI](https://docs.pinecone.io/reference/cli) — `pip install pinecone` ships it as `pc`):
 
@@ -1004,8 +1008,9 @@ pc index create-serverless \
   --cloud aws \
   --region us-east-1
 
-# Confirm
-pc index describe --name listings-prod
+# Read back the host string into PINECONE_HOST
+pc index describe --name listings-prod --json | jq -r '.host'
+# → listings-prod-abc123.svc.aped-1234-xyz.pinecone.io
 ```
 
 **Namespaces are not provisioned ahead of time.** Pinecone creates a namespace lazily on first upsert; the listings worker writes to whatever string is in `VECTOR_INDEX_NAMESPACE` (default `openai-text-embedding-3-small-v1`). Bumping the embedding model = pick a new namespace string + run the backfill CLI (separate spec) + atomically flip `VECTOR_INDEX_NAMESPACE` + delete the old namespace.
@@ -1022,11 +1027,17 @@ LISTINGS_EMBEDDING_ENABLED=true
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=1536
 
-# Pinecone
+# Pinecone — host is preferred (skips the control-plane describe RTT
+# at startup). When PINECONE_HOST is empty, the adapter resolves it
+# lazily from PINECONE_INDEX on first use.
+PINECONE_API_KEY=...   # from the Pinecone dashboard
+PINECONE_HOST=listings-prod-abc123.svc.aped-1234-xyz.pinecone.io
+PINECONE_INDEX=listings-prod
+PINECONE_CLOUD=aws        # informational — used by the setup runbook
+PINECONE_REGION=us-east-1 # informational — host already encodes the region
+
 VECTOR_INDEX_PROVIDER=pinecone
 VECTOR_INDEX_NAMESPACE=openai-text-embedding-3-small-v1
-PINECONE_API_KEY=...   # from the Pinecone dashboard
-PINECONE_INDEX=listings-prod
 
 # Composer knobs (defaults usually fine)
 LISTING_POI_MAX_COUNT=20

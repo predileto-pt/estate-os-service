@@ -6,10 +6,19 @@ the `property_listing_id`; namespace is the embedding model version.
 ADR-013 §4.
 
 Connection model: a single `PineconeAsyncio` client + a single
-`AsyncIndex` handle constructed at adapter init and reused for the
-worker's lifetime. The Pinecone SDK supports this pattern (it's
-not strictly context-manager-only); we don't `close()` the client —
-process exit cleans up.
+`AsyncIndex` handle reused for the worker's lifetime.
+
+Index handle resolution:
+- If `host` is provided, the handle is constructed synchronously via
+  `pc.IndexAsyncio(host=...)` — no startup RTT to the control plane.
+  This is the preferred wiring; pass the host string from the
+  Pinecone dashboard (or `pc index describe`).
+- If only `index_name` is provided, the handle is resolved lazily on
+  first use via `await pc.index(name=...)`, which triggers a
+  `describe_index` lookup. One-time cost at startup; the SDK caches
+  the resolved host.
+
+We don't `close()` the client — process exit cleans up.
 """
 
 from __future__ import annotations
@@ -57,11 +66,30 @@ def _translate_filter(flt: VectorFilter) -> dict[str, Any]:
 
 
 class PineconeVectorIndex(VectorIndex):
-    def __init__(self, *, api_key: str, index_name: str) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        host: str | None = None,
+        index_name: str | None = None,
+    ) -> None:
+        if not host and not index_name:
+            raise ValueError("PineconeVectorIndex requires either host (preferred) or index_name")
         self._client = PineconeAsyncio(api_key=api_key)
-        # `index()` returns the per-index handle by name (lazy host
-        # resolution). The SDK keeps the handle bound to the client.
-        self._index = self._client.IndexAsyncio(host=index_name)
+        self._host = host
+        self._index_name = index_name
+        self._index: Any | None = None
+
+    async def _get_index(self) -> Any:
+        if self._index is not None:
+            return self._index
+        if self._host:
+            # Sync construction — no control-plane RTT.
+            self._index = self._client.IndexAsyncio(host=self._host)
+        else:
+            # Lazy describe-index lookup; SDK caches the resolved host.
+            self._index = await self._client.index(name=self._index_name or "")
+        return self._index
 
     async def upsert(
         self,
@@ -71,13 +99,15 @@ class PineconeVectorIndex(VectorIndex):
         metadata: dict,
         namespace: str,
     ) -> None:
-        await self._index.upsert(
+        idx = await self._get_index()
+        await idx.upsert(
             vectors=[{"id": vector_id, "values": vector, "metadata": metadata}],
             namespace=namespace,
         )
 
     async def delete(self, *, vector_id: str, namespace: str) -> None:
-        await self._index.delete(ids=[vector_id], namespace=namespace)
+        idx = await self._get_index()
+        await idx.delete(ids=[vector_id], namespace=namespace)
 
     async def update_metadata(
         self,
@@ -86,7 +116,8 @@ class PineconeVectorIndex(VectorIndex):
         metadata: dict,
         namespace: str,
     ) -> None:
-        await self._index.update(
+        idx = await self._get_index()
+        await idx.update(
             id=vector_id,
             set_metadata=metadata,
             namespace=namespace,
@@ -100,8 +131,9 @@ class PineconeVectorIndex(VectorIndex):
         top_k: int,
         namespace: str,
     ) -> list[VectorMatch]:
+        idx = await self._get_index()
         translated = _translate_filter(filter) if filter else None
-        response = await self._index.query(
+        response = await idx.query(
             vector=vector,
             top_k=top_k,
             namespace=namespace,

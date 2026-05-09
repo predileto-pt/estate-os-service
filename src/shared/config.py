@@ -35,7 +35,19 @@ class Settings(BaseSettings):
     vector_index_provider: str = "pinecone"
     vector_index_namespace: str = "openai-text-embedding-3-small-v1"
     pinecone_api_key: str = ""
+    # Pinecone host (preferred). Skips the control-plane describe call
+    # at startup. Format: `<index>-<projectid>.svc.<region>.pinecone.io`
+    # — copy from the Pinecone dashboard or `pc index describe`.
+    pinecone_host: str = ""
+    # Index name. Used as a fallback when `pinecone_host` is empty —
+    # the adapter resolves the host lazily on first use via
+    # `pc.index(name=...)`. Also useful for ops scripts.
     pinecone_index: str = "listings-prod"
+    # Cloud + region. Informational only — used by setup runbooks +
+    # operators when provisioning the index. The runtime adapter
+    # doesn't read these (the host already encodes the region).
+    pinecone_cloud: str = "aws"
+    pinecone_region: str = "us-east-1"
 
     # AWS / LocalStack
     aws_region: str = "eu-west-1"

@@ -320,9 +320,11 @@ async def get_listing_container() -> ListingContainer:
             api_key=settings.openai_api_key,
             model=settings.embedding_model,
         )
+        # Prefer host (skips the describe RTT); fall back to name.
         vector_index = PineconeVectorIndex(
             api_key=settings.pinecone_api_key,
-            index_name=settings.pinecone_index,
+            host=settings.pinecone_host or None,
+            index_name=settings.pinecone_index or None,
         )
 
     _listing_container = ListingContainer(
