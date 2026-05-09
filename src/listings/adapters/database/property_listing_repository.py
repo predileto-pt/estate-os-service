@@ -108,9 +108,17 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
         row = _event_to_row(event_data, source_occurred_at)
         async with self._session_factory() as session:
             stmt = pg_insert(PropertyListingModel).values(**row)
-            # Embedding columns are owned by the embedding handler, not the
-            # projector — exclude them from the UPDATE SET clause so a
-            # projector-driven upsert doesn't regress embedding state.
+            # Three groups of columns are owned by *other* handlers, not
+            # the projector, so they must NOT be in the UPDATE SET
+            # clause (they'd silently regress on every PROPERTY_UPDATED):
+            #
+            # - location columns (parish/municipality/district +
+            #   location_enriched_at + location_enrichment_attempts) are
+            #   written by `handle_address_enrichment` after the LLM
+            #   parses the free-text address. The InMemory adapter
+            #   already preserves these; the SqlAlchemy adapter was
+            #   wiping them on every update.
+            # - embedding columns are written by the embedding handler.
             stmt = stmt.on_conflict_do_update(
                 index_elements=["id"],
                 set_={
@@ -120,6 +128,10 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
                     not in (
                         "id",
                         "created_at",
+                        "parish",
+                        "municipality",
+                        "district",
+                        "location_enriched_at",
                         "location_enrichment_attempts",
                         "embedding_text_hash",
                         "canonical_text_version",
