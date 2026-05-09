@@ -276,12 +276,7 @@ def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:
 
     chars = data.get("characteristics") or {}
 
-    # POIs from the upstream snapshot (lean shape:
-    # `[{category, name, distance_meters}, ...]`). Tolerate older
-    # events without `pois` by defaulting to empty.
-    pois = data.get("pois") or []
-
-    return {
+    row = {
         "id": data["id"],
         "organization_id": data["organization_id"],
         "status": data["status"],
@@ -304,7 +299,16 @@ def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:
         "description": data.get("description"),
         "latitude": data.get("latitude"),
         "longitude": data.get("longitude"),
-        "pois": pois,
         "source_aggregate_version": data["aggregate_version"],
         "source_occurred_at": source_occurred_at,
     }
+
+    # POIs: snapshot key presence is meaningful. When the snapshot
+    # carries `pois` (even `[]`), it's authoritative — write it. When the
+    # key is absent, the emitter wasn't publishing POI state — preserve
+    # whatever's already on the row by omitting it from the row dict
+    # (the upsert SET clause skips columns not in the dict).
+    if "pois" in data:
+        row["pois"] = data["pois"] or []
+
+    return row

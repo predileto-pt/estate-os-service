@@ -190,6 +190,7 @@ class Container:
         self.publish_property = PublishProperty(
             property_repo=property_repo,
             domain_event_publisher=domain_event_publisher,
+            property_poi_repo=property_poi_repo,
         )
         self.create_property_price = CreatePropertyPrice(
             property_repo=property_repo,

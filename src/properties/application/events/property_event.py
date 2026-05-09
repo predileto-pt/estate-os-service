@@ -10,6 +10,15 @@ Payload contract — see
 `.claude/specs/active/carried-state-events-and-property-listings-projector.md`
 §Payload contract.
 
+POIs (spec `2026-05-listing-semantic-search`): `build_property_snapshot`
+accepts an optional `pois` parameter — a list of `PropertyPoi` aggregate
+rows. When provided, the snapshot includes a `pois` key with the lean
+shape `[{category, name, distance_meters}, ...]`. When omitted, the
+`pois` key is **absent** — the listings projector treats this as
+"preserve existing pois on the row" (semantically distinct from
+`pois: []` which means "no pois"). Only emit sites that actually want
+to publish authoritative POI state need to fetch + pass them.
+
 Minimal shape for `PROPERTY_DELETED.v1`: `{id, organization_id,
 aggregate_version}`. Use `build_deletion_payload()` for that.
 """
@@ -17,14 +26,22 @@ aggregate_version}`. Use `build_deletion_payload()` for that.
 from __future__ import annotations
 
 from properties.domain.models.property import Property
+from properties.domain.models.property_poi import PropertyPoi
 
 
-def build_property_snapshot(prop: Property) -> dict:
+def build_property_snapshot(
+    prop: Property, pois: list[PropertyPoi] | None = None
+) -> dict:
     """Build the full carried-state payload from a Property aggregate.
 
     Used by `PROPERTY_CREATED.v1` and `PROPERTY_UPDATED.v1`. The
     listings projector upserts a `property_listings` row directly from
     this dict; it does not re-read the write-side `properties` table.
+
+    `pois`: optional. When provided, each POI is serialized as
+    `{category, name, distance_meters}` — the lean shape consumed by the
+    listings canonical-text composer. When omitted, the `pois` key is
+    not present in the returned dict.
     """
     characteristics = None
     if prop.characteristics is not None:
@@ -41,7 +58,7 @@ def build_property_snapshot(prop: Property) -> dict:
             "has_pool": prop.characteristics.has_pool,
         }
 
-    return {
+    payload: dict = {
         "id": str(prop.id),
         "organization_id": str(prop.organization_id),
         "aggregate_version": prop.aggregate_version,
@@ -69,6 +86,16 @@ def build_property_snapshot(prop: Property) -> dict:
             for img in prop.images
         ],
     }
+    if pois is not None:
+        payload["pois"] = [
+            {
+                "category": poi.category.value,
+                "name": poi.name,
+                "distance_meters": poi.distance_meters,
+            }
+            for poi in pois
+        ]
+    return payload
 
 
 def build_deletion_payload(prop: Property) -> dict:
@@ -81,12 +108,17 @@ def build_deletion_payload(prop: Property) -> dict:
     }
 
 
-async def emit_property_updated(publisher, prop: Property) -> None:
+async def emit_property_updated(
+    publisher, prop: Property, pois: list[PropertyPoi] | None = None
+) -> None:
     """Publish `PROPERTY_UPDATED.v1` with a fresh snapshot.
 
     Log-and-swallow on publish failure — matches the existing pattern in
     `CreateProperty` where persistence is already committed and a failed
     publish is a monitoring concern rather than a transaction abort.
+
+    `pois`: forwarded to `build_property_snapshot`. Only callers that
+    are publishing authoritative POI state should pass this.
     """
     import structlog
 
@@ -98,7 +130,9 @@ async def emit_property_updated(publisher, prop: Property) -> None:
         return
     try:
         await publisher.publish(
-            DomainEvent(event_type=PROPERTY_UPDATED_V1, data=build_property_snapshot(prop))
+            DomainEvent(
+                event_type=PROPERTY_UPDATED_V1, data=build_property_snapshot(prop, pois)
+            )
         )
     except Exception:
         log.exception("property.domain_event_failed", property_id=str(prop.id))
@@ -122,7 +156,9 @@ async def emit_property_deleted(publisher, prop: Property) -> None:
         log.exception("property.domain_event_failed", property_id=str(prop.id))
 
 
-async def emit_property_published(publisher, prop: Property) -> None:
+async def emit_property_published(
+    publisher, prop: Property, pois: list[PropertyPoi] | None = None
+) -> None:
     """Publish `PROPERTY_PUBLISHED.v1` with a fresh snapshot.
 
     Distinct business event for the "went live" moment — downstream
@@ -131,6 +167,10 @@ async def emit_property_published(publisher, prop: Property) -> None:
 
     Log-and-swallow on publish failure — matches the existing pattern;
     persistence is already committed when we get here.
+
+    `pois`: forwarded to `build_property_snapshot`. The publish use
+    case fetches POIs from the catalog so the listings projector seeds
+    `property_listings.pois` with whatever's discovered at publish time.
     """
     import structlog
 
@@ -142,7 +182,9 @@ async def emit_property_published(publisher, prop: Property) -> None:
         return
     try:
         await publisher.publish(
-            DomainEvent(event_type=PROPERTY_PUBLISHED_V1, data=build_property_snapshot(prop))
+            DomainEvent(
+                event_type=PROPERTY_PUBLISHED_V1, data=build_property_snapshot(prop, pois)
+            )
         )
     except Exception:
         log.exception("property.domain_event_failed", property_id=str(prop.id))

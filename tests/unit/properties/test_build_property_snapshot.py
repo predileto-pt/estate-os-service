@@ -21,6 +21,7 @@ from properties.domain.models.property import (
 )
 from properties.domain.models.property_characteristics import PropertyCharacteristics
 from properties.domain.models.property_image import PropertyImage
+from properties.domain.models.property_poi import PoiCategory, PropertyPoi
 from properties.domain.models.property_price import PropertyPrice
 
 
@@ -113,6 +114,63 @@ def test_snapshot_with_characteristics_prices_images():
             "display_order": 0,
         }
     ]
+
+
+def test_snapshot_omits_pois_key_when_not_provided():
+    """The `pois` arg defaults to None and the key is absent — listings
+    projector treats this as 'preserve existing pois'. Backwards-compat
+    with every emit site that doesn't pass POIs."""
+    prop = _base_property()
+    prop.bump_version()
+    payload = build_property_snapshot(prop)
+    assert "pois" not in payload
+
+
+def test_snapshot_includes_pois_lean_shape_when_provided():
+    """When the caller passes POIs, the snapshot serializes them in the
+    lean shape `{category, name, distance_meters}` consumed by the
+    listings canonical-text composer."""
+    prop = _base_property()
+    prop.bump_version()
+    now = datetime.now(timezone.utc)
+    pois = [
+        PropertyPoi(
+            id=UUID("00000000-0000-0000-0000-000000000aa1"),
+            property_id=prop.id,
+            category=PoiCategory.SCHOOL,
+            name="Escola Internacional",
+            distance_meters=234.0,
+            latitude=38.7,
+            longitude=-9.1,
+            created_at=now,
+            updated_at=now,
+        ),
+        PropertyPoi(
+            id=UUID("00000000-0000-0000-0000-000000000aa2"),
+            property_id=prop.id,
+            category=PoiCategory.GROCERY,
+            name="Pingo Doce",
+            distance_meters=412.5,
+            latitude=38.7,
+            longitude=-9.1,
+            created_at=now,
+            updated_at=now,
+        ),
+    ]
+    payload = build_property_snapshot(prop, pois=pois)
+    assert payload["pois"] == [
+        {"category": "school", "name": "Escola Internacional", "distance_meters": 234.0},
+        {"category": "grocery", "name": "Pingo Doce", "distance_meters": 412.5},
+    ]
+
+
+def test_snapshot_includes_empty_pois_list_when_explicitly_empty():
+    """`pois=[]` is semantically distinct from `pois=None`. Empty list
+    means 'authoritative: no POIs'; missing key means 'preserve'."""
+    prop = _base_property()
+    prop.bump_version()
+    payload = build_property_snapshot(prop, pois=[])
+    assert payload["pois"] == []
 
 
 def test_deletion_payload_is_minimal():

@@ -59,15 +59,19 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
         if first_image is None and images:
             first_image = images[0].get("s3_key")
 
-        pois_raw = event_data.get("pois") or []
-        pois = [
-            ListingPoi(
-                category=p["category"],
-                name=p["name"],
-                distance_meters=float(p["distance_meters"]),
-            )
-            for p in pois_raw
-        ]
+        # POIs: when the snapshot carries `pois` it's authoritative; when
+        # absent, preserve whatever's on the existing row.
+        if "pois" in event_data:
+            pois = [
+                ListingPoi(
+                    category=p["category"],
+                    name=p["name"],
+                    distance_meters=float(p["distance_meters"]),
+                )
+                for p in (event_data.get("pois") or [])
+            ]
+        else:
+            pois = list(existing.pois) if existing else []
 
         listing = PropertyListing(
             id=property_id,
