@@ -220,13 +220,18 @@ POI_SNAPSHOT_MAX_DISTANCE_M=5000
 
 ## Out of scope follow-ups
 
+Three follow-ups surfaced during implementation are now their own specs in `.claude/specs/active/`:
+
+- **Re-embed after address enrichment** → [`2026-05-reembed-after-address-enrichment.md`](2026-05-reembed-after-address-enrichment.md). Address handler should publish `PROPERTY_LISTING_UPDATED.v1` after a successful `update_location` so the embedding handler re-runs with the LOCATION line populated.
+- **Pinecone contract-test parametrization** → [`2026-05-pinecone-vector-index-contract-tests.md`](2026-05-pinecone-vector-index-contract-tests.md). Add unit tests for `_translate_filter` (ships without infra) and parametrize the contract suite over both `InMemoryVectorIndex` and `PineconeVectorIndex` (skipped without `PINECONE_API_KEY`).
+- **`EnrichProperty` should publish `PROPERTY_UPDATED.v1` with POIs** → [`2026-05-property-enrich-emits-update-with-pois.md`](2026-05-property-enrich-emits-update-with-pois.md). Properties-context fix so post-publish POI discoveries propagate to the listings projection and the search index.
+
+Other follow-ups remaining inline (lower priority or scoped under a different effort):
+
 - **Read path** — search use case, `LocationExtractor`, `QueryRewriter`, `q=` query param. Separate spec (phase 2).
 - **Backfill CLI** — `src/listings/entrypoints/backfill_embeddings.py` to embed pre-existing rows. Separate spec.
-- **Re-embed after address enrichment.** The address-enrichment handler runs *after* the projector and writes `parish/municipality/district` directly. The embedding handler runs in parallel via SNS, so the first embedding lacks the LOCATION line. The address handler should publish `PROPERTY_LISTING_UPDATED.v1` after a successful `update_location` so the embedding handler re-runs with location populated. **Captured here, not solved in this spec.**
 - **`handle_address_enrichment` LLM-call de-dup.** Today it re-parses on every event, even if address unchanged. Wasteful; separate concern.
-- **Pinecone contract test parametrization.** Run the `test_inmemory_vector_index.py` contract suite against a real Pinecone test namespace, gated on `PINECONE_API_KEY`. Needs a Pinecone test project + a CI secret. Currently the adapter is verified by manual smoke + the SDK's own tests.
-- **Properties POI auto-discovery → `PROPERTY_UPDATED.v1`.** The `EnrichProperty` use case writes POIs but doesn't currently publish a `PROPERTY_UPDATED.v1` carrying them. Until it does, only `PublishProperty` seeds POIs onto the listings row; subsequent POI discoveries don't propagate. Properties-context concern, ADR-013 §2a precondition.
-- **POI batching guarantee** — integration test in properties asserting the auto-discovery workflow fires exactly one `PROPERTY_UPDATED.v1` per workflow run, not one per discovered POI.
+- **POI batching guarantee** — integration test in properties asserting the auto-discovery workflow fires exactly one `PROPERTY_UPDATED.v1` per workflow run, not one per discovered POI. Lives alongside the `EnrichProperty` follow-up.
 - **Pinecone index provisioning + region/tier sizing** — infra spec.
 - **`bool(listings_embedding_enabled)` env parsing.** pydantic-settings handles `"true"`/`"false"`/`"1"`/`"0"` natively; double-check the operator runbook at staging flip.
 

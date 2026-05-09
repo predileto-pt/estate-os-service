@@ -40,6 +40,8 @@ awslocal sns create-topic --name domain-events-PROPERTY_UPDATED-v1
 awslocal sns create-topic --name domain-events-PROPERTY_DELETED-v1
 awslocal sns create-topic --name domain-events-PROPERTY_PUBLISHED-v1
 awslocal sns create-topic --name domain-events-PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT-v1
+awslocal sns create-topic --name domain-events-PROPERTY_LISTING_UPDATED-v1
+awslocal sns create-topic --name domain-events-PROPERTY_LISTING_DELETED-v1
 awslocal sns create-topic --name domain-events-APPLICANT_SCREENED-v1
 awslocal sns create-topic --name domain-events-USER_REGISTERED-v1
 awslocal sns create-topic --name domain-events-SUBSCRIPTION_CREATED-v1
@@ -113,7 +115,19 @@ awslocal sns subscribe \
   --notification-endpoint arn:aws:sqs:us-east-1:000000000000:bookings-events-queue
 
 # listings — all PROPERTY_* events (projector upserts property_listings)
-for event_type in PROPERTY_CREATED PROPERTY_UPDATED PROPERTY_DELETED PROPERTY_PUBLISHED PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT; do
+# Plus listings-internal fan-out for the address-enrichment + embedding
+# handlers (spec `2026-05-listing-semantic-search`):
+#   - PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1 → address parser
+#   - PROPERTY_LISTING_UPDATED.v1                  → embedding handler
+#   - PROPERTY_LISTING_DELETED.v1                  → vector delete
+for event_type in \
+  PROPERTY_CREATED \
+  PROPERTY_UPDATED \
+  PROPERTY_DELETED \
+  PROPERTY_PUBLISHED \
+  PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT \
+  PROPERTY_LISTING_UPDATED \
+  PROPERTY_LISTING_DELETED; do
   awslocal sns subscribe \
     --topic-arn "arn:aws:sns:us-east-1:000000000000:domain-events-${event_type}-v1" \
     --protocol sqs \

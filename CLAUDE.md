@@ -56,7 +56,7 @@ Hexagonal (ports & adapters) architecture with three layers:
 | **Screening** | `src/screening/` | `app.state.screening_container` | Applicant screening + document extraction. |
 | **Bookings** | `src/bookings/` | `app.state.booking_container` | Slot + booking management. |
 | **Contract Intelligence** | `src/contract_intelligence/` | `app.state.contract_intelligence_container` | |
-| **Listings** | `src/listings/` | `app.state.listing_container` | Public-facing property listings. |
+| **Listings** | `src/listings/` | `app.state.listing_container` | Public-facing property listings. Owns the `property_listings` projection (carried-state from `PROPERTY_*.v1` events) and the semantic-search indexing pipeline (Pinecone v1, gated by `LISTINGS_EMBEDDING_ENABLED`). |
 
 Cross-context dependency rules:
 

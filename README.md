@@ -56,6 +56,14 @@ Edit `.env` with your values:
 | `STRIPE_PRICE_PRO_MONTHLY` / `_YEARLY` | Stripe `price_*` IDs for the Pro plan |
 | `STRIPE_PRICE_ENTERPRISE_MONTHLY` / `_YEARLY` | Stripe `price_*` IDs for the Enterprise plan |
 | `STRIPE_TRIAL_PERIOD_DAYS` | Free-trial length passed to Checkout (default `7`) |
+| `LISTINGS_EMBEDDING_ENABLED` | Master gate for the listings semantic-search indexing pipeline. When `false` (default), the embedding handler is a no-op — messages still consumed, but no OpenAI/Pinecone calls. Flip to `true` after `PINECONE_API_KEY` is wired. See [docs/features/listings.md → Semantic-search indexing pipeline](docs/features/listings.md#semantic-search-indexing-pipeline). |
+| `EMBEDDING_MODEL` | OpenAI embedding model (default `text-embedding-3-small`). Used as `embedding_model_version` for hash-skip dedup. |
+| `EMBEDDING_DIMENSIONS` | Embedding vector dimensions (default `1536`, must match the model). |
+| `VECTOR_INDEX_PROVIDER` | Vector store backing the `VectorIndex` port (default `pinecone`). |
+| `VECTOR_INDEX_NAMESPACE` | Pinecone namespace = embedding model version (default `openai-text-embedding-3-small-v1`). Atomically flipped on a model bump after the new namespace is backfilled. |
+| `PINECONE_API_KEY` | Pinecone API key. Required when `LISTINGS_EMBEDDING_ENABLED=true`. |
+| `PINECONE_INDEX` | Pinecone index name / host (default `listings-prod`). |
+| `LISTING_POI_MAX_COUNT` / `LISTING_POI_MAX_DISTANCE_M` / `LISTING_DESCRIPTION_MAX_CHARS` | Canonical-text composer knobs (defaults `20` / `3000` / `2000`). |
 | `CORS_ORIGINS` | Comma-separated allowed origins |
 
 ### 3. Run database migrations
@@ -401,8 +409,8 @@ LocalStack creates these SQS queues:
 
 | Queue | Purpose |
 |-------|---------|
-| SNS topic per `.v1` event type | **Domain events** (`domain-events-PROPERTY_CREATED-v1`, `domain-events-APPLICANT_SCREENED-v1`, …). Publisher is `SNSEventPublisher`. |
-| `customers-events-queue` / `bookings-events-queue` / `listings-events-queue` | **Per-context domain-event consumers.** Each SQS queue subscribes to the SNS topics the context cares about. Each has its own DLQ with `maxReceiveCount=5`. |
+| SNS topic per `.v1` event type | **Domain events** (`domain-events-PROPERTY_CREATED-v1`, `domain-events-APPLICANT_SCREENED-v1`, `domain-events-PROPERTY_LISTING_UPDATED-v1`, `domain-events-PROPERTY_LISTING_DELETED-v1`, …). Publisher is `SNSEventPublisher`. |
+| `customers-events-queue` / `bookings-events-queue` / `listings-events-queue` | **Per-context domain-event consumers.** Each SQS queue subscribes to the SNS topics the context cares about. Each has its own DLQ with `maxReceiveCount=5`. The listings queue subscribes to all four `PROPERTY_*.v1` topics plus three listings-internal fan-out topics (`PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT-v1`, `PROPERTY_LISTING_UPDATED-v1`, `PROPERTY_LISTING_DELETED-v1`) for handler isolation per ADR-008 §6. |
 | `property-extraction-queue` / `applicant-extraction-queue` / `applicant-screening-queue` | **Command queues** — point-to-point work sent via `SQSCommandPublisher`. Each has its own DLQ. |
 | `contract-ingestion-queue` / `contract-analysis-queue` | Contract-intelligence command queues (+ DLQs). |
 | `domain-events` (legacy) | Kept during cutover per ADR-008 §Rollout; drained + deleted one week post-cutover. |
@@ -448,7 +456,10 @@ uv run uvicorn shared.main:app --reload --port 8000
 # Terminal 2 — Per-context domain-event workers (one terminal per context).
 #   customers  → APPLICANT_SCREENED.v1 (send screening-complete email)
 #   bookings   → APPLICANT_SCREENED.v1 (create booking applicant)
-#   listings   → PROPERTY_{CREATED,UPDATED,DELETED,PUBLISHED}.v1 + address enrichment
+#   listings   → PROPERTY_{CREATED,UPDATED,DELETED,PUBLISHED}.v1 (projector)
+#              + PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1 (LLM address parser)
+#              + PROPERTY_LISTING_UPDATED.v1 (Pinecone embedding handler)
+#              + PROPERTY_LISTING_DELETED.v1 (vector delete)
 uv run python -m organizations.entrypoints.worker --queue events
 uv run python -m bookings.entrypoints.events_worker
 uv run python -m listings.entrypoints.events_worker
