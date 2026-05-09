@@ -171,6 +171,39 @@ class TestPropertyPois:
         )
         assert listing.json()[0]["metadata"] == {"school_type": "public", "rating": 4.2}
 
+    async def test_list_endpoint_returns_image_urls(self, client, auth_headers):
+        """GET /pois must surface image_urls so the frontend can render thumbnails."""
+        property_id = await _create_property(client, auth_headers)
+
+        await client.post(
+            f"/api/v1/admin/properties/{property_id}/pois?organization_id={TEST_ORGANIZATION_ID}",
+            json={
+                "pois": [
+                    _poi_payload(
+                        name="Pingo Doce",
+                        image_urls=[
+                            "https://example.com/a.jpg",
+                            "https://example.com/b.jpg",
+                        ],
+                    ),
+                    _poi_payload(name="Lidl"),
+                ]
+            },
+            headers=auth_headers,
+        )
+
+        listing = await client.get(
+            f"/api/v1/admin/properties/{property_id}/pois?organization_id={TEST_ORGANIZATION_ID}",
+            headers=auth_headers,
+        )
+        assert listing.status_code == 200
+        by_name = {p["name"]: p for p in listing.json()}
+        assert by_name["Pingo Doce"]["image_urls"] == [
+            "https://example.com/a.jpg",
+            "https://example.com/b.jpg",
+        ]
+        assert by_name["Lidl"]["image_urls"] == []
+
     async def test_replace_empty_clears_catalog(self, client, auth_headers, property_repo):
         from uuid import UUID
 

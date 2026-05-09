@@ -71,11 +71,16 @@ def rank_top_places(
     places: list[NearbyPlace],
     *,
     known_brands: list[str] | None = None,
-    limit: int = 5,
+    limit: int | None = 5,
 ) -> list[NearbyPlace]:
     """Return the top N places ranked by brand-weighted score (or
     nearest-distance when no brand list is provided).
+
+    `limit=None` keeps every place after ranking — used when a category
+    is configured for municipality-wide breadth.
     """
     if not known_brands:
-        return sorted(places, key=lambda p: p.distance_meters)[:limit]
-    return sorted(places, key=lambda p: _score_place(p, known_brands), reverse=True)[:limit]
+        ordered = sorted(places, key=lambda p: p.distance_meters)
+    else:
+        ordered = sorted(places, key=lambda p: _score_place(p, known_brands), reverse=True)
+    return ordered if limit is None else ordered[:limit]

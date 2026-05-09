@@ -137,6 +137,14 @@ class TestRankTopPlaces:
         assert top_names[0] == "Lidl"
         assert "Continente" in top_names
 
+    def test_limit_none_returns_every_place_ranked(self):
+        """`limit=None` is the municipality-wide knob — every match
+        survives ranking, ordered as the policy expects."""
+        places = [_place(f"P{i}", float(i * 10)) for i in range(25)]
+        top = rank_top_places(places, known_brands=None, limit=None)
+        assert len(top) == 25
+        assert [p.name for p in top] == [f"P{i}" for i in range(25)]
+
 
 class TestCategoryAgnosticism:
     """The ranker doesn't import any enum — it operates on plain string

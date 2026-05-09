@@ -16,7 +16,7 @@ from properties.adapters.inmemory.inmemory_property_poi_repo import (
 from properties.adapters.inmemory.inmemory_property_repo import InMemoryPropertyRepository
 from properties.application.ports.places_service import PlacesService
 from properties.application.use_cases.enrich_property import (
-    CATEGORY_TO_PLACE_TYPES,
+    CATEGORY_TO_QUERIES,
     EnrichProperty,
 )
 from properties.domain.exceptions import (
@@ -99,7 +99,7 @@ class TrackingPlacesService(PlacesService):
     ) -> None:
         self.results = results_by_place_type or {}
         self.raise_on = raise_on_place_types or set()
-        self.calls: list[tuple[float, float, str, int]] = []
+        self.calls: list[tuple[float, float, str, int, str | None]] = []
 
     async def find_nearby(
         self,
@@ -109,9 +109,14 @@ class TrackingPlacesService(PlacesService):
         radius_meters: int = 5000,
         keyword: str | None = None,
     ) -> list[NearbyPlace]:
-        self.calls.append((latitude, longitude, place_type, radius_meters))
+        self.calls.append((latitude, longitude, place_type, radius_meters, keyword))
         if place_type in self.raise_on:
             raise RuntimeError(f"Simulated provider failure for {place_type}")
+        # Match keyword-scoped seeds first ("place_type:keyword"), then
+        # fall back to the unscoped key — same shape as the in-memory
+        # adapter's `set_results`.
+        if keyword and (scoped := self.results.get(f"{place_type}:{keyword}")) is not None:
+            return scoped
         return self.results.get(place_type, [])
 
     async def get_place_details(self, place_id, *, include_reviews=True):
@@ -169,9 +174,9 @@ async def test_happy_path_fans_out_one_call_per_place_type(property_repo, proper
 
     # Provide canned results for every place_type so all calls succeed.
     results = {
-        place_type: [_place(f"{place_type}-1", place_id=f"p-{place_type}")]
-        for types in CATEGORY_TO_PLACE_TYPES.values()
-        for place_type in types
+        query.place_type: [_place(f"{query.place_type}-1", place_id=f"p-{query.place_type}")]
+        for queries in CATEGORY_TO_QUERIES.values()
+        for query in queries
     }
     places = TrackingPlacesService(results_by_place_type=results)
 
@@ -182,11 +187,10 @@ async def test_happy_path_fans_out_one_call_per_place_type(property_repo, proper
     )
     await use_case.execute(property_id=prop.id, force=False, requested_by_user_id=USER_ID)
 
-    # 18 categories, with PUBLIC_TRANSIT contributing 4 place_types and others 1 each
-    # ⇒ 17 single-type calls + 4 transit calls = 21 calls total.
-    expected_call_count = sum(len(types) for types in CATEGORY_TO_PLACE_TYPES.values())
+    # PUBLIC_TRANSIT fans out into 4 place_types; TIRE_SHOP and AUTO_SHOP
+    # share `car_repair` but each is its own query (keyword-disambiguated).
+    expected_call_count = sum(len(queries) for queries in CATEGORY_TO_QUERIES.values())
     assert len(places.calls) == expected_call_count
-    assert expected_call_count == 21
 
 
 async def test_persisted_rows_are_auto_with_provider_metadata(property_repo, property_poi_repo):
@@ -208,6 +212,224 @@ async def test_persisted_rows_are_auto_with_provider_metadata(property_repo, pro
     assert len(grocery_rows) == 1
     assert grocery_rows[0].manually_edited is False
     assert grocery_rows[0].metadata == {"provider": "google"}
+
+
+async def test_pt_municipality_wide_category_uses_wide_radius_and_keeps_every_result(
+    property_repo, property_poi_repo
+):
+    """For Portugal restaurants we want the municipality-wide policy:
+    a wide radius on the provider call AND no top-N truncation after
+    ranking. The property is set up in PT (the use case's default
+    country). 25 results in → 25 results stored.
+    """
+    from properties.application.use_cases.enrich_property import DEFAULT_COUNTRY
+    from properties.domain.services.poi_discovery_policy import (
+        Country,
+        MUNICIPALITY_WIDE_POLICY,
+    )
+
+    assert DEFAULT_COUNTRY is Country.PORTUGAL  # guard the test's premise
+
+    prop = _property()
+    await property_repo.save(prop)
+
+    # 25 restaurants — would be truncated to 5 under the old top-N.
+    restaurants = [
+        _place(f"Tasca {i}", place_id=f"r-{i}", distance=100.0 + i)
+        for i in range(25)
+    ]
+    places = TrackingPlacesService(results_by_place_type={"restaurant": restaurants})
+
+    use_case = EnrichProperty(
+        property_repo=property_repo,
+        property_poi_repo=property_poi_repo,
+        places_service=places,
+    )
+    await use_case.execute(property_id=prop.id, force=False, requested_by_user_id=USER_ID)
+
+    # Provider was called with the municipality-wide radius.
+    restaurant_calls = [c for c in places.calls if c[2] == "restaurant"]
+    assert len(restaurant_calls) == 1
+    assert restaurant_calls[0][3] == MUNICIPALITY_WIDE_POLICY.radius_meters
+
+    # Every restaurant survived to persistence — no top-N cap.
+    stored = await property_poi_repo.list_by_property(prop.id)
+    restaurant_rows = [p for p in stored if p.category == PoiCategory.RESTAURANT]
+    assert len(restaurant_rows) == 25
+
+
+async def test_tire_shop_and_auto_shop_share_place_type_disambiguated_by_keyword(
+    property_repo, property_poi_repo
+):
+    """TIRE_SHOP and AUTO_SHOP both ride on Google's `car_repair`. The
+    discovery layer disambiguates them via per-category keywords so
+    each row lands in the correct bucket."""
+    prop = _property()
+    await property_repo.save(prop)
+
+    # Two seeded result sets, one per keyword. The TrackingPlacesService
+    # serves them based on the keyword argument so we can verify the
+    # use case fans out two distinct calls to the same place_type.
+    pneus_results = [_place("Borracharia Lisboa", place_id="b-lisboa")]
+    oficina_results = [_place("Oficina do João", place_id="o-joao")]
+    places = TrackingPlacesService(
+        results_by_place_type={
+            "car_repair:pneus": pneus_results,
+            "car_repair:oficina mecânica": oficina_results,
+        }
+    )
+
+    use_case = EnrichProperty(
+        property_repo=property_repo,
+        property_poi_repo=property_poi_repo,
+        places_service=places,
+    )
+    await use_case.execute(property_id=prop.id, force=False, requested_by_user_id=USER_ID)
+
+    # Two car_repair calls — one per keyword.
+    car_repair_calls = [c for c in places.calls if c[2] == "car_repair"]
+    assert len(car_repair_calls) == 2
+    keywords_used = {c[4] for c in car_repair_calls}
+    assert keywords_used == {"pneus", "oficina mecânica"}
+
+    # Each shop lands in the matching category.
+    stored = await property_poi_repo.list_by_property(prop.id)
+    tire_rows = [p for p in stored if p.category == PoiCategory.TIRE_SHOP]
+    auto_rows = [p for p in stored if p.category == PoiCategory.AUTO_SHOP]
+    assert [p.name for p in tire_rows] == ["Borracharia Lisboa"]
+    assert [p.name for p in auto_rows] == ["Oficina do João"]
+
+
+async def test_pt_default_category_keeps_top_n_and_focused_radius(
+    property_repo, property_poi_repo
+):
+    """Bank is not in the PT municipality-wide set, so it stays at the
+    focused default policy: small radius + top-5 cap."""
+    from properties.domain.services.poi_discovery_policy import DEFAULT_POLICY
+
+    prop = _property()
+    await property_repo.save(prop)
+
+    banks = [_place(f"Bank {i}", place_id=f"b-{i}", distance=100.0 + i) for i in range(15)]
+    places = TrackingPlacesService(results_by_place_type={"bank": banks})
+
+    use_case = EnrichProperty(
+        property_repo=property_repo,
+        property_poi_repo=property_poi_repo,
+        places_service=places,
+    )
+    await use_case.execute(property_id=prop.id, force=False, requested_by_user_id=USER_ID)
+
+    bank_calls = [c for c in places.calls if c[2] == "bank"]
+    assert len(bank_calls) == 1
+    assert bank_calls[0][3] == DEFAULT_POLICY.radius_meters
+
+    stored = await property_poi_repo.list_by_property(prop.id)
+    bank_rows = [p for p in stored if p.category == PoiCategory.BANK]
+    assert DEFAULT_POLICY.result_limit is not None
+    assert len(bank_rows) == DEFAULT_POLICY.result_limit
+
+
+async def test_locality_filter_drops_rows_outside_property_locality(
+    property_repo, property_poi_repo
+):
+    """The sanitizer is invoked between ranking and persistence:
+    rows whose `place_id` the filter rejects never reach the repo,
+    while accepted rows flow through unchanged.
+    """
+    from properties.adapters.inmemory.inmemory_poi_locality_filter import (
+        DropByPlaceIdPoiLocalityFilter,
+    )
+    from properties.domain.services.locality_scope import LocalityKind
+
+    prop = _property()
+    await property_repo.save(prop)
+
+    # Two restaurants: one inside the locality, one outside (it gets dropped).
+    in_locality = NearbyPlace(
+        name="Tasca da Esquina",
+        distance_meters=200.0,
+        latitude=38.768,
+        longitude=-9.108,
+        place_id="r-lisboa-1",
+        vicinity="Rua A, Lisboa",
+    )
+    out_of_locality = NearbyPlace(
+        name="Outro Sítio",
+        distance_meters=400.0,
+        latitude=38.69,
+        longitude=-9.31,
+        place_id="r-oeiras-1",
+        vicinity="Rua B, Oeiras",
+    )
+    places = TrackingPlacesService(
+        results_by_place_type={"restaurant": [in_locality, out_of_locality]}
+    )
+    locality_filter = DropByPlaceIdPoiLocalityFilter(drop_place_ids={"r-oeiras-1"})
+
+    use_case = EnrichProperty(
+        property_repo=property_repo,
+        property_poi_repo=property_poi_repo,
+        places_service=places,
+        locality_filter=locality_filter,
+    )
+    await use_case.execute(property_id=prop.id, force=False, requested_by_user_id=USER_ID)
+
+    # Filter received the candidates with their vicinity strings + the
+    # property's address + the PT municipality scope.
+    assert len(locality_filter.calls) == 1
+    property_address, country, scope, candidates = locality_filter.calls[0]
+    assert property_address == prop.address
+    assert country == "Portugal"
+    assert scope is LocalityKind.MUNICIPALITY
+    by_id = {c.place_id: c for c in candidates}
+    assert by_id["r-lisboa-1"].address == "Rua A, Lisboa"
+    assert by_id["r-oeiras-1"].address == "Rua B, Oeiras"
+
+    # Persisted rows: only the in-locality one survived.
+    stored = await property_poi_repo.list_by_property(prop.id)
+    restaurant_rows = [p for p in stored if p.category == PoiCategory.RESTAURANT]
+    assert [p.name for p in restaurant_rows] == ["Tasca da Esquina"]
+
+
+async def test_no_locality_filter_keeps_every_ranked_row(property_repo, property_poi_repo):
+    """When no filter is wired (e.g. local dev without OPENAI_API_KEY),
+    sanitization is a no-op — every ranked candidate persists."""
+    prop = _property()
+    await property_repo.save(prop)
+
+    a = NearbyPlace(
+        name="A",
+        distance_meters=100.0,
+        latitude=38.768,
+        longitude=-9.108,
+        place_id="a-1",
+        vicinity="Rua A, Lisboa",
+    )
+    b = NearbyPlace(
+        name="B",
+        distance_meters=200.0,
+        latitude=38.769,
+        longitude=-9.109,
+        place_id="b-1",
+        vicinity="Rua B, Oeiras",
+    )
+    places = TrackingPlacesService(results_by_place_type={"restaurant": [a, b]})
+
+    use_case = EnrichProperty(
+        property_repo=property_repo,
+        property_poi_repo=property_poi_repo,
+        places_service=places,
+        # locality_filter intentionally omitted.
+    )
+    await use_case.execute(property_id=prop.id, force=False, requested_by_user_id=USER_ID)
+
+    stored = await property_poi_repo.list_by_property(prop.id)
+    restaurant_rows = sorted(
+        (p for p in stored if p.category == PoiCategory.RESTAURANT),
+        key=lambda p: p.name,
+    )
+    assert [p.name for p in restaurant_rows] == ["A", "B"]
 
 
 async def test_aggregate_version_bumped(property_repo, property_poi_repo):
@@ -282,8 +504,8 @@ async def test_manual_category_skipped_no_calls_for_its_place_types(
 
     # SCHOOL's place_type is "school" — it should NEVER appear in the call log.
     called_place_types = {c[2] for c in places.calls}
-    for school_place_type in CATEGORY_TO_PLACE_TYPES[PoiCategory.SCHOOL]:
-        assert school_place_type not in called_place_types
+    for school_query in CATEGORY_TO_QUERIES[PoiCategory.SCHOOL]:
+        assert school_query.place_type not in called_place_types
 
     # The manual SCHOOL row survives.
     stored = await property_poi_repo.list_by_property(prop.id)
@@ -405,7 +627,7 @@ async def test_provider_down_guard_reraises_when_all_calls_fail(property_repo, p
     await property_poi_repo.replace_for_property(property_id=prop.id, pois=[pre_existing])
 
     # All place_types raise.
-    all_place_types = {pt for types in CATEGORY_TO_PLACE_TYPES.values() for pt in types}
+    all_place_types = {q.place_type for queries in CATEGORY_TO_QUERIES.values() for q in queries}
     places = TrackingPlacesService(raise_on_place_types=all_place_types)
 
     use_case = EnrichProperty(
@@ -453,7 +675,7 @@ async def test_partial_failure_succeeds_when_other_categories_have_results(
     await property_repo.save(prop)
 
     # supermarket succeeds, everything else raises.
-    all_place_types = {pt for types in CATEGORY_TO_PLACE_TYPES.values() for pt in types}
+    all_place_types = {q.place_type for queries in CATEGORY_TO_QUERIES.values() for q in queries}
     failing = all_place_types - {"supermarket"}
     places = TrackingPlacesService(
         results_by_place_type={"supermarket": [_place("Pingo Doce", place_id="pd-1")]},
