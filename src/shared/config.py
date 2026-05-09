@@ -24,6 +24,19 @@ class Settings(BaseSettings):
     # Overridable via env so we can roll forward without a code deploy.
     address_parser_model: str = "gpt-4o-mini"
 
+    # Listings semantic-search embedding pipeline (spec
+    # `2026-05-listing-semantic-search`, ADR-013). Gate is off by
+    # default — flip `listings_embedding_enabled` to wire real adapters
+    # at bootstrap time. When the gate is off the listings embedding
+    # handler is a no-op so messages are still consumed (no DLQ buildup).
+    listings_embedding_enabled: bool = False
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+    vector_index_provider: str = "pinecone"
+    vector_index_namespace: str = "openai-text-embedding-3-small-v1"
+    pinecone_api_key: str = ""
+    pinecone_index: str = "listings-prod"
+
     # AWS / LocalStack
     aws_region: str = "eu-west-1"
     aws_endpoint_url: str | None = None

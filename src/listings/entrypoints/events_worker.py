@@ -1,19 +1,24 @@
 """Listings domain-event worker CLI.
 
 Consumes the `listings-events-queue` — subscribed (via SNS fan-out) to
-five topics:
+seven topics:
 
 - `PROPERTY_CREATED.v1`, `PROPERTY_UPDATED.v1`, `PROPERTY_DELETED.v1`,
   `PROPERTY_PUBLISHED.v1`
   → `handle_property_event` (projector)
 - `PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1`
   → `handle_address_enrichment`
+- `PROPERTY_LISTING_UPDATED.v1`
+  → `handle_listing_embedding` (spec `2026-05-listing-semantic-search`)
+- `PROPERTY_LISTING_DELETED.v1`
+  → `handle_listing_deleted`
 
-Both handlers are registered on the same router so the shared
-`SQSWorker` dispatches based on `event.event_type`. The enrichment
-message lives on a separate topic so a poisoned LLM call DLQs only the
-enrichment event — the already-upserted `property_listings` row stays
-alive with NULL location.
+All handlers are registered on the same router so the shared
+`SQSWorker` dispatches based on `event.event_type`. Each listings-
+internal event lives on its own SNS topic so handler isolation per
+ADR-008: a poisoned LLM call DLQs only the enrichment event, an
+embedding failure DLQs only the embedding event, the already-upserted
+`property_listings` row stays alive throughout.
 
 Runs the shared `SQSWorker` (ADR-008).
 """
@@ -24,6 +29,10 @@ import aioboto3
 import structlog
 
 from listings.adapters.workers.address_enrichment_handler import handle_address_enrichment
+from listings.adapters.workers.embedding_handler import (
+    handle_listing_deleted,
+    handle_listing_embedding,
+)
 from listings.adapters.workers.property_event_handler import handle_property_event
 from shared.config import Settings, setup_logging
 from shared.entrypoints.bootstrap import get_listing_container
@@ -33,7 +42,9 @@ from shared.events.router import EventRouter
 from shared.events.types import (
     PROPERTY_CREATED_V1,
     PROPERTY_DELETED_V1,
+    PROPERTY_LISTING_DELETED_V1,
     PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1,
+    PROPERTY_LISTING_UPDATED_V1,
     PROPERTY_PUBLISHED_V1,
     PROPERTY_UPDATED_V1,
 )
@@ -68,6 +79,8 @@ async def _run_events_worker() -> None:
     router.on(PROPERTY_DELETED_V1, handle_property_event)
     router.on(PROPERTY_PUBLISHED_V1, handle_property_event)
     router.on(PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1, handle_address_enrichment)
+    router.on(PROPERTY_LISTING_UPDATED_V1, handle_listing_embedding)
+    router.on(PROPERTY_LISTING_DELETED_V1, handle_listing_deleted)
 
     context = {
         "listings": listings,

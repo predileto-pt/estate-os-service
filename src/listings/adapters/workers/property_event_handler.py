@@ -27,7 +27,9 @@ import structlog
 from shared.events.base import DomainEvent
 from shared.events.types import (
     PROPERTY_DELETED_V1,
+    PROPERTY_LISTING_DELETED_V1,
     PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1,
+    PROPERTY_LISTING_UPDATED_V1,
 )
 
 log = structlog.get_logger()
@@ -55,6 +57,13 @@ async def handle_property_event(event: DomainEvent, context: dict) -> None:
             source_aggregate_version=data["aggregate_version"],
             applied=deleted,
         )
+        if deleted:
+            await _publish_listing_event(
+                context.get("publisher"),
+                event_type=PROPERTY_LISTING_DELETED_V1,
+                data={"property_id": data["id"]},
+                property_id=data["id"],
+            )
         return
 
     row = await listings.property_listing_repo.upsert_from_event(
@@ -69,24 +78,59 @@ async def handle_property_event(event: DomainEvent, context: dict) -> None:
         applied=applied,
     )
 
-    # Skip enrichment fan-out when the upsert was idempotency-dropped — the
-    # currently-stored row is already as fresh or fresher, and its
-    # enrichment state is preserved.
+    # Skip downstream fan-out when the upsert was idempotency-dropped —
+    # the currently-stored row is already as fresh or fresher, and its
+    # enrichment + embedding state are preserved.
     if not applied:
         return
 
     publisher = context.get("publisher")
     if publisher is None:
         return
+
+    # Two listings-internal domain events fire on every applied upsert,
+    # routed through SNS for handler isolation (per ADR-008 + the
+    # existing NEEDS_ADDRESS_ENRICHMENT precedent):
+    # - NEEDS_ADDRESS_ENRICHMENT.v1: the LLM address parser (existing)
+    # - PROPERTY_LISTING_UPDATED.v1: the embedding handler (new, spec
+    #   `2026-05-listing-semantic-search`). Hash-skip lives on the
+    #   handler side, not here, so a publish failure of either event
+    #   doesn't gate the other.
+    await _publish_listing_event(
+        publisher,
+        event_type=PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1,
+        data={"property_id": data["id"], "address": data["address"]},
+        property_id=data["id"],
+    )
+    await _publish_listing_event(
+        publisher,
+        event_type=PROPERTY_LISTING_UPDATED_V1,
+        data={"property_id": data["id"]},
+        property_id=data["id"],
+    )
+
+
+async def _publish_listing_event(
+    publisher,
+    *,
+    event_type: str,
+    data: dict,
+    property_id: str,
+) -> None:
+    """Log-and-swallow publish for listings-internal domain events.
+
+    A missed publish is a monitoring concern, not a transaction abort —
+    the row is already committed; the next applied upsert will re-fan
+    out to both handlers, and the embedding handler's hash check makes
+    that idempotent.
+    """
+    if publisher is None:
+        return
     try:
-        await publisher.publish(
-            DomainEvent(
-                event_type=PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1,
-                data={"property_id": data["id"], "address": data["address"]},
-            )
-        )
+        await publisher.publish(DomainEvent(event_type=event_type, data=data))
     except Exception:
-        # Same log-and-swallow as write-side emissions. A missed
-        # enrichment leaves parish/municipality/district NULL; the next
-        # PROPERTY_UPDATED event will re-queue enrichment anyway.
-        log.exception("property_listings.enrichment_publish_failed", property_id=data["id"])
+        log.exception(
+            "property_listings.fanout_publish_failed",
+            property_id=property_id,
+            event_type=event_type,
+        )

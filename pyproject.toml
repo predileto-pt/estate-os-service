@@ -30,6 +30,7 @@ dependencies = [
     "cryptography>=44.0.0",
     "tabulate>=0.10.0",
     "stripe>=11.0.0",
+    "pinecone>=5.0.0",
 ]
 
 [project.optional-dependencies]

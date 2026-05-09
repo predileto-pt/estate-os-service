@@ -16,7 +16,9 @@ from shared.events.base import DomainEvent
 from shared.events.types import (
     PROPERTY_CREATED_V1,
     PROPERTY_DELETED_V1,
+    PROPERTY_LISTING_DELETED_V1,
     PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1,
+    PROPERTY_LISTING_UPDATED_V1,
     PROPERTY_PUBLISHED_V1,
     PROPERTY_UPDATED_V1,
 )
@@ -70,7 +72,7 @@ def _snapshot(
     }
 
 
-async def test_property_created_upserts_and_emits_enrichment(context, repo, publisher):
+async def test_property_created_upserts_and_fans_out(context, repo, publisher):
     data = _snapshot()
     event = DomainEvent(event_type=PROPERTY_CREATED_V1, data=data)
     await handle_property_event(event, context)
@@ -78,13 +80,21 @@ async def test_property_created_upserts_and_emits_enrichment(context, repo, publ
     row = await repo.get_by_id(UUID(data["id"]))
     assert row is not None
     assert row.address == data["address"]
-    assert len(publisher.published) == 1
-    emitted = publisher.published[0]
-    assert emitted.event_type == PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1
-    assert emitted.data == {"property_id": data["id"], "address": data["address"]}
+    types = [e.event_type for e in publisher.published]
+    # Two listings-internal events fan out: address-enrichment + embedding.
+    assert PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1 in types
+    assert PROPERTY_LISTING_UPDATED_V1 in types
+    enrich = next(
+        e
+        for e in publisher.published
+        if e.event_type == PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1
+    )
+    assert enrich.data == {"property_id": data["id"], "address": data["address"]}
+    embed = next(e for e in publisher.published if e.event_type == PROPERTY_LISTING_UPDATED_V1)
+    assert embed.data == {"property_id": data["id"]}
 
 
-async def test_property_updated_upserts_and_emits_enrichment(context, repo, publisher):
+async def test_property_updated_upserts_and_fans_out(context, repo, publisher):
     pid = str(uuid4())
     # Seed a v1 row
     await handle_property_event(
@@ -102,8 +112,9 @@ async def test_property_updated_upserts_and_emits_enrichment(context, repo, publ
     row = await repo.get_by_id(UUID(pid))
     assert row.source_aggregate_version == 2
     assert row.address == "new address"
-    assert len(publisher.published) == 1
-    assert publisher.published[0].data["address"] == "new address"
+    types = [e.event_type for e in publisher.published]
+    assert PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1 in types
+    assert PROPERTY_LISTING_UPDATED_V1 in types
 
 
 async def test_older_update_is_dropped_and_no_enrichment_emitted(context, repo, publisher):
@@ -132,7 +143,7 @@ async def test_older_update_is_dropped_and_no_enrichment_emitted(context, repo, 
     assert publisher.published == []
 
 
-async def test_property_deleted_removes_row_and_skips_enrichment(context, repo, publisher):
+async def test_property_deleted_removes_row_and_emits_listing_deleted(context, repo, publisher):
     pid = str(uuid4())
     await handle_property_event(
         DomainEvent(event_type=PROPERTY_CREATED_V1, data=_snapshot(id_=pid, version=1)),
@@ -153,8 +164,14 @@ async def test_property_deleted_removes_row_and_skips_enrichment(context, repo, 
     )
 
     assert await repo.get_by_id(UUID(pid)) is None
-    # DELETED events don't emit enrichment — the row is gone.
-    assert publisher.published == []
+    # DELETED events skip the enrichment fan-out (no row to enrich) but
+    # do publish PROPERTY_LISTING_DELETED.v1 so the embedding handler
+    # removes the vector from the index.
+    types = [e.event_type for e in publisher.published]
+    assert PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1 not in types
+    assert PROPERTY_LISTING_DELETED_V1 in types
+    deleted = next(e for e in publisher.published if e.event_type == PROPERTY_LISTING_DELETED_V1)
+    assert deleted.data == {"property_id": pid}
 
 
 async def test_delete_older_than_stored_drops(context, repo):
@@ -180,7 +197,7 @@ async def test_delete_older_than_stored_drops(context, repo):
     assert await repo.get_by_id(UUID(pid)) is not None
 
 
-async def test_property_published_upserts_active_and_emits_enrichment(context, repo, publisher):
+async def test_property_published_upserts_active_and_fans_out(context, repo, publisher):
     """PROPERTY_PUBLISHED.v1 has the same carried-state shape as UPDATED,
     so the projector upserts it via the same path. The snapshot carries
     status='active' (set by Property.publish()), which is what the public
@@ -208,9 +225,10 @@ async def test_property_published_upserts_active_and_emits_enrichment(context, r
     assert row.source_aggregate_version == 2
     # status column is populated from the snapshot
     assert row.status.value == "active"
-    # Enrichment fan-out fires — same pre-existing behavior as UPDATED.
-    assert len(publisher.published) == 1
-    assert publisher.published[0].event_type == PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1
+    # Both fan-out events fire — same pre-existing behavior as UPDATED.
+    types = [e.event_type for e in publisher.published]
+    assert PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1 in types
+    assert PROPERTY_LISTING_UPDATED_V1 in types
 
 
 async def test_older_published_is_dropped(context, repo, publisher):

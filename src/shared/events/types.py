@@ -21,6 +21,12 @@ PROPERTY_PUBLISHED_V1 = "PROPERTY_PUBLISHED.v1"
 
 # Read-model enrichment (listings side)
 PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1 = "PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1"
+# Listings-side domain event published by the projector after every
+# applied upsert. The embedding handler subscribes via SNS fan-out
+# (same shape as NEEDS_ADDRESS_ENRICHMENT), runs on the same listings
+# queue. Spec `2026-05-listing-semantic-search`.
+PROPERTY_LISTING_UPDATED_V1 = "PROPERTY_LISTING_UPDATED.v1"
+PROPERTY_LISTING_DELETED_V1 = "PROPERTY_LISTING_DELETED.v1"
 
 # Applicant Screening
 APPLICANT_SCREENED_V1 = "APPLICANT_SCREENED.v1"

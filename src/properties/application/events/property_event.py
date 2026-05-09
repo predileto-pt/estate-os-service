@@ -29,9 +29,7 @@ from properties.domain.models.property import Property
 from properties.domain.models.property_poi import PropertyPoi
 
 
-def build_property_snapshot(
-    prop: Property, pois: list[PropertyPoi] | None = None
-) -> dict:
+def build_property_snapshot(prop: Property, pois: list[PropertyPoi] | None = None) -> dict:
     """Build the full carried-state payload from a Property aggregate.
 
     Used by `PROPERTY_CREATED.v1` and `PROPERTY_UPDATED.v1`. The
@@ -130,9 +128,7 @@ async def emit_property_updated(
         return
     try:
         await publisher.publish(
-            DomainEvent(
-                event_type=PROPERTY_UPDATED_V1, data=build_property_snapshot(prop, pois)
-            )
+            DomainEvent(event_type=PROPERTY_UPDATED_V1, data=build_property_snapshot(prop, pois))
         )
     except Exception:
         log.exception("property.domain_event_failed", property_id=str(prop.id))
@@ -182,9 +178,7 @@ async def emit_property_published(
         return
     try:
         await publisher.publish(
-            DomainEvent(
-                event_type=PROPERTY_PUBLISHED_V1, data=build_property_snapshot(prop, pois)
-            )
+            DomainEvent(event_type=PROPERTY_PUBLISHED_V1, data=build_property_snapshot(prop, pois))
         )
     except Exception:
         log.exception("property.domain_event_failed", property_id=str(prop.id))

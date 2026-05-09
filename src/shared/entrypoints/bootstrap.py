@@ -305,10 +305,34 @@ async def get_listing_container() -> ListingContainer:
         openai_api_key=settings.openai_api_key,
     )
 
+    # Embedding pipeline (spec `2026-05-listing-semantic-search`).
+    # Both adapters are constructed only when the gate is on so a
+    # misconfigured prod (missing PINECONE_API_KEY) doesn't crash the
+    # worker — instead the embedding handler short-circuits to a
+    # no-op until ops flips the gate.
+    embedding_provider = None
+    vector_index = None
+    if settings.listings_embedding_enabled:
+        from listings.adapters.embedding.openai_provider import OpenAIEmbeddingProvider
+        from listings.adapters.vector.pinecone_index import PineconeVectorIndex
+
+        embedding_provider = OpenAIEmbeddingProvider(
+            api_key=settings.openai_api_key,
+            model=settings.embedding_model,
+        )
+        vector_index = PineconeVectorIndex(
+            api_key=settings.pinecone_api_key,
+            index_name=settings.pinecone_index,
+        )
+
     _listing_container = ListingContainer(
         listing_repo=SqlAlchemyListingRepository(session_factory),
         property_listing_repo=SqlAlchemyPropertyListingRepository(session_factory),
         address_parser=address_parser,
+        embedding_provider=embedding_provider,
+        vector_index=vector_index,
+        vector_index_namespace=settings.vector_index_namespace,
+        embedding_model_version=settings.embedding_model,
     )
     return _listing_container
 
