@@ -12,11 +12,9 @@ TOP_PLACES_LIMIT = 5
 class NearbyPlace:
     """A place near a property — a school, supermarket, bus stop, etc.
 
-    Provider-agnostic value object: what Google Places, Overpass, and any
-    future POI provider all return after normalization. Used by both the
-    legacy `PropertyAmenity` summary surface and the newer `PropertyPoi`
-    catalog. Lives in a neutral module so neither side imports the other's
-    domain types.
+    Provider-agnostic value object: what Google Places (and any future
+    POI provider) returns after normalization. Consumed by the
+    `proximity_ranker` and the POI auto-discovery workflow.
     """
 
     name: str
@@ -25,24 +23,3 @@ class NearbyPlace:
     longitude: float
     place_id: str | None = None
     google_maps_url: str | None = None
-
-    def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "distance_meters": self.distance_meters,
-            "latitude": self.latitude,
-            "longitude": self.longitude,
-            "place_id": self.place_id,
-            "google_maps_url": self.google_maps_url,
-        }
-
-    @staticmethod
-    def from_dict(data: dict) -> NearbyPlace:
-        return NearbyPlace(
-            name=data["name"],
-            distance_meters=data["distance_meters"],
-            latitude=data["latitude"],
-            longitude=data["longitude"],
-            place_id=data.get("place_id"),
-            google_maps_url=data.get("google_maps_url"),
-        )

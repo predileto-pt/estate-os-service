@@ -28,7 +28,6 @@ from organizations.adapters.api.routes import (
 from properties.adapters.api.routes import (
     extraction_jobs,
     properties,
-    property_amenities,
     property_images,
     property_owners,
     property_pois,
@@ -126,7 +125,6 @@ def create_app(
             {"name": "extraction-jobs", "description": "AI-powered property extraction"},
             {"name": "property-prices", "description": "Property price management"},
             {"name": "property-images", "description": "Property image management"},
-            {"name": "property-amenities", "description": "Property amenity discovery"},
             {"name": "property-listings", "description": "Public property listings"},
             {
                 "name": "applicant-submissions",
@@ -200,7 +198,6 @@ def create_app(
     app.include_router(property_owners.router, prefix="/api/v1/admin")
     app.include_router(property_prices.router, prefix="/api/v1/admin")
     app.include_router(property_images.router, prefix="/api/v1/admin")
-    app.include_router(property_amenities.router, prefix="/api/v1/admin")
     app.include_router(property_pois.router, prefix="/api/v1/admin")
     app.include_router(extraction_jobs.router, prefix="/api/v1/admin")
 

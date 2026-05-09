@@ -83,7 +83,6 @@ awslocal sqs create-queue --queue-name contract-analysis-queue \
 echo "Creating domain-event queue DLQs..."
 awslocal sqs create-queue --queue-name customers-events-dlq
 awslocal sqs create-queue --queue-name bookings-events-dlq
-awslocal sqs create-queue --queue-name properties-events-dlq
 awslocal sqs create-queue --queue-name listings-events-dlq
 
 echo "Creating per-context domain-event queues with redrive policies..."
@@ -91,8 +90,6 @@ awslocal sqs create-queue --queue-name customers-events-queue \
   --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:customers-events-dlq\",\"maxReceiveCount\":\"5\"}"}'
 awslocal sqs create-queue --queue-name bookings-events-queue \
   --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:bookings-events-dlq\",\"maxReceiveCount\":\"5\"}"}'
-awslocal sqs create-queue --queue-name properties-events-queue \
-  --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:properties-events-dlq\",\"maxReceiveCount\":\"5\"}"}'
 awslocal sqs create-queue --queue-name listings-events-queue \
   --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:listings-events-dlq\",\"maxReceiveCount\":\"5\"}"}'
 
@@ -114,12 +111,6 @@ awslocal sns subscribe \
   --topic-arn arn:aws:sns:us-east-1:000000000000:domain-events-APPLICANT_SCREENED-v1 \
   --protocol sqs \
   --notification-endpoint arn:aws:sqs:us-east-1:000000000000:bookings-events-queue
-
-# properties — PROPERTY_CREATED.v1 (discover amenities)
-awslocal sns subscribe \
-  --topic-arn arn:aws:sns:us-east-1:000000000000:domain-events-PROPERTY_CREATED-v1 \
-  --protocol sqs \
-  --notification-endpoint arn:aws:sqs:us-east-1:000000000000:properties-events-queue
 
 # listings — all PROPERTY_* events (projector upserts property_listings)
 for event_type in PROPERTY_CREATED PROPERTY_UPDATED PROPERTY_DELETED PROPERTY_PUBLISHED PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT; do

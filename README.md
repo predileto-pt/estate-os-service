@@ -209,13 +209,6 @@ Stripe Checkout + Customer Portal. OWNER / ADMIN role required for mutations. We
 | `DELETE` | `/property-images/{id}` | Delete image |
 | `PUT` | `/property-images/reorder` | Reorder images by display order |
 
-### Property Amenities
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/property-amenities` | List discovered amenities for a property |
-| `POST` | `/property-amenities/discover` | Trigger amenity discovery (returns 202) |
-
 ### Extraction Jobs
 
 | Method | Path | Description |
@@ -365,8 +358,8 @@ Images with presigned download URLs are returned inline in `PropertyResponse`.
 | `DocumentStorage` | S3 file upload/download/presigned URLs | `S3DocumentStorage` |
 | `CommandPublisher` | SQS point-to-point command publishing | `SQSCommandPublisher` |
 | `EventPublisher` | Cross-context domain event broadcast (SNS fan-out) | `SNSEventPublisher` |
-| `PlacesService` | Nearby amenity discovery | `GooglePlacesService` |
-| `PropertyAmenityRepository` | CRUD for property amenities | `SupabasePropertyAmenityRepository` |
+| `PlacesService` | Nearby POI discovery (used by the enrichment workflow) | `GooglePlacesService` |
+| `PropertyPoiRepository` | CRUD for property POIs | `SupabasePropertyPoiRepository` |
 
 ### Dependency Injection
 
@@ -409,7 +402,7 @@ LocalStack creates these SQS queues:
 | Queue | Purpose |
 |-------|---------|
 | SNS topic per `.v1` event type | **Domain events** (`domain-events-PROPERTY_CREATED-v1`, `domain-events-APPLICANT_SCREENED-v1`, …). Publisher is `SNSEventPublisher`. |
-| `customers-events-queue` / `bookings-events-queue` / `properties-events-queue` | **Per-context domain-event consumers.** Each SQS queue subscribes to the SNS topics the context cares about. Each has its own DLQ with `maxReceiveCount=5`. |
+| `customers-events-queue` / `bookings-events-queue` / `listings-events-queue` | **Per-context domain-event consumers.** Each SQS queue subscribes to the SNS topics the context cares about. Each has its own DLQ with `maxReceiveCount=5`. |
 | `property-extraction-queue` / `applicant-extraction-queue` / `applicant-screening-queue` | **Command queues** — point-to-point work sent via `SQSCommandPublisher`. Each has its own DLQ. |
 | `contract-ingestion-queue` / `contract-analysis-queue` | Contract-intelligence command queues (+ DLQs). |
 | `domain-events` (legacy) | Kept during cutover per ADR-008 §Rollout; drained + deleted one week post-cutover. |
@@ -430,8 +423,8 @@ Key SQS / SNS env vars:
 | `SNS_DOMAIN_EVENTS_TOPIC_ARN_PREFIX` | `arn:aws:sns:us-east-1:000000000000:domain-events-` |
 | `SQS_CUSTOMERS_EVENTS_QUEUE_URL` | `http://localhost:4566/000000000000/customers-events-queue` |
 | `SQS_BOOKINGS_EVENTS_QUEUE_URL` | `http://localhost:4566/000000000000/bookings-events-queue` |
-| `SQS_PROPERTIES_EVENTS_QUEUE_URL` | `http://localhost:4566/000000000000/properties-events-queue` |
 | `SQS_PROPERTY_EXTRACTION_QUEUE_URL` | `http://localhost:4566/000000000000/property-extraction-queue` |
+| `SQS_PROPERTY_ENRICHMENT_QUEUE_URL` | `http://localhost:4566/000000000000/property-enrichment-queue` |
 | `SQS_APPLICANT_EXTRACTION_QUEUE_URL` | `http://localhost:4566/000000000000/applicant-extraction-queue` |
 | `SQS_APPLICANT_SCREENING_QUEUE_URL` | `http://localhost:4566/000000000000/applicant-screening-queue` |
 | `AWS_ENDPOINT_URL` | `http://localhost:4566` |
@@ -455,11 +448,9 @@ uv run uvicorn shared.main:app --reload --port 8000
 # Terminal 2 — Per-context domain-event workers (one terminal per context).
 #   customers  → APPLICANT_SCREENED.v1 (send screening-complete email)
 #   bookings   → APPLICANT_SCREENED.v1 (create booking applicant)
-#   properties → PROPERTY_CREATED.v1  (discover amenities)
 #   listings   → PROPERTY_{CREATED,UPDATED,DELETED,PUBLISHED}.v1 + address enrichment
 uv run python -m organizations.entrypoints.worker --queue events
 uv run python -m bookings.entrypoints.events_worker
-uv run python -m properties.entrypoints.events_worker
 uv run python -m listings.entrypoints.events_worker
 
 # Terminal 3 — Property extraction worker
@@ -550,7 +541,7 @@ uv run python -m shared.entrypoints.events_worker
 | Event | Handlers |
 |-------|----------|
 | `APPLICANT_SCREENED` | customers (send notification email), bookings (create booking applicant) |
-| `PROPERTY_CREATED` | properties (discover nearby amenities via Google Places API) |
+| `PROPERTY_*` | listings (project to `property_listings`, queue address enrichment) |
 
 In production, deploy as a Lambda function: `shared.entrypoints.lambda_events.handler`.
 
@@ -619,20 +610,20 @@ uv run python -m contract_intelligence.entrypoints.worker --queue dlq
 
 In production, deploy as Lambda functions: `contract_intelligence.entrypoints.lambda_ingestion.handler` and `contract_intelligence.entrypoints.lambda_analysis.handler`.
 
-### Property Discovery (via Domain Events)
+### Property POI Auto-Discovery
 
-Property discovery no longer has its own worker or queue. When a property is created, a `PROPERTY_CREATED` domain event is published and the domain events worker handles it automatically.
-
-To trigger discovery manually for an existing property:
+POI discovery is agent-triggered via the enrichment endpoint. The endpoint enqueues `ENRICH_PROPERTY_REQUESTED.v1` on `property-enrichment-queue`; the worker (`properties.entrypoints.worker --queue enrichment`) consumes it, calls Google Places per category, ranks via the proximity ranker, and replaces the property's `property_pois` catalog. Manually-edited categories are preserved unless `force=true` is sent. See ADR-010 for the full architecture.
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/property-amenities/discover?property_id=<uuid>&organization_id=<uuid>" \
-  -H "Authorization: Bearer <token>"
+curl -X POST "http://localhost:8000/api/v1/admin/properties/<uuid>/enrich?organization_id=<uuid>" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"force": false}'
 ```
 
-This publishes a `PROPERTY_CREATED` event to the domain events queue. Returns `202 Accepted`.
+Returns `202 Accepted`. Properties without coordinates → `422`.
 
-Discovery searches within a **5 km radius** for hospitals, banks, schools, pharmacies, gyms, restaurants, laundries, coffee shops, and Portuguese grocery chains. Properties without coordinates are skipped. Discovery is idempotent.
+Discovery covers 18 POI categories within a **1.5 km radius**: hospitals, banks, supermarkets, schools, pharmacies, gyms, restaurants, cafés, laundries, gas stations, public transit (bus/subway/train), kindergartens, parks, post offices, libraries, shopping malls, bakeries, police stations.
 
 ## Applicant Screening
 

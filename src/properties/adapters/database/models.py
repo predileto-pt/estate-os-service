@@ -59,18 +59,6 @@ class DocumentType(str, enum.Enum):
     TITULO_RESIDENCIA = "titulo_residencia"
 
 
-class AmenityCategory(str, enum.Enum):
-    HOSPITAL = "hospital"
-    BANK = "bank"
-    GROCERY = "grocery"
-    SCHOOL = "school"
-    LAUNDRY = "laundry"
-    COFFEE_SHOP = "coffee_shop"
-    PHARMACY = "pharmacy"
-    GYM = "gym"
-    RESTAURANT = "restaurant"
-
-
 # ── Models ───────────────────────────────────────────────────────────────────
 
 
@@ -272,34 +260,3 @@ class DocumentContentModel(Base):
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
     __table_args__ = (Index("idx_document_contents_job_id", "extraction_job_id"),)
-
-
-class PropertyAmenityModel(Base):
-    __tablename__ = "property_amenities"
-
-    id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")
-    )
-    property_id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), ForeignKey("properties.id"), nullable=False
-    )
-    category: Mapped[AmenityCategory] = mapped_column(
-        Enum(
-            AmenityCategory,
-            name="amenity_category",
-            values_callable=lambda e: [x.value for x in e],
-        ),
-        nullable=False,
-    )
-    nearest_name: Mapped[str] = mapped_column(Text, nullable=False)
-    nearest_distance_meters: Mapped[float] = mapped_column(Float, nullable=False)
-    nearest_latitude: Mapped[float] = mapped_column(Float, nullable=False)
-    nearest_longitude: Mapped[float] = mapped_column(Float, nullable=False)
-    total_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    nearest_place_id: Mapped[str | None] = mapped_column(Text)
-    nearest_google_maps_url: Mapped[str | None] = mapped_column(Text)
-    top_places: Mapped[list | None] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
-
-    __table_args__ = (Index("idx_property_amenities_property_id", "property_id"),)

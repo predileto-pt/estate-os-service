@@ -1,9 +1,8 @@
 """Unit tests for the category-agnostic proximity ranker.
 
 The ranker takes a `known_brands: list[str] | None` parameter directly —
-it doesn't know whether the brand list came from `AmenityCategory` or
-`PoiCategory`. The lookup happens at the call site via
-`KNOWN_BRANDS_BY_CATEGORY[category.value]`.
+it doesn't know which enum family the value came from. The lookup
+happens at the call site via `KNOWN_BRANDS_BY_CATEGORY[category.value]`.
 """
 
 from properties.domain.models.nearby_place import NearbyPlace
@@ -140,22 +139,22 @@ class TestRankTopPlaces:
 
 
 class TestCategoryAgnosticism:
-    """Both `AmenityCategory.BANK.value` and `PoiCategory.BANK.value` equal
-    `"bank"`, so the same `KNOWN_BRANDS_BY_CATEGORY` lookup works for both
-    enum families. This is the whole point of moving the ranker out of the
-    amenity-specific module.
+    """The ranker doesn't import any enum — it operates on plain string
+    keys. `KNOWN_BRANDS_BY_CATEGORY` lookups go through `enum.value`,
+    so the ranker stays usable for any future enum family that uses
+    the same canonical category strings ("bank", "grocery", …).
     """
 
-    def test_brands_lookup_works_with_amenity_category(self):
-        from properties.domain.models.property_amenity import AmenityCategory
-
-        brands = KNOWN_BRANDS_BY_CATEGORY.get(AmenityCategory.BANK.value)
-        assert brands is not None
-        assert "Millennium" in brands
-
-    def test_brands_lookup_works_with_poi_category(self):
+    def test_brands_lookup_works_via_poi_category_value(self):
         from properties.domain.models.property_poi import PoiCategory
 
-        brands = KNOWN_BRANDS_BY_CATEGORY.get(PoiCategory.GROCERY.value)
-        assert brands is not None
-        assert "Continente" in brands
+        bank_brands = KNOWN_BRANDS_BY_CATEGORY.get(PoiCategory.BANK.value)
+        assert bank_brands is not None
+        assert "Millennium" in bank_brands
+
+        grocery_brands = KNOWN_BRANDS_BY_CATEGORY.get(PoiCategory.GROCERY.value)
+        assert grocery_brands is not None
+        assert "Continente" in grocery_brands
+
+    def test_unknown_category_returns_none(self):
+        assert KNOWN_BRANDS_BY_CATEGORY.get("not_a_real_category") is None

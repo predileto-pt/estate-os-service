@@ -10,9 +10,6 @@ from properties.application.ports.repositories.document_content_repository impor
 from properties.application.ports.repositories.extraction_job_repository import (
     ExtractionJobRepository,
 )
-from properties.application.ports.repositories.property_amenity_repository import (
-    PropertyAmenityRepository,
-)
 from properties.application.ports.repositories.property_poi_repository import (
     PropertyPoiRepository,
 )
@@ -67,12 +64,6 @@ from properties.application.use_cases.update_property_owner_contact import (
     UpdatePropertyOwnerContact,
 )
 from properties.application.use_cases.update_property_poi import UpdatePropertyPoi
-from properties.application.use_cases.discover_property_amenities import (
-    DiscoverPropertyAmenities,
-)
-from properties.application.use_cases.get_property_amenities import (
-    GetPropertyAmenities,
-)
 from shared.events.ports import CommandPublisher, EventPublisher
 
 
@@ -91,7 +82,6 @@ class Container:
         document_content_repo: DocumentContentRepository | None = None,
         domain_event_publisher: EventPublisher | None = None,
         places_service: PlacesService | None = None,
-        amenity_repo: PropertyAmenityRepository | None = None,
         property_poi_repo: PropertyPoiRepository | None = None,
         enrichment_queue_url: str = "",
     ) -> None:
@@ -107,7 +97,6 @@ class Container:
         self.document_content_repo = document_content_repo
         self.domain_event_publisher = domain_event_publisher
         self.places_service = places_service
-        self.amenity_repo = amenity_repo
         self.property_poi_repo = property_poi_repo
         self.enrichment_queue_url = enrichment_queue_url
 
@@ -307,18 +296,4 @@ class Container:
                 extraction_job_repo=extraction_job_repo,
                 command_publisher=command_publisher,
                 extraction_queue_url=extraction_queue_url,
-            )
-
-        # Discovery use cases
-        if amenity_repo:
-            self.get_property_amenities = GetPropertyAmenities(
-                property_repo=property_repo,
-                amenity_repo=amenity_repo,
-            )
-
-        if places_service and amenity_repo:
-            self.discover_property_amenities = DiscoverPropertyAmenities(
-                property_repo=property_repo,
-                places_service=places_service,
-                amenity_repo=amenity_repo,
             )

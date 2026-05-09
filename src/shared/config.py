@@ -41,8 +41,6 @@ class Settings(BaseSettings):
     sqs_customers_events_dlq_url: str = ""
     sqs_bookings_events_queue_url: str = ""
     sqs_bookings_events_dlq_url: str = ""
-    sqs_properties_events_queue_url: str = ""
-    sqs_properties_events_dlq_url: str = ""
     sqs_listings_events_queue_url: str = ""
     sqs_listings_events_dlq_url: str = ""
 
@@ -129,7 +127,13 @@ class Settings(BaseSettings):
     def billing_portal_return_url(self) -> str:
         return f"{self.app_url}/dashboard/settings/subscriptions"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        # Tolerate stale env vars from previous schema versions (e.g. when
+        # we drop a setting, ops .env files take a beat to catch up).
+        "extra": "ignore",
+    }
 
 
 def setup_logging(log_level: str = "info") -> None:

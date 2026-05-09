@@ -37,9 +37,6 @@ from properties.adapters.inmemory.inmemory_document_extractor import (
 )
 from properties.adapters.inmemory.inmemory_document_parser import InMemoryDocumentParser
 from properties.adapters.inmemory.inmemory_places_service import InMemoryPlacesService
-from properties.adapters.inmemory.inmemory_property_amenity_repo import (
-    InMemoryPropertyAmenityRepository,
-)
 from properties.adapters.inmemory.inmemory_property_extractor import (
     InMemoryPropertyExtractor,
 )
@@ -263,7 +260,6 @@ def e2e_property_container(session, localstack_url, s3_bucket, sqs_queue_url):
         document_parser=InMemoryDocumentParser(),
         document_content_repo=SqlAlchemyDocumentContentRepository(session),
         places_service=InMemoryPlacesService(),
-        amenity_repo=InMemoryPropertyAmenityRepository(),
     )
 
 

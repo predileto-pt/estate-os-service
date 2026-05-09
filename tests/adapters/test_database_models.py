@@ -19,7 +19,6 @@ EXPECTED_TABLES = {
     "extraction_jobs",
     "document_contents",
     "property_images",
-    "property_amenities",
 }
 
 

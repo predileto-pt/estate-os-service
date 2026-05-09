@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from properties.adapters.database.models import (
     DocumentContentModel,
     ExtractionJobModel,
-    PropertyAmenityModel,
     PropertyImageModel,
     PropertyModel,
     PropertyOwnerModel,
@@ -287,11 +286,11 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
     async def delete(self, property_id: UUID) -> None:
         pid = str(property_id)
         # Delete child rows first to satisfy FK constraints (no ondelete=CASCADE).
-        # Order: amenities, owners, prices, images, then the property itself.
+        # Order: owners, prices, images, then the property itself.
         # extraction_jobs.property_id is nullable and handled by the
         # ExtractionJobRepository.delete_by_property_id() before this is called.
+        # property_pois has ON DELETE CASCADE so it's wiped automatically.
         for model_cls, fk_column in (
-            (PropertyAmenityModel, PropertyAmenityModel.property_id),
             (PropertyOwnerModel, PropertyOwnerModel.property_id),
             (PropertyPriceModel, PropertyPriceModel.property_id),
             (PropertyImageModel, PropertyImageModel.property_id),

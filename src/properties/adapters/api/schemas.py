@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field, field_validator
 
 from properties.domain.models.extraction_job import ExtractionJobStatus
 from properties.domain.models.property import ListingType, PropertyStatus, Typology
-from properties.domain.models.property_amenity import AmenityCategory
 from properties.domain.models.property_owner import CivilStatus, DocumentType
 from properties.domain.models.property_poi import PoiCategory
 
@@ -210,34 +209,6 @@ class PublicPropertyResponse(BaseModel):
     updated_at: datetime
     prices: list[PropertyPriceResponse]
     images: list[PropertyImageResponse] = []
-
-
-# --- Property Amenities ---
-
-
-class NearbyPlaceResponse(BaseModel):
-    name: str
-    distance_meters: float
-    latitude: float
-    longitude: float
-    place_id: str | None = None
-    google_maps_url: str | None = None
-
-
-class PropertyAmenityResponse(BaseModel):
-    id: UUID
-    property_id: UUID
-    category: AmenityCategory
-    nearest_name: str
-    nearest_distance_meters: float
-    nearest_latitude: float
-    nearest_longitude: float
-    total_count: int
-    nearest_place_id: str | None = None
-    nearest_google_maps_url: str | None = None
-    top_places: list[NearbyPlaceResponse] = []
-    created_at: datetime
-    updated_at: datetime
 
 
 # --- Extraction Jobs ---
