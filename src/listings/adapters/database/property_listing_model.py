@@ -28,7 +28,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from listings.adapters.database.models import ListingType, PropertyStatus, Typology
@@ -99,6 +99,24 @@ class PropertyListingModel(Base):
     latitude: Mapped[float | None] = mapped_column(Float)
     longitude: Mapped[float | None] = mapped_column(Float)
 
+    # POIs carried from the upstream property snapshot. Lean shape per
+    # spec `2026-05-listing-semantic-search`: list of
+    # `{category, name, distance_meters}`. Overwritten by the projector
+    # on every applied upsert; consumed by the canonical-text composer.
+    pois: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+
+    # Embedding pipeline state (ADR-013 §1). All five columns are
+    # managed by the embedding handler, never by the projector — the
+    # projector excludes them from the upsert SET clause so a property
+    # update doesn't regress the embedding state.
+    embedding_text_hash: Mapped[str | None] = mapped_column(Text)
+    canonical_text_version: Mapped[str | None] = mapped_column(Text)
+    embedding_model_version: Mapped[str | None] = mapped_column(Text)
+    embedded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    embedding_status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'PENDING'")
+    )
+
     # Idempotency + pagination.
     source_aggregate_version: Mapped[int] = mapped_column(Integer, nullable=False)
     source_occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -117,5 +135,13 @@ class PropertyListingModel(Base):
             "status",
             "created_at",
             "id",
+        ),
+        # Partial index supporting the ops dashboard query
+        # `WHERE embedding_status != 'INDEXED'` (spec
+        # `2026-05-listing-semantic-search`).
+        Index(
+            "idx_property_listings_embedding_status_pending",
+            "embedding_status",
+            postgresql_where=text("embedding_status != 'INDEXED'"),
         ),
     )

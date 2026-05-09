@@ -32,7 +32,7 @@ from listings.application.ports.repositories.property_listing_repository import 
     PropertyListingRepository,
 )
 from listings.domain.models import ListingType, PropertyStatus, Typology
-from listings.domain.property_listing import PropertyListing
+from listings.domain.property_listing import ListingPoi, PropertyListing
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -44,6 +44,7 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
 
     @staticmethod
     def _to_domain(m: PropertyListingModel) -> PropertyListing:
+        pois_raw = m.pois or []
         return PropertyListing(
             id=UUID(m.id),
             organization_id=UUID(m.organization_id),
@@ -73,6 +74,19 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             source_occurred_at=m.source_occurred_at,
             created_at=m.created_at,
             updated_at=m.updated_at,
+            pois=[
+                ListingPoi(
+                    category=p["category"],
+                    name=p["name"],
+                    distance_meters=float(p["distance_meters"]),
+                )
+                for p in pois_raw
+            ],
+            embedding_text_hash=m.embedding_text_hash,
+            canonical_text_version=m.canonical_text_version,
+            embedding_model_version=m.embedding_model_version,
+            embedded_at=m.embedded_at,
+            embedding_status=m.embedding_status,
         )
 
     async def get_by_id(self, property_id: UUID) -> PropertyListing | None:
@@ -92,12 +106,25 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
         row = _event_to_row(event_data, source_occurred_at)
         async with self._session_factory() as session:
             stmt = pg_insert(PropertyListingModel).values(**row)
+            # Embedding columns are owned by the embedding handler, not the
+            # projector — exclude them from the UPDATE SET clause so a
+            # projector-driven upsert doesn't regress embedding state.
             stmt = stmt.on_conflict_do_update(
                 index_elements=["id"],
                 set_={
                     k: stmt.excluded[k]
                     for k in row
-                    if k not in ("id", "created_at", "location_enrichment_attempts")
+                    if k
+                    not in (
+                        "id",
+                        "created_at",
+                        "location_enrichment_attempts",
+                        "embedding_text_hash",
+                        "canonical_text_version",
+                        "embedding_model_version",
+                        "embedded_at",
+                        "embedding_status",
+                    )
                 }
                 | {"updated_at": func.now()},
                 where=PropertyListingModel.source_aggregate_version
@@ -179,6 +206,46 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             await session.refresh(model)
             return self._to_domain(model)
 
+    async def set_embedding_indexed(
+        self,
+        *,
+        property_id: UUID,
+        embedding_text_hash: str,
+        canonical_text_version: str,
+        embedding_model_version: str,
+        embedded_at: datetime,
+    ) -> PropertyListing | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
+            )
+            model = result.scalar_one_or_none()
+            if model is None:
+                return None
+            model.embedding_text_hash = embedding_text_hash
+            model.canonical_text_version = canonical_text_version
+            model.embedding_model_version = embedding_model_version
+            model.embedded_at = embedded_at
+            model.embedding_status = "INDEXED"
+            await session.commit()
+            await session.refresh(model)
+            return self._to_domain(model)
+
+    async def set_embedding_status(
+        self, *, property_id: UUID, status: str
+    ) -> PropertyListing | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
+            )
+            model = result.scalar_one_or_none()
+            if model is None:
+                return None
+            model.embedding_status = status
+            await session.commit()
+            await session.refresh(model)
+            return self._to_domain(model)
+
 
 def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:
     """Map a carried-state event payload to a `property_listings` row dict.
@@ -209,6 +276,11 @@ def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:
 
     chars = data.get("characteristics") or {}
 
+    # POIs from the upstream snapshot (lean shape:
+    # `[{category, name, distance_meters}, ...]`). Tolerate older
+    # events without `pois` by defaulting to empty.
+    pois = data.get("pois") or []
+
     return {
         "id": data["id"],
         "organization_id": data["organization_id"],
@@ -232,6 +304,7 @@ def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:
         "description": data.get("description"),
         "latitude": data.get("latitude"),
         "longitude": data.get("longitude"),
+        "pois": pois,
         "source_aggregate_version": data["aggregate_version"],
         "source_occurred_at": source_occurred_at,
     }

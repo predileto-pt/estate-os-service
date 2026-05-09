@@ -72,3 +72,29 @@ class PropertyListingRepository(ABC):
         `location_enriched_at` — called when the LLM parse fails so a
         monitor query can surface stuck rows.
         """
+
+    @abstractmethod
+    async def set_embedding_indexed(
+        self,
+        *,
+        property_id: UUID,
+        embedding_text_hash: str,
+        canonical_text_version: str,
+        embedding_model_version: str,
+        embedded_at: datetime,
+    ) -> PropertyListing | None:
+        """Mark a row as successfully indexed: persist the canonical-text
+        hash, the schema/model versions, the timestamp, and flip
+        `embedding_status` to `INDEXED`. Returns None if the row was
+        deleted between the embed call and this write.
+        """
+
+    @abstractmethod
+    async def set_embedding_status(
+        self, *, property_id: UUID, status: str
+    ) -> PropertyListing | None:
+        """Update only `embedding_status` (e.g. PENDING / FAILED). Used
+        on transient state transitions; the success path uses
+        `set_embedding_indexed` instead, which writes the full tuple
+        atomically. Returns None if the row doesn't exist.
+        """

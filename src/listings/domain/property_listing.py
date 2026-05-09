@@ -10,12 +10,26 @@ doesn't carry and lets the listings API filter on indexed b-trees.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
 from listings.domain.models import ListingType, PropertyStatus, Typology
+
+
+@dataclass(frozen=True)
+class ListingPoi:
+    """Lean POI projection carried from the upstream property snapshot.
+
+    Spec `2026-05-listing-semantic-search`: only the three fields the
+    canonical-text composer needs to render `NEARBY:`. Listings does
+    not import `properties.PropertyPoi`.
+    """
+
+    category: str
+    name: str
+    distance_meters: float
 
 
 @dataclass
@@ -61,3 +75,13 @@ class PropertyListing:
     source_occurred_at: datetime
     created_at: datetime
     updated_at: datetime
+
+    # Embedding pipeline state (ADR-013, spec
+    # `2026-05-listing-semantic-search`). Default values match a freshly
+    # projected row that hasn't been embedded yet.
+    pois: list[ListingPoi] = field(default_factory=list)
+    embedding_text_hash: str | None = None
+    canonical_text_version: str | None = None
+    embedding_model_version: str | None = None
+    embedded_at: datetime | None = None
+    embedding_status: str = "PENDING"

@@ -16,7 +16,7 @@ from listings.application.ports.repositories.property_listing_repository import 
     PropertyListingRepository,
 )
 from listings.domain.models import ListingType, PropertyStatus, Typology
-from listings.domain.property_listing import PropertyListing
+from listings.domain.property_listing import ListingPoi, PropertyListing
 
 
 class InMemoryPropertyListingRepository(PropertyListingRepository):
@@ -59,6 +59,16 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
         if first_image is None and images:
             first_image = images[0].get("s3_key")
 
+        pois_raw = event_data.get("pois") or []
+        pois = [
+            ListingPoi(
+                category=p["category"],
+                name=p["name"],
+                distance_meters=float(p["distance_meters"]),
+            )
+            for p in pois_raw
+        ]
+
         listing = PropertyListing(
             id=property_id,
             organization_id=UUID(event_data["organization_id"]),
@@ -86,6 +96,14 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             source_occurred_at=source_occurred_at,
             created_at=existing.created_at if existing else now,
             updated_at=now,
+            pois=pois,
+            # Embedding columns are owned by the embedding handler — preserve
+            # what's there (initial value for fresh row, untouched on update).
+            embedding_text_hash=existing.embedding_text_hash if existing else None,
+            canonical_text_version=existing.canonical_text_version if existing else None,
+            embedding_model_version=existing.embedding_model_version if existing else None,
+            embedded_at=existing.embedded_at if existing else None,
+            embedding_status=existing.embedding_status if existing else "PENDING",
         )
         self._rows[property_id] = listing
         return listing
@@ -128,4 +146,32 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
         if existing is None:
             return None
         existing.location_enrichment_attempts += 1
+        return existing
+
+    async def set_embedding_indexed(
+        self,
+        *,
+        property_id: UUID,
+        embedding_text_hash: str,
+        canonical_text_version: str,
+        embedding_model_version: str,
+        embedded_at: datetime,
+    ) -> PropertyListing | None:
+        existing = self._rows.get(property_id)
+        if existing is None:
+            return None
+        existing.embedding_text_hash = embedding_text_hash
+        existing.canonical_text_version = canonical_text_version
+        existing.embedding_model_version = embedding_model_version
+        existing.embedded_at = embedded_at
+        existing.embedding_status = "INDEXED"
+        return existing
+
+    async def set_embedding_status(
+        self, *, property_id: UUID, status: str
+    ) -> PropertyListing | None:
+        existing = self._rows.get(property_id)
+        if existing is None:
+            return None
+        existing.embedding_status = status
         return existing
