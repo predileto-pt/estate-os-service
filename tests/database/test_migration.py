@@ -5,7 +5,42 @@ async def test_current_revision_is_head(session):
     result = await session.execute(text("SELECT version_num FROM alembic_version"))
     row = result.first()
     assert row is not None
-    assert row[0] == "ecdb36cf8489"
+    assert row[0] == "cd7dc6b929a3"
+
+
+async def test_property_listings_address_dropped_country_added(session):
+    """Spec 2026-05-property-address-enrichment-fix: drop `address`,
+    add `country` (NOT NULL default 'Portugal'), `city`, `state`,
+    `postal_code`, `region` (all nullable)."""
+    result = await session.execute(
+        text("""
+        SELECT column_name, is_nullable, data_type, column_default
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'property_listings'
+        ORDER BY column_name
+    """)
+    )
+    cols = {row[0]: (row[1], row[2], row[3]) for row in result.fetchall()}
+
+    # `address` is gone (privacy fix).
+    assert "address" not in cols
+
+    # `country` is NOT NULL with default 'Portugal'.
+    assert "country" in cols
+    assert cols["country"][0] == "NO"
+    assert cols["country"][1] == "text"
+    assert cols["country"][2] is not None and "Portugal" in cols["country"][2]
+
+    # Forward-scope columns exist and are nullable.
+    for forward_col in ("city", "state", "postal_code", "region"):
+        assert forward_col in cols, f"missing {forward_col}"
+        assert cols[forward_col][0] == "YES", f"{forward_col} should be nullable"
+        assert cols[forward_col][1] == "text"
+
+    # parish/municipality/district stay nullable (per-country invariant
+    # is enforced by the searcher, not the schema).
+    for pt_col in ("parish", "municipality", "district"):
+        assert cols[pt_col][0] == "YES", f"{pt_col} should remain nullable"
 
 
 async def test_property_pois_has_place_details_columns(session):

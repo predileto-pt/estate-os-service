@@ -36,9 +36,19 @@ class PropertyImageResponse(BaseModel):
 
 
 class ListedPropertyResponse(BaseModel):
+    """Public-facing listing payload.
+
+    `address` removed (privacy fix, spec
+    `2026-05-property-address-enrichment-fix`). Structured location
+    fields (parish/municipality/district/country) are NOT exposed in v1
+    — they live on `property_listings`, which the public route doesn't
+    yet read. Exposing them is a follow-up that switches the public
+    route from the legacy `ListedProperty` (over `properties`) to
+    `PropertyListing` (over `property_listings`).
+    """
+
     id: UUID
     organization_id: UUID
-    address: str
     listing_type: ListingType
     typology: Typology
     description: str | None

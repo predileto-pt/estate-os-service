@@ -72,13 +72,28 @@ class PropertyListingModel(Base):
         index=True,
     )
 
-    # Raw free-text, carried straight from the source event.
-    address: Mapped[str] = mapped_column(Text, nullable=False)
+    # Raw free-text address has been DROPPED from this read-model
+    # (spec 2026-05-property-address-enrichment-fix). The public route
+    # served from this table — once it migrates from the legacy
+    # `ReadPropertyModel` — will compose location from the structured
+    # fields below instead of leaking the street address.
 
-    # Populated asynchronously by the enrichment handler.
+    # Populated asynchronously by the enrichment handler. Stay nullable
+    # in the schema; the per-country `AddressSearcher` enforces non-null
+    # for its country (e.g. PT requires parish/municipality/district).
     parish: Mapped[str | None] = mapped_column(Text, index=True)
     municipality: Mapped[str | None] = mapped_column(Text, index=True)
     district: Mapped[str | None] = mapped_column(Text, index=True)
+    # Country defaults to 'Portugal' at the DB level — the only country
+    # supported in v1. Forward-scope columns below populate as the
+    # platform expands to other countries.
+    country: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'Portugal'"), index=True
+    )
+    city: Mapped[str | None] = mapped_column(Text)
+    state: Mapped[str | None] = mapped_column(Text)
+    postal_code: Mapped[str | None] = mapped_column(Text)
+    region: Mapped[str | None] = mapped_column(Text)
     location_enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     location_enrichment_attempts: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")

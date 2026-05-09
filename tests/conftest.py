@@ -153,7 +153,7 @@ def listing_repo():
 
 @pytest.fixture
 def listing_container(listing_repo):
-    from listings.adapters.inmemory.inmemory_address_parser import InMemoryAddressParser
+    from listings.adapters.inmemory.inmemory_address_searcher import InMemoryAddressSearcher
     from listings.adapters.inmemory.inmemory_property_listing_repo import (
         InMemoryPropertyListingRepository,
     )
@@ -162,7 +162,7 @@ def listing_container(listing_repo):
     return ListingContainer(
         listing_repo=listing_repo,
         property_listing_repo=InMemoryPropertyListingRepository(),
-        address_parser=InMemoryAddressParser(),
+        portugal_address_searcher=InMemoryAddressSearcher(),
     )
 
 

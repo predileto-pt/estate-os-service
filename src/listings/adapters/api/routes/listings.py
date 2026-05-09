@@ -35,10 +35,15 @@ async def _generate_image_urls(request: Request, prop: ListedProperty) -> dict[s
 
 
 def _to_response(prop: ListedProperty, image_urls: dict[str, str]) -> ListedPropertyResponse:
+    # NOTE: prop.address is intentionally NOT copied to the response —
+    # privacy fix (spec 2026-05-property-address-enrichment-fix). The
+    # public listings page no longer leaks the exact street address to
+    # anonymous visitors. Structured location fields will land in a
+    # follow-up that switches this route to read from
+    # `property_listings` instead of the legacy `ListedProperty`.
     return ListedPropertyResponse(
         id=prop.id,
         organization_id=prop.organization_id,
-        address=prop.address,
         listing_type=prop.listing_type,
         typology=prop.typology,
         description=prop.description,

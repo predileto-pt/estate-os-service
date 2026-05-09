@@ -30,6 +30,7 @@ def _make_listed(
     *,
     organization_id: str = TEST_ORGANIZATION_ID,
     address: str = "Rua A",
+    description: str | None = None,
 ) -> ListedProperty:
     """Build a `ListedProperty` for in-memory seeding.
 
@@ -44,7 +45,7 @@ def _make_listed(
         address=address,
         listing_type=ListingType.SALE,
         typology=Typology.APARTMENT,
-        description=None,
+        description=description,
         characteristics=None,
         latitude=None,
         longitude=None,
@@ -57,8 +58,11 @@ class TestAdminOrgActiveListings:
     async def test_happy_path_returns_only_calling_org_rows(
         self, client, auth_headers, listing_repo
     ):
-        listing_repo.add(_make_listed(address="Mine — 1"))
-        listing_repo.add(_make_listed(address="Mine — 2"))
+        # Description is used as the per-row tag now that `address` is
+        # no longer in the public response (privacy fix, spec
+        # 2026-05-property-address-enrichment-fix).
+        listing_repo.add(_make_listed(address="Mine — 1", description="Mine — 1"))
+        listing_repo.add(_make_listed(address="Mine — 2", description="Mine — 2"))
 
         response = await client.get(
             f"/api/v1/admin/listings/properties?organization_id={TEST_ORGANIZATION_ID}",
@@ -66,23 +70,29 @@ class TestAdminOrgActiveListings:
         )
         assert response.status_code == 200
         data = response.json()
-        addresses = {item["address"] for item in data["items"]}
-        assert addresses == {"Mine — 1", "Mine — 2"}
+        # No `address` exposed. Use description as a stable per-row marker.
+        descs = {item["description"] for item in data["items"]}
+        assert descs == {"Mine — 1", "Mine — 2"}
+        assert all("address" not in item for item in data["items"])
         assert data["total"] == 2
         assert data["limit"] == 20
         assert data["offset"] == 0
 
     async def test_other_orgs_rows_are_not_included(self, client, auth_headers, listing_repo):
-        listing_repo.add(_make_listed(address="Mine"))
-        listing_repo.add(_make_listed(organization_id=OTHER_ORGANIZATION_ID, address="Theirs"))
+        listing_repo.add(_make_listed(address="Mine", description="Mine"))
+        listing_repo.add(
+            _make_listed(
+                organization_id=OTHER_ORGANIZATION_ID, address="Theirs", description="Theirs"
+            )
+        )
 
         response = await client.get(
             f"/api/v1/admin/listings/properties?organization_id={TEST_ORGANIZATION_ID}",
             headers=auth_headers,
         )
         assert response.status_code == 200
-        addresses = {item["address"] for item in response.json()["items"]}
-        assert addresses == {"Mine"}
+        descs = {item["description"] for item in response.json()["items"]}
+        assert descs == {"Mine"}
 
     async def test_empty_org_returns_200_with_empty_items(self, client, auth_headers, listing_repo):
         # Other orgs have rows; calling org has none.
@@ -163,9 +173,10 @@ class TestAdminOrgActiveListings:
         assert response.status_code == 200
         item = response.json()["items"][0]
         # Same field set as the public endpoint's response.
+        # `address` removed (privacy fix, spec
+        # 2026-05-property-address-enrichment-fix).
         for key in (
             "id",
-            "address",
             "listing_type",
             "typology",
             "description",
@@ -178,3 +189,4 @@ class TestAdminOrgActiveListings:
             "images",
         ):
             assert key in item
+        assert "address" not in item

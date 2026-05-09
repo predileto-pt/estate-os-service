@@ -99,7 +99,20 @@ async def handle_property_event(event: DomainEvent, context: dict) -> None:
     await _publish_listing_event(
         publisher,
         event_type=PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1,
-        data={"property_id": data["id"], "address": data["address"]},
+        data={
+            "property_id": data["id"],
+            "address": data["address"],
+            # Postal code rides through to the LLM enrichment handler
+            # as an authoritative signal (spec
+            # 2026-05-property-address-enrichment-fix). `.get()` is
+            # used so events from a pre-spec emitter don't break.
+            "postal_code": data.get("postal_code"),
+            # Country drives per-country dispatch in the searcher.
+            # Defaults to Portugal for legacy events; future
+            # `Property.country` will populate this from the upstream
+            # event payload directly.
+            "country": data.get("country") or "Portugal",
+        },
         property_id=data["id"],
     )
     await _publish_listing_event(

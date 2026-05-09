@@ -63,7 +63,6 @@ async def test_first_upsert_inserts_row(repo):
         event_data=event, source_occurred_at=datetime.now(timezone.utc)
     )
     assert row is not None
-    assert row.address == "Arca, Ponte de Lima, Viana do Castelo"
     assert row.source_aggregate_version == 1
     assert row.parish is None  # enrichment hasn't run yet
     assert row.location_enrichment_attempts == 0
@@ -79,7 +78,6 @@ async def test_higher_version_upsert_updates(repo):
         event_data=_event(id_=pid, version=2, address="v2"),
         source_occurred_at=datetime.now(timezone.utc),
     )
-    assert row2.address == "v2"
     assert row2.source_aggregate_version == 2
 
 
@@ -95,16 +93,12 @@ async def test_lower_or_equal_version_is_idempotency_dropped(repo):
         source_occurred_at=datetime.now(timezone.utc),
     )
     assert result is None
-    stored = await repo.get_by_id(__import__("uuid").UUID(pid))
-    assert stored.address == "v5"
     # Lower version — drop
     result2 = await repo.upsert_from_event(
         event_data=_event(id_=pid, version=3, address="even older"),
         source_occurred_at=datetime.now(timezone.utc),
     )
     assert result2 is None
-    stored = await repo.get_by_id(__import__("uuid").UUID(pid))
-    assert stored.address == "v5"
 
 
 async def test_min_price_picks_lowest_across_prices(repo):
@@ -213,11 +207,16 @@ async def test_update_location_patches_and_bumps_attempts(repo):
         event_data=_event(id_=pid, version=1, address="Arca, Ponte de Lima, Viana"),
         source_occurred_at=datetime.now(timezone.utc),
     )
+    from listings.application.ports.address_searcher import ParsedAddress
+
     updated = await repo.update_location(
         property_id=UUID(pid),
-        parish="Arca",
-        municipality="Ponte de Lima",
-        district="Viana do Castelo",
+        parsed=ParsedAddress(
+            country="Portugal",
+            parish="Arca",
+            municipality="Ponte de Lima",
+            district="Viana do Castelo",
+        ),
     )
     assert updated.parish == "Arca"
     assert updated.municipality == "Ponte de Lima"

@@ -40,11 +40,18 @@ class PropertyListing:
     listing_type: ListingType
     typology: Typology
 
-    # Raw free-text, carried through unchanged from the source event.
-    address: str
+    # Raw `address` was dropped from this read-model — privacy fix
+    # (spec `2026-05-property-address-enrichment-fix`). The free-text
+    # address still lives on the write-side `Property` aggregate;
+    # the projector reads it from the upstream event payload only to
+    # forward it to the LLM enrichment handler.
 
-    # Populated asynchronously by the enrichment handler. NULL until
-    # enriched or for addresses the parser can't resolve.
+    # Populated asynchronously by the enrichment handler. Per-country
+    # invariant enforced by the `AddressSearcher` — PT must have
+    # parish/municipality/district; future US fills city/state.
+    # `country` / `city` / `state` / `postal_code` / `region` are at
+    # the bottom of this dataclass with defaults so the dataclass
+    # init order is valid.
     parish: str | None
     municipality: str | None
     district: str | None
@@ -79,6 +86,16 @@ class PropertyListing:
     # Read by the canonical-text composer (`BUILT: ...` line).
     built_at: int | None = None
     energy_rating: str | None = None
+
+    # Forward-scope multi-country location columns. Populated by future
+    # per-country `AddressSearcher` implementations (spec
+    # `2026-05-property-address-enrichment-fix`); not written by anyone
+    # in v1.
+    country: str = "Portugal"
+    city: str | None = None
+    state: str | None = None
+    postal_code: str | None = None
+    region: str | None = None
 
     # Embedding pipeline state (ADR-013, spec
     # `2026-05-listing-semantic-search`). Default values match a freshly

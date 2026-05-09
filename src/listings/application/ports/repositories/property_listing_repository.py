@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from uuid import UUID
 
+from listings.application.ports.address_searcher import ParsedAddress
 from listings.domain.property_listing import PropertyListing
 
 
@@ -56,11 +57,12 @@ class PropertyListingRepository(ABC):
         self,
         *,
         property_id: UUID,
-        parish: str | None,
-        municipality: str | None,
-        district: str | None,
+        parsed: ParsedAddress,
     ) -> PropertyListing | None:
-        """Patch parish/municipality/district on an existing row. Also
+        """Persist the universal `ParsedAddress` envelope returned by
+        the country-specific `AddressSearcher` — every per-country
+        implementation fills its country's fields and leaves the
+        others None. The row absorbs Nones in nullable columns. Also
         bumps `location_enrichment_attempts` and sets
         `location_enriched_at = NOW()` on success. Returns None if the
         row doesn't exist (already deleted).

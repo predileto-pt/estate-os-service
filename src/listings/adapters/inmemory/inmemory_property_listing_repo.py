@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
+from listings.application.ports.address_searcher import ParsedAddress
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
@@ -79,7 +80,9 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             status=PropertyStatus(event_data["status"]),
             listing_type=ListingType(event_data["listing_type"]),
             typology=Typology(event_data["typology"]),
-            address=event_data["address"],
+            # `address` removed from this read-model (spec
+            # 2026-05-property-address-enrichment-fix). The
+            # event still carries `data["address"]`; we don't store it.
             parish=existing.parish if existing else None,
             municipality=existing.municipality if existing else None,
             district=existing.district if existing else None,
@@ -93,6 +96,11 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             has_elevator=chars.get("has_elevator"),
             built_at=chars.get("built_at"),
             energy_rating=chars.get("energy_rating"),
+            country=existing.country if existing else (event_data.get("country") or "Portugal"),
+            city=existing.city if existing else None,
+            state=existing.state if existing else None,
+            postal_code=existing.postal_code if existing else None,
+            region=existing.region if existing else None,
             min_price=min_price,
             first_image_s3_key=first_image,
             description=event_data.get("description"),
@@ -133,16 +141,19 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
         self,
         *,
         property_id: UUID,
-        parish: str | None,
-        municipality: str | None,
-        district: str | None,
+        parsed: ParsedAddress,
     ) -> PropertyListing | None:
         existing = self._rows.get(property_id)
         if existing is None:
             return None
-        existing.parish = parish
-        existing.municipality = municipality
-        existing.district = district
+        existing.parish = parsed.parish
+        existing.municipality = parsed.municipality
+        existing.district = parsed.district
+        existing.country = parsed.country
+        existing.city = parsed.city
+        existing.state = parsed.state
+        existing.postal_code = parsed.postal_code
+        existing.region = parsed.region
         existing.location_enriched_at = datetime.now(timezone.utc)
         existing.location_enrichment_attempts += 1
         return existing

@@ -25,8 +25,27 @@ aggregate_version}`. Use `build_deletion_payload()` for that.
 
 from __future__ import annotations
 
+import re
+
 from properties.domain.models.property import Property
 from properties.domain.models.property_poi import PropertyPoi
+
+
+# Portuguese postal-code format: NNNN-NNN. Used by the listings address
+# enrichment LLM as an authoritative signal — see spec
+# `2026-05-property-address-enrichment-fix` §Postal-code extraction.
+# Word-boundary anchors prevent matches embedded in longer numeric runs.
+_POSTAL_CODE_RE = re.compile(r"\b(\d{4}-\d{3})\b")
+
+
+def _extract_postal_code(address: str) -> str | None:
+    """Extract a Portuguese postal code (`NNNN-NNN`) from a free-text
+    address. Returns None when no match — the searcher falls back to
+    parsing the city name from the address text alone."""
+    if not address:
+        return None
+    match = _POSTAL_CODE_RE.search(address)
+    return match.group(1) if match else None
 
 
 def build_property_snapshot(prop: Property, pois: list[PropertyPoi] | None = None) -> dict:
@@ -61,6 +80,11 @@ def build_property_snapshot(prop: Property, pois: list[PropertyPoi] | None = Non
         "organization_id": str(prop.organization_id),
         "aggregate_version": prop.aggregate_version,
         "address": prop.address,
+        # Extracted postal code rides on every event so the listings
+        # address-enrichment handler has an authoritative geographic
+        # signal when calling the LLM. Null when no PT postal code
+        # appears in the free-text address.
+        "postal_code": _extract_postal_code(prop.address),
         "listing_type": prop.listing_type.value,
         "typology": prop.typology.value,
         "status": prop.status.value,

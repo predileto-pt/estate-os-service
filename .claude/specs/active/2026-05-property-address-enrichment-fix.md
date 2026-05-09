@@ -1,6 +1,6 @@
 # Property listing address enrichment — country-aware searcher, no exposed street
 
-**Status:** draft (v3 — country-aware searcher, postal_code internal-only)
+**Status:** in-progress (v4 — Path A: strip street from public response; structured fields stay internal until the public route migrates to `property_listings`)
 **Owner:** Peter
 **Created:** 2026-05-09
 
@@ -15,9 +15,13 @@ The fix is small and focused: remove the street address from the public read-mod
 
 ## Goal
 
-`property_listings` carries a structured location hierarchy keyed off the property's `country`, and **never** the raw street address. Behind a new `AddressSearcher` port the handler dispatches to the right per-country implementation: in v1 only `PortugalAddressSearcher` exists (fills `parish`/`municipality`/`district`, leaves country-specific others null). The searcher consumes the address text **and the extracted postal code** as input signals. If it can't produce its country's required fields, it raises — failure surfaces in Logfire, SQS redrives → DLQ.
+Two coordinated changes:
 
-The "never null" invariant is enforced at the **searcher level** (per-country), not at the database column level, so non-PT countries (later) don't need PT-only fields populated.
+1. **Privacy fix (Path A).** Strip `address` from the public listings response (`ListedPropertyResponse` served by `GET /api/v1/listings/properties[/{id}]`). Anonymous visitors no longer see the exact street address. Structured location fields are NOT yet exposed publicly — that's a follow-up that lands when the public route migrates from the legacy `ListedProperty` (over `properties`) to `PropertyListing` (over `property_listings`). For now, the public response carries no location field at all.
+
+2. **Async LLM enrichment refactor.** Behind a new `AddressSearcher` port the enrichment handler dispatches to the right per-country implementation; in v1 only `PortugalAddressSearcher` exists (fills `parish`/`municipality`/`district`, leaves others null). The searcher consumes the address text **and the extracted postal code** as input signals. If it can't produce its country's required fields, it raises — failure surfaces in Logfire, SQS redrives → DLQ.
+
+The "never null" invariant is enforced at the **searcher level** (per-country), not at the database column level, so non-PT countries (later) don't need PT-only fields populated. `property_listings.address` is dropped as housekeeping (the projector no longer writes it; the read-model doesn't need it). It is **not** the column being publicly leaked today — that's `properties.address` via `ReadPropertyModel` — but the public-response strip in (1) closes that path.
 
 ## Non-goals
 
@@ -27,7 +31,8 @@ The "never null" invariant is enforced at the **searcher level** (per-country), 
 - **No backfill of existing un-enriched rows.** Migration uses an empty-string placeholder for currently-null parish/municipality/district to satisfy the new `NOT NULL` constraint; the user re-runs enrichment manually for those rows. (One-shot ops job, out of scope here.)
 - **No multi-country business logic in v1.** `country` defaults to `'Portugal'` server-side. The new nullable columns (`city`, `state`, `postal_code`, `region`) exist for forward-compat only — they're written by no one and read by no one until the platform expands.
 - **No new column on `properties`.** Postal code is *extracted on the fly* in the event-snapshot builder (regex over `Property.address`); the property aggregate is untouched. The user's directive: "keep the properties untouched."
-- **No frontend-coordination guidance in this spec.** The dashboard team is handling FE adjustments separately. Backend just guarantees the new API shape.
+- **No frontend-coordination guidance in this spec.** Pre-production project; FE is handled out-of-band.
+- **No public exposure of structured location fields in v1 (Path A).** `parish` / `municipality` / `district` / `country` and the forward-scope columns stay internal — only the projector / embedding handler read them. Exposing them publicly requires switching the public route to `property_listings` (separate spec).
 - **No `postal_code` in the public response.** PT postal codes are granular enough (one block) that exposing them defeats the privacy fix. Internal column only — written by the projector for forward-compat use cases (search filters, multi-country dispatch); never serialised on `/api/v1/listings/...`.
 - **No `NOT NULL` schema constraint on `parish`/`municipality`/`district`.** With country-aware dispatch, future US listings will leave those null and fill `city`/`state` instead. Application invariant ("PT properties have non-null PT fields") lives in `PortugalAddressSearcher`, not in the schema.
 - **No US implementation.** `UnitedStatesAddressSearcher` is mentioned for shape only — no class, no prompt, no tests. Dispatcher raises `NotImplementedError` for `country != 'Portugal'`. Lands when the platform expands. Each future country owns its own LangChain prompt + structured-output schema.
@@ -279,19 +284,19 @@ postal_code: Mapped[str | None] = mapped_column(Text)
 region: Mapped[str | None] = mapped_column(Text)
 ```
 
-### Public API response (breaking change)
+### Public API response (Path A — strip-only, no new fields)
 
-The public listings response no longer carries `address` or `postal_code`. Every place the API serialises a `property_listings` row needs updating:
+The public listings response served by `GET /api/v1/listings/properties[/{id}]` flows through the **legacy** path (`SqlAlchemyListingRepository` → `ListedProperty` → `ListedPropertyResponse`), NOT through `property_listings`. That's where the actual leak lives.
 
-- **`PublicPropertyResponse`** in `src/listings/adapters/api/schemas.py` — drop `address`. Add `country` (required), and `parish`, `municipality`, `district`, `city`, `state`, `region` (all optional, populated per the property's country). **`postal_code` is NOT exposed** — internal-only column used by the searcher / projector.
-- **List response wrapper** (whatever `GET /api/v1/listings/properties` returns — pagination envelope or raw list) — propagates the same shape per item.
-- **Single-item response** for `GET /api/v1/listings/properties/{id}` — same.
-- **Route handlers / response builders** — drop `"address": row.address` from the dict assembly; add the structured fields *except* `postal_code`.
-- **OpenAPI schema regenerates** automatically from Pydantic — no manual update.
+Path A drops `address` from `ListedPropertyResponse` and stops there:
 
-Anywhere a route handler currently does `response["address"] = listing.address`, it has to either disappear or be replaced with the structured fields (`postal_code` excluded). Implementation walks the listings routes and removes every `address` and `postal_code` reference from the public response surface. Tests that today assert on `"address" in response` flip to asserting it's NOT in the response, and additionally assert `"postal_code" not in response`.
+- **`ListedPropertyResponse`** in `src/listings/adapters/api/schemas.py` — drop `address`. **Do not add** structured location fields (parish/municipality/district/country) in v1 — they live on `property_listings`, which the public route doesn't read. Exposing them publicly is a follow-up that needs the public route to migrate to `property_listings` first (separate spec).
+- **`_to_response`** in `src/listings/adapters/api/routes/listings.py` — drop the `address=prop.address` line.
+- **`PropertyFilters.district` query param** — currently filters via `address.ilike("%district%")` (line 126 of `listing_repository.py`), exploiting the address text as a poor-man's district index. After address is stripped from the response, the filter still works at the SQL level (it queries `properties.address`, not `property_listings`). Keep the filter for now; the day the public route migrates to `property_listings`, this becomes a real `district = ?` query.
 
-Frontend (out of scope): user is handling on a separate terminal.
+Tests that today assert `"address" in body` for the public listings response flip to asserting `"address" not in body`.
+
+The structured-location columns added to `property_listings` (country / city / state / postal_code / region) and the parish/municipality/district fields stay **internal in v1** — only the projector and the embedding handler read them. No public route consumes them yet.
 
 ### Admin response is unchanged
 
@@ -364,7 +369,7 @@ Frontend (out of scope): user is handling on a separate terminal.
 - [ ] `address_enrichment_handler` reads `country` (defaulting `"Portugal"`) and `postal_code` from `event.data` (using `.get(...)` for backward-compat); calls the dispatcher; calls `searcher.search(address=..., postal_code=..., country=...)`.
 - [ ] `address_enrichment_handler` re-raises on parse failure (existing behavior); structlog → Logfire emits the failure event with the offending address; SQS redrives until `maxReceiveCount=5` then DLQs.
 - [ ] `SqlAlchemyPropertyListingRepository` and the in-memory variant: no `address` references; default `country='Portugal'` when not supplied; `update_location` writes ALL location fields (PT + US shape) from the searcher's result.
-- [ ] Public listings response no longer carries `address` OR `postal_code`. Carries `country` (required), and `parish`/`municipality`/`district`/`city`/`state`/`region` (all optional, populated per country).
+- [ ] Public listings response (`GET /api/v1/listings/properties[/{id}]`) no longer carries `address`. **Does not gain** any of the new structured location fields in v1 — those are internal until the public route migrates from `ListedProperty` to `PropertyListing` (out-of-scope follow-up).
 - [ ] Admin properties response is unchanged — `Property.address` still serialised on `/api/v1/admin/properties/...`.
 - [ ] `build_property_snapshot` returns a dict with `postal_code` matching the PT format `XXXX-XXX` when extractable, `None` otherwise. Property events (`PROPERTY_CREATED.v1`, `PROPERTY_UPDATED.v1`, `PROPERTY_PUBLISHED.v1`) all carry it.
 - [ ] `property_event_handler` forwards `country` AND `postal_code` into the `PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1` payload.
@@ -378,6 +383,7 @@ Frontend (out of scope): user is handling on a separate terminal.
 
 ## Out of scope follow-ups
 
+- **Migrating the public listings route from `ListedProperty` (legacy, over `properties`) to `PropertyListing` (new read-model, over `property_listings`).** The follow-up that exposes the structured location fields publicly. Touches `ListProperties` / `GetProperty` / `ListOrgActiveListings` use cases, the `PropertyFilters` shape, the response model, and the `district` query-param semantics (becomes a real indexed equality match instead of `LIKE` on free text).
 - Backfill of existing null parish/municipality/district rows by re-emitting events / re-running enrichment.
 - `UnitedStatesAddressSearcher` implementation (city/state extraction prompt + dispatcher case).
 - `Property.country` field on the write side; events carrying it; dispatcher reading it from `event.data["country"]` instead of defaulting.

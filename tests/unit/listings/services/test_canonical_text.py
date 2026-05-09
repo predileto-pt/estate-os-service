@@ -33,7 +33,6 @@ def _listing(**overrides) -> PropertyListing:
         status=PropertyStatus.ACTIVE,
         listing_type=ListingType.SALE,
         typology=Typology.APARTMENT,
-        address="Rua Augusta 1, Lisboa",
         parish="Santa Maria Maior",
         municipality="Lisboa",
         district="Lisboa",

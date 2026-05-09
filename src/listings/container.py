@@ -1,4 +1,4 @@
-from listings.application.ports.address_parser import AddressParser
+from listings.application.ports.address_searcher import AddressSearcher
 from listings.application.ports.embedding_provider import EmbeddingProvider
 from listings.application.ports.listing_repository import ListingRepository
 from listings.application.ports.repositories.property_listing_repository import (
@@ -15,7 +15,7 @@ class Container:
         self,
         listing_repo: ListingRepository,
         property_listing_repo: PropertyListingRepository | None = None,
-        address_parser: AddressParser | None = None,
+        portugal_address_searcher: AddressSearcher | None = None,
         embedding_provider: EmbeddingProvider | None = None,
         vector_index: VectorIndex | None = None,
         vector_index_namespace: str = "openai-text-embedding-3-small-v1",
@@ -33,7 +33,11 @@ class Container:
         # Optional for backwards-compat with existing tests that only
         # need the legacy read path.
         self.property_listing_repo = property_listing_repo
-        self.address_parser = address_parser
+        # Country-specific AddressSearcher (spec
+        # `2026-05-property-address-enrichment-fix`). The handler picks
+        # the right implementation via `select_address_searcher`; v1
+        # only Portugal is wired.
+        self.portugal_address_searcher = portugal_address_searcher
 
         # Embedding pipeline (spec `2026-05-listing-semantic-search`).
         # Both ports are optional; when either is None the embedding

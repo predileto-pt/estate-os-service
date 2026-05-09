@@ -28,6 +28,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from listings.adapters.database.property_listing_model import PropertyListingModel
+from listings.application.ports.address_searcher import ParsedAddress
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
@@ -53,7 +54,6 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
                 m.listing_type.value if hasattr(m.listing_type, "value") else m.listing_type
             ),
             typology=Typology(m.typology.value if hasattr(m.typology, "value") else m.typology),
-            address=m.address,
             parish=m.parish,
             municipality=m.municipality,
             district=m.district,
@@ -67,6 +67,11 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             has_elevator=m.has_elevator,
             built_at=m.built_at,
             energy_rating=m.energy_rating,
+            country=m.country,
+            city=m.city,
+            state=m.state,
+            postal_code=m.postal_code,
+            region=m.region,
             min_price=m.min_price,
             first_image_s3_key=m.first_image_s3_key,
             description=m.description,
@@ -128,9 +133,16 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
                     not in (
                         "id",
                         "created_at",
+                        # Location columns owned by the enrichment handler;
+                        # the projector must not regress them on UPDATE.
                         "parish",
                         "municipality",
                         "district",
+                        "country",
+                        "city",
+                        "state",
+                        "postal_code",
+                        "region",
                         "location_enriched_at",
                         "location_enrichment_attempts",
                         "embedding_text_hash",
@@ -184,10 +196,13 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
         self,
         *,
         property_id: UUID,
-        parish: str | None,
-        municipality: str | None,
-        district: str | None,
+        parsed: ParsedAddress,
     ) -> PropertyListing | None:
+        """Persist the universal `ParsedAddress` envelope returned by the
+        country-specific `AddressSearcher` — every per-country
+        implementation fills its country's fields and leaves the others
+        None. We write all of them; nullable columns absorb the Nones.
+        """
         async with self._session_factory() as session:
             result = await session.execute(
                 select(PropertyListingModel).where(PropertyListingModel.id == str(property_id))
@@ -195,9 +210,14 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             model = result.scalar_one_or_none()
             if model is None:
                 return None
-            model.parish = parish
-            model.municipality = municipality
-            model.district = district
+            model.parish = parsed.parish
+            model.municipality = parsed.municipality
+            model.district = parsed.district
+            model.country = parsed.country
+            model.city = parsed.city
+            model.state = parsed.state
+            model.postal_code = parsed.postal_code
+            model.region = parsed.region
             model.location_enriched_at = func.now()
             model.location_enrichment_attempts = (model.location_enrichment_attempts or 0) + 1
             await session.commit()
@@ -296,10 +316,18 @@ def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:
         "status": data["status"],
         "listing_type": data["listing_type"],
         "typology": data["typology"],
-        "address": data["address"],
+        # `address` is no longer a column on this table — see spec
+        # 2026-05-property-address-enrichment-fix. The projector reads
+        # `data["address"]` to forward to the enrichment event but does
+        # not write it to the row.
         "parish": None,
         "municipality": None,
         "district": None,
+        "country": data.get("country") or "Portugal",
+        "city": None,
+        "state": None,
+        "postal_code": None,
+        "region": None,
         "location_enriched_at": None,
         "location_enrichment_attempts": 0,
         "num_of_bedrooms": chars.get("num_of_bedrooms"),
