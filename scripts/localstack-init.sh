@@ -39,6 +39,7 @@ awslocal sns create-topic --name domain-events-PROPERTY_CREATED-v1
 awslocal sns create-topic --name domain-events-PROPERTY_UPDATED-v1
 awslocal sns create-topic --name domain-events-PROPERTY_DELETED-v1
 awslocal sns create-topic --name domain-events-PROPERTY_PUBLISHED-v1
+awslocal sns create-topic --name domain-events-PROPERTY_UNPUBLISHED-v1
 awslocal sns create-topic --name domain-events-PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT-v1
 awslocal sns create-topic --name domain-events-PROPERTY_LISTING_UPDATED-v1
 awslocal sns create-topic --name domain-events-PROPERTY_LISTING_DELETED-v1
@@ -125,6 +126,7 @@ for event_type in \
   PROPERTY_UPDATED \
   PROPERTY_DELETED \
   PROPERTY_PUBLISHED \
+  PROPERTY_UNPUBLISHED \
   PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT \
   PROPERTY_LISTING_UPDATED \
   PROPERTY_LISTING_DELETED; do

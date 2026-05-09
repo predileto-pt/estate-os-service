@@ -18,6 +18,17 @@ class PropertyNotPublishableError(DomainError):
         super().__init__(f"Property is not publishable: {', '.join(reasons)}")
 
 
+class PropertyNotUnpublishableError(DomainError):
+    """Raised when `Property.unpublish()` is called on a non-ACTIVE
+    property. Symmetric to `PropertyNotPublishableError`. Carries a
+    `reasons` list with machine-readable codes (currently just
+    `cannot_unpublish_from_status:<status>`)."""
+
+    def __init__(self, reasons: list[str]) -> None:
+        self.reasons = reasons
+        super().__init__(f"Property is not unpublishable: {', '.join(reasons)}")
+
+
 class PropertyAddressInvalidError(DomainError):
     def __init__(self, message: str = "address must not be empty") -> None:
         super().__init__(message)

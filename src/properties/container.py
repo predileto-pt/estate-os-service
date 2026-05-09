@@ -38,6 +38,7 @@ from properties.application.use_cases.process_property_extraction import (
     ProcessPropertyExtraction,
 )
 from properties.application.use_cases.publish_property import PublishProperty
+from properties.application.use_cases.unpublish_property import UnpublishProperty
 from properties.application.use_cases.submit_batch_property_extraction import (
     SubmitBatchPropertyExtraction,
 )
@@ -192,6 +193,10 @@ class Container:
             property_repo=property_repo,
             domain_event_publisher=domain_event_publisher,
             property_poi_repo=property_poi_repo,
+        )
+        self.unpublish_property = UnpublishProperty(
+            property_repo=property_repo,
+            domain_event_publisher=domain_event_publisher,
         )
         self.create_property_price = CreatePropertyPrice(
             property_repo=property_repo,

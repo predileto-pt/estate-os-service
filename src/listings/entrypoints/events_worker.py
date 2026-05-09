@@ -46,6 +46,7 @@ from shared.events.types import (
     PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1,
     PROPERTY_LISTING_UPDATED_V1,
     PROPERTY_PUBLISHED_V1,
+    PROPERTY_UNPUBLISHED_V1,
     PROPERTY_UPDATED_V1,
 )
 from shared.events.worker import SQSWorker
@@ -78,6 +79,7 @@ async def _run_events_worker() -> None:
     router.on(PROPERTY_UPDATED_V1, handle_property_event)
     router.on(PROPERTY_DELETED_V1, handle_property_event)
     router.on(PROPERTY_PUBLISHED_V1, handle_property_event)
+    router.on(PROPERTY_UNPUBLISHED_V1, handle_property_event)
     router.on(PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1, handle_address_enrichment)
     router.on(PROPERTY_LISTING_UPDATED_V1, handle_listing_embedding)
     router.on(PROPERTY_LISTING_DELETED_V1, handle_listing_deleted)

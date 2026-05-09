@@ -180,6 +180,39 @@ async def test_property_deleted_removes_row_and_emits_listing_deleted(context, r
     assert deleted.data == {"property_id": pid}
 
 
+async def test_property_unpublished_removes_row_and_emits_listing_deleted(context, repo, publisher):
+    """PROPERTY_UNPUBLISHED.v1 routes through the same delete path as
+    PROPERTY_DELETED.v1 — symmetric semantics on the projector side
+    (different upstream business meaning; same row-level effect)."""
+    from shared.events.types import PROPERTY_UNPUBLISHED_V1
+
+    pid = str(uuid4())
+    await handle_property_event(
+        DomainEvent(event_type=PROPERTY_CREATED_V1, data=_snapshot(id_=pid, version=1)),
+        context,
+    )
+    publisher.published.clear()
+
+    await handle_property_event(
+        DomainEvent(
+            event_type=PROPERTY_UNPUBLISHED_V1,
+            data={
+                "id": pid,
+                "organization_id": str(uuid4()),
+                "aggregate_version": 2,
+            },
+        ),
+        context,
+    )
+
+    assert await repo.get_by_id(UUID(pid)) is None
+    types = [e.event_type for e in publisher.published]
+    assert PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1 not in types
+    assert PROPERTY_LISTING_DELETED_V1 in types
+    deleted = next(e for e in publisher.published if e.event_type == PROPERTY_LISTING_DELETED_V1)
+    assert deleted.data == {"property_id": pid}
+
+
 async def test_delete_older_than_stored_drops(context, repo):
     pid = str(uuid4())
     await handle_property_event(

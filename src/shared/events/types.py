@@ -18,6 +18,12 @@ PROPERTY_CREATED_V1 = "PROPERTY_CREATED.v1"
 PROPERTY_UPDATED_V1 = "PROPERTY_UPDATED.v1"
 PROPERTY_DELETED_V1 = "PROPERTY_DELETED.v1"
 PROPERTY_PUBLISHED_V1 = "PROPERTY_PUBLISHED.v1"
+# Symmetric to PUBLISHED — distinct event so subscribers (notifications,
+# analytics) can treat "took off market" differently from "deleted from
+# system". The listings projector treats both UNPUBLISHED and DELETED
+# the same way (delete the property_listings row); other subscribers
+# may not.
+PROPERTY_UNPUBLISHED_V1 = "PROPERTY_UNPUBLISHED.v1"
 
 # Read-model enrichment (listings side)
 PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1 = "PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1"

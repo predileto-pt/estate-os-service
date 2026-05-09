@@ -30,6 +30,7 @@ from shared.events.types import (
     PROPERTY_LISTING_DELETED_V1,
     PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT_V1,
     PROPERTY_LISTING_UPDATED_V1,
+    PROPERTY_UNPUBLISHED_V1,
 )
 
 log = structlog.get_logger()
@@ -45,7 +46,12 @@ async def handle_property_event(event: DomainEvent, context: dict) -> None:
     data = event.data
     occurred_at = _parse_occurred_at(event.occurred_at)
 
-    if event.event_type == PROPERTY_DELETED_V1:
+    # Both PROPERTY_DELETED.v1 (hard delete on the write side) and
+    # PROPERTY_UNPUBLISHED.v1 (took off market — property still exists
+    # as DRAFT) result in the same projector action: drop the
+    # property_listings row. Distinct upstream events so other
+    # subscribers (notifications, analytics) can react differently.
+    if event.event_type in (PROPERTY_DELETED_V1, PROPERTY_UNPUBLISHED_V1):
         deleted = await listings.property_listing_repo.delete_if_newer(
             property_id=UUID(data["id"]),
             source_aggregate_version=data["aggregate_version"],
@@ -55,6 +61,7 @@ async def handle_property_event(event: DomainEvent, context: dict) -> None:
             "property_listings.delete",
             property_id=data["id"],
             source_aggregate_version=data["aggregate_version"],
+            source_event_type=event.event_type,
             applied=deleted,
         )
         if deleted:

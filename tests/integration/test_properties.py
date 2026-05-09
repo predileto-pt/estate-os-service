@@ -521,6 +521,102 @@ class TestPublishProperty:
         assert response.status_code == 403
 
 
+class TestUnpublishProperty:
+    async def test_unpublish_happy_path_flips_to_draft(self, client, auth_headers, property_repo):
+        prop = _make_publishable_property(status=PropertyStatus.ACTIVE)
+        version_before = prop.aggregate_version
+        await property_repo.save(prop)
+
+        response = await client.post(
+            f"/api/v1/admin/properties/{prop.id}/unpublish?organization_id={TEST_ORGANIZATION_ID}",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(prop.id)
+        assert data["status"] == "draft"
+
+        stored = await property_repo.get_by_id(prop.id)
+        assert stored.status == PropertyStatus.DRAFT
+        assert stored.aggregate_version == version_before + 1
+
+    async def test_unpublish_disappears_from_list_active(self, client, auth_headers, property_repo):
+        prop = _make_publishable_property(status=PropertyStatus.ACTIVE)
+        await property_repo.save(prop)
+
+        before = await client.get("/api/v1/admin/properties/active")
+        assert any(item["id"] == str(prop.id) for item in before.json())
+
+        await client.post(
+            f"/api/v1/admin/properties/{prop.id}/unpublish?organization_id={TEST_ORGANIZATION_ID}",
+            headers=auth_headers,
+        )
+
+        after = await client.get("/api/v1/admin/properties/active")
+        assert all(item["id"] != str(prop.id) for item in after.json())
+
+    @pytest.mark.parametrize(
+        "status,reason_suffix",
+        [
+            (PropertyStatus.DRAFT, "draft"),
+            (PropertyStatus.WITHDRAWN, "withdrawn"),
+            (PropertyStatus.SOLD, "sold"),
+            (PropertyStatus.RENTED, "rented"),
+        ],
+    )
+    async def test_unpublish_non_active_returns_422_with_reason(
+        self, client, auth_headers, property_repo, status, reason_suffix
+    ):
+        prop = _make_publishable_property(status=status)
+        await property_repo.save(prop)
+
+        response = await client.post(
+            f"/api/v1/admin/properties/{prop.id}/unpublish?organization_id={TEST_ORGANIZATION_ID}",
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert detail["message"] == "Property is not unpublishable"
+        assert detail["reasons"] == [f"cannot_unpublish_from_status:{reason_suffix}"]
+
+    async def test_unpublish_unknown_id_returns_404(self, client, auth_headers):
+        missing_id = UUID("00000000-0000-0000-0000-0000000000ff")
+        response = await client.post(
+            f"/api/v1/admin/properties/{missing_id}/unpublish"
+            f"?organization_id={TEST_ORGANIZATION_ID}",
+            headers=auth_headers,
+        )
+        assert response.status_code == 404
+
+    async def test_unpublish_unauthenticated_returns_401(self, client, property_repo):
+        prop = _make_publishable_property(status=PropertyStatus.ACTIVE)
+        await property_repo.save(prop)
+
+        response = await client.post(
+            f"/api/v1/admin/properties/{prop.id}/unpublish?organization_id={TEST_ORGANIZATION_ID}",
+        )
+        assert response.status_code == 401
+
+    async def test_unpublish_non_admin_returns_403(
+        self, client, auth_headers, property_repo, membership_repo
+    ):
+        from organizations.domain.models.membership import MembershipRole
+
+        memberships = await membership_repo.list_by_organization(UUID(TEST_ORGANIZATION_ID))
+        target = next(m for m in memberships)
+        target.role = MembershipRole.MEMBER
+        await membership_repo.save(target)
+
+        prop = _make_publishable_property(status=PropertyStatus.ACTIVE)
+        await property_repo.save(prop)
+
+        response = await client.post(
+            f"/api/v1/admin/properties/{prop.id}/unpublish?organization_id={TEST_ORGANIZATION_ID}",
+            headers=auth_headers,
+        )
+        assert response.status_code == 403
+
+
 class TestUpdatePropertyAddress:
     async def _create(self, client, auth_headers, address: str = "Rua Original 1"):
         resp = await client.post(

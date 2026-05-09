@@ -8,6 +8,7 @@ from uuid import UUID
 from properties.domain.exceptions import (
     PropertyAddressInvalidError,
     PropertyNotPublishableError,
+    PropertyNotUnpublishableError,
 )
 from properties.domain.models.property_characteristics import PropertyCharacteristics
 from properties.domain.models.property_image import PropertyImage
@@ -86,6 +87,22 @@ class Property:
         if reasons:
             raise PropertyNotPublishableError(reasons)
         self.status = PropertyStatus.ACTIVE
+
+    def unpublish(self) -> None:
+        """Flip status from ACTIVE back to DRAFT — takes the property
+        off the public listings.
+
+        Symmetric to `publish()`: domain-only state transition; the use
+        case calls `update_status` and `bump_aggregate_version` on the
+        repo. Raises `PropertyNotUnpublishableError` if the property
+        isn't currently ACTIVE (no other status can be unpublished —
+        DRAFT/WITHDRAWN/SOLD/RENTED already aren't on the public site).
+        """
+        if self.status is not PropertyStatus.ACTIVE:
+            raise PropertyNotUnpublishableError(
+                [f"cannot_unpublish_from_status:{self.status.value}"]
+            )
+        self.status = PropertyStatus.DRAFT
 
     def update_address(self, new_address: str) -> None:
         """Replace the property's address. Strips surrounding whitespace and

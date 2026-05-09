@@ -24,6 +24,7 @@ from properties.domain.exceptions import (
     PropertyMissingCoordinatesError,
     PropertyNotFoundError,
     PropertyNotPublishableError,
+    PropertyNotUnpublishableError,
 )
 
 router = APIRouter(prefix="/properties", tags=["properties"])
@@ -340,6 +341,55 @@ async def publish_property(
         raise HTTPException(
             status_code=422,
             detail={"message": "Property is not publishable", "reasons": exc.reasons},
+        )
+
+    urls = await _generate_image_download_urls(request, prop)
+    return _property_response(prop, urls)
+
+
+@router.post(
+    "/{property_id}/unpublish",
+    response_model=PropertyResponse,
+    summary="Unpublish a property — take it off the public listings",
+    description=(
+        "Flip a property from ACTIVE back to DRAFT and broadcast "
+        "PROPERTY_UNPUBLISHED.v1. The listings context deletes the "
+        "property_listings row on receipt — the property disappears "
+        "from the public site but stays in the agent's dashboard as "
+        "a draft. Symmetric to /publish; only the organization's "
+        "OWNER or ADMIN can perform this action."
+    ),
+    responses={
+        200: {"description": "Property unpublished"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not authorized — must be OWNER or ADMIN of the organization"},
+        404: {"description": "Property not found"},
+        422: {"description": "Property is not unpublishable (not currently ACTIVE)"},
+    },
+)
+async def unpublish_property(
+    property_id: UUID,
+    organization_id: UUID,
+    request: Request,
+    member: tuple[User, Membership] = Depends(require_org_member),
+):
+    _user, membership = member
+    role_value = membership.role.value if hasattr(membership.role, "value") else membership.role
+    if role_value not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Only OWNER or ADMIN can unpublish properties")
+
+    unpublish_uc = request.app.state.property_container.unpublish_property
+    try:
+        prop = await unpublish_uc.execute(
+            property_id=property_id,
+            organization_id=organization_id,
+        )
+    except PropertyNotFoundError:
+        raise HTTPException(status_code=404, detail="Property not found")
+    except PropertyNotUnpublishableError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Property is not unpublishable", "reasons": exc.reasons},
         )
 
     urls = await _generate_image_download_urls(request, prop)

@@ -206,3 +206,31 @@ async def emit_property_published(
         )
     except Exception:
         log.exception("property.domain_event_failed", property_id=str(prop.id))
+
+
+async def emit_property_unpublished(publisher, prop: Property) -> None:
+    """Publish `PROPERTY_UNPUBLISHED.v1` with the minimal id/version
+    payload — symmetric to `PROPERTY_DELETED.v1`.
+
+    The listings projector deletes the `property_listings` row on
+    receipt; other subscribers (notifications, analytics) can react
+    distinctly from a hard delete.
+
+    Log-and-swallow on publish failure — the property's status flip
+    to DRAFT is already committed; a missed publish is monitoring
+    territory.
+    """
+    import structlog
+
+    from shared.events.base import DomainEvent
+    from shared.events.types import PROPERTY_UNPUBLISHED_V1
+
+    log = structlog.get_logger()
+    if publisher is None:
+        return
+    try:
+        await publisher.publish(
+            DomainEvent(event_type=PROPERTY_UNPUBLISHED_V1, data=build_deletion_payload(prop))
+        )
+    except Exception:
+        log.exception("property.domain_event_failed", property_id=str(prop.id))
