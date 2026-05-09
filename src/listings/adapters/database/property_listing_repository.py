@@ -33,7 +33,12 @@ from listings.application.ports.repositories.property_listing_repository import 
     PropertyListingRepository,
 )
 from listings.domain.models import ListingType, PropertyStatus, Typology
-from listings.domain.property_listing import ListingPoi, PropertyListing
+from listings.domain.property_listing import (
+    ListingImage,
+    ListingPoi,
+    ListingPrice,
+    PropertyListing,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -65,6 +70,8 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             has_pool=m.has_pool,
             has_garden=m.has_garden,
             has_elevator=m.has_elevator,
+            floor=m.floor,
+            parking_spaces=m.parking_spaces,
             built_at=m.built_at,
             energy_rating=m.energy_rating,
             country=m.country,
@@ -73,6 +80,21 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             region=m.region,
             min_price=m.min_price,
             first_image_s3_key=m.first_image_s3_key,
+            images=[
+                ListingImage(
+                    id=UUID(img["id"]),
+                    s3_key=img["s3_key"],
+                    display_order=int(img["display_order"]),
+                )
+                for img in (m.images or [])
+            ],
+            prices=[
+                ListingPrice(
+                    amount=Decimal(str(p["amount"])),
+                    listing_type=ListingType(p["listing_type"]),
+                )
+                for p in (m.prices or [])
+            ],
             description=m.description,
             latitude=m.latitude,
             longitude=m.longitude,
@@ -332,10 +354,24 @@ def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:
         "has_pool": chars.get("has_pool"),
         "has_garden": chars.get("has_garden"),
         "has_elevator": chars.get("has_elevator"),
+        "floor": chars.get("floor"),
+        "parking_spaces": chars.get("parking_spaces"),
         "built_at": chars.get("built_at"),
         "energy_rating": chars.get("energy_rating"),
         "min_price": min_price,
         "first_image_s3_key": first_image,
+        # Full image + price lists projected from the snapshot. Lean
+        # shape — only the fields the public response renders. Snapshot
+        # already carries the right shape; we just write it through.
+        "images": images,
+        "prices": [
+            {
+                "amount": p["amount"],
+                "listing_type": p["listing_type"],
+            }
+            for p in prices
+            if "amount" in p and "listing_type" in p
+        ],
         "description": data.get("description"),
         "latitude": data.get("latitude"),
         "longitude": data.get("longitude"),

@@ -110,12 +110,28 @@ class PropertyListingModel(Base):
     has_pool: Mapped[bool | None] = mapped_column(Boolean, index=True)
     has_garden: Mapped[bool | None] = mapped_column(Boolean, index=True)
     has_elevator: Mapped[bool | None] = mapped_column(Boolean, index=True)
+    # Two more characteristic columns surfaced for the public response;
+    # carried in `PROPERTY_*.v1`.characteristics already, just projected.
+    floor: Mapped[int | None] = mapped_column(Integer)
+    parking_spaces: Mapped[int | None] = mapped_column(Integer)
     # Read by the canonical-text composer (`BUILT: ...` line).
     built_at: Mapped[int | None] = mapped_column(Integer)
     energy_rating: Mapped[str | None] = mapped_column(Text)
 
     min_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), index=True)
     first_image_s3_key: Mapped[str | None] = mapped_column(Text)
+
+    # Full image + price lists, projected from the snapshot. Lets the
+    # public read API serve detail pages from this projection without
+    # the legacy `ListingRepository` (read mapping over the live
+    # `properties` table). Lean shape — see `ListingImage` /
+    # `ListingPrice` value objects in `domain/property_listing.py`.
+    images: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    prices: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
 
     description: Mapped[str | None] = mapped_column(Text)
     latitude: Mapped[float | None] = mapped_column(Float)

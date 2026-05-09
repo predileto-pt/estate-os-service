@@ -17,7 +17,12 @@ from listings.application.ports.repositories.property_listing_repository import 
     PropertyListingRepository,
 )
 from listings.domain.models import ListingType, PropertyStatus, Typology
-from listings.domain.property_listing import ListingPoi, PropertyListing
+from listings.domain.property_listing import (
+    ListingImage,
+    ListingPoi,
+    ListingPrice,
+    PropertyListing,
+)
 
 
 class InMemoryPropertyListingRepository(PropertyListingRepository):
@@ -74,6 +79,25 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
         else:
             pois = list(existing.pois) if existing else []
 
+        # Full image + price lists (lean shape, snapshot-derived).
+        images_list = [
+            ListingImage(
+                id=UUID(img["id"]),
+                s3_key=img["s3_key"],
+                display_order=int(img["display_order"]),
+            )
+            for img in images
+            if "id" in img and "s3_key" in img and "display_order" in img
+        ]
+        prices_list = [
+            ListingPrice(
+                amount=Decimal(str(p["amount"])),
+                listing_type=ListingType(p["listing_type"]),
+            )
+            for p in prices
+            if "amount" in p and "listing_type" in p
+        ]
+
         listing = PropertyListing(
             id=property_id,
             organization_id=UUID(event_data["organization_id"]),
@@ -94,6 +118,8 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             has_pool=chars.get("has_pool"),
             has_garden=chars.get("has_garden"),
             has_elevator=chars.get("has_elevator"),
+            floor=chars.get("floor"),
+            parking_spaces=chars.get("parking_spaces"),
             built_at=chars.get("built_at"),
             energy_rating=chars.get("energy_rating"),
             country=existing.country if existing else (event_data.get("country") or "Portugal"),
@@ -102,6 +128,8 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             region=existing.region if existing else None,
             min_price=min_price,
             first_image_s3_key=first_image,
+            images=images_list,
+            prices=prices_list,
             description=event_data.get("description"),
             latitude=event_data.get("latitude"),
             longitude=event_data.get("longitude"),
