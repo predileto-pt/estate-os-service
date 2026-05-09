@@ -31,6 +31,7 @@ from properties.adapters.api.routes import (
     property_amenities,
     property_images,
     property_owners,
+    property_pois,
     property_prices,
 )
 from screening.adapters.api.routes import (
@@ -200,6 +201,7 @@ def create_app(
     app.include_router(property_prices.router, prefix="/api/v1/admin")
     app.include_router(property_images.router, prefix="/api/v1/admin")
     app.include_router(property_amenities.router, prefix="/api/v1/admin")
+    app.include_router(property_pois.router, prefix="/api/v1/admin")
     app.include_router(extraction_jobs.router, prefix="/api/v1/admin")
 
     # Public property listings (no auth)

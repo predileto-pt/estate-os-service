@@ -104,6 +104,15 @@ def property_repo():
 
 
 @pytest.fixture
+def property_poi_repo():
+    from properties.adapters.inmemory.inmemory_property_poi_repo import (
+        InMemoryPropertyPoiRepository,
+    )
+
+    return InMemoryPropertyPoiRepository()
+
+
+@pytest.fixture
 def listing_repo():
     from listings.adapters.inmemory.inmemory_listing_repository import (
         InMemoryListingRepository,
@@ -254,6 +263,7 @@ def document_content_repo():
 @pytest.fixture
 def property_container(
     property_repo,
+    property_poi_repo,
     document_extractor,
     document_storage,
     extraction_job_repo,
@@ -275,6 +285,7 @@ def property_container(
         document_classifier=document_classifier,
         document_parser=document_parser,
         document_content_repo=document_content_repo,
+        property_poi_repo=property_poi_repo,
     )
 
 

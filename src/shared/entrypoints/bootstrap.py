@@ -47,6 +47,9 @@ from properties.adapters.persistence.supabase_extraction_job_repo import (
 from properties.adapters.persistence.supabase_property_amenity_repo import (
     SupabasePropertyAmenityRepository,
 )
+from properties.adapters.persistence.supabase_property_poi_repo import (
+    SupabasePropertyPoiRepository,
+)
 from properties.adapters.persistence.supabase_property_repo import (
     SupabasePropertyRepository,
 )
@@ -239,6 +242,7 @@ async def get_property_container() -> PropertyContainer:
 
     places_service = GooglePlacesService(api_key=settings.google_maps_api_key)
     amenity_repo = SupabasePropertyAmenityRepository(client)
+    property_poi_repo = SupabasePropertyPoiRepository(client)
 
     _property_container = PropertyContainer(
         property_repo=SupabasePropertyRepository(client),
@@ -254,6 +258,7 @@ async def get_property_container() -> PropertyContainer:
         domain_event_publisher=domain_event_publisher,
         places_service=places_service,
         amenity_repo=amenity_repo,
+        property_poi_repo=property_poi_repo,
     )
     return _property_container
 

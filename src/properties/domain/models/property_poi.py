@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+import enum
+from dataclasses import dataclass, field
+from datetime import datetime
+from uuid import UUID
+
+
+class PoiCategory(str, enum.Enum):
+    HOSPITAL = "hospital"
+    BANK = "bank"
+    GROCERY = "grocery"
+    SCHOOL = "school"
+    PHARMACY = "pharmacy"
+    GYM = "gym"
+    RESTAURANT = "restaurant"
+    COFFEE_SHOP = "coffee_shop"
+    LAUNDRY = "laundry"
+    GAS_STATION = "gas_station"
+    PUBLIC_TRANSIT = "public_transit"
+    KINDERGARTEN = "kindergarten"
+    PARK = "park"
+    POST_OFFICE = "post_office"
+    LIBRARY = "library"
+    SHOPPING_MALL = "shopping_mall"
+    BAKERY = "bakery"
+    POLICE_STATION = "police_station"
+
+
+@dataclass
+class PropertyPoi:
+    """A point of interest near a property — a school, supermarket, bus
+    stop, etc. Discovered automatically by the enrichment workflow or
+    entered/edited manually by an agent.
+
+    `metadata` is intentionally untyped: provider-specific extras (Google
+    rating, OSM tags) and agent notes coexist without us pre-defining
+    the keys.
+    """
+
+    id: UUID
+    property_id: UUID
+    category: PoiCategory
+    name: str
+    distance_meters: float
+    latitude: float
+    longitude: float
+    place_type: str | None = None
+    place_id: str | None = None
+    metadata: dict = field(default_factory=dict)
+    manually_edited: bool = False
+    created_at: datetime | None = None  # set by the adapter on insert
+    updated_at: datetime | None = None

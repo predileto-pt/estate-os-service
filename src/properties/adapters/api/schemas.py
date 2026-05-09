@@ -8,6 +8,7 @@ from properties.domain.models.extraction_job import ExtractionJobStatus
 from properties.domain.models.property import ListingType, PropertyStatus, Typology
 from properties.domain.models.property_amenity import AmenityCategory
 from properties.domain.models.property_owner import CivilStatus, DocumentType
+from properties.domain.models.property_poi import PoiCategory
 
 
 # --- Property Price ---
@@ -279,5 +280,48 @@ class ExtractionJobResponse(BaseModel):
     typology: str | None = None
     property_id: UUID | None = None
     error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- Property POI ---
+
+
+class PropertyPoiBase(BaseModel):
+    category: PoiCategory
+    name: str = Field(min_length=1, max_length=200)
+    distance_meters: float = Field(ge=0)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    place_type: str | None = None
+    place_id: str | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
+class CreatePropertyPoiRequest(PropertyPoiBase):
+    """One POI inside a `ReplacePropertyPoisRequest.pois` list."""
+
+
+class ReplacePropertyPoisRequest(BaseModel):
+    pois: list[CreatePropertyPoiRequest] = Field(default_factory=list, max_length=200)
+
+
+class UpdatePropertyPoiRequest(BaseModel):
+    """All fields optional — PATCH semantics."""
+
+    category: PoiCategory | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    distance_meters: float | None = Field(default=None, ge=0)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    place_type: str | None = None
+    place_id: str | None = None
+    metadata: dict | None = None
+
+
+class PropertyPoiResponse(PropertyPoiBase):
+    id: UUID
+    property_id: UUID
+    manually_edited: bool
     created_at: datetime
     updated_at: datetime

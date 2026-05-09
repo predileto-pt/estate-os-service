@@ -91,6 +91,17 @@ Constants live in `src/shared/events/types.py`. See [ADR-008](../adr/008-event-b
 | [DiscoverPropertyAmenities](#discoverpropertyamenities) | `POST /api/v1/admin/property-amenities/discover` | Trigger Google Places discovery (async) |
 | [GetPropertyAmenities](#getpropertyamenities) | `GET /api/v1/admin/property-amenities` | Return discovered amenities for a property |
 
+### Property POIs
+
+Manual entry surface for points of interest near a property. The POI table lives separately from `property_amenities` — it stores one row per POI (vs one row per category-summary) and includes a free-form `metadata` jsonb for provider extras and agent notes. The auto-discovery workflow that populates this catalog is described in **ADR-010** (`docs/adr/010-property-listing-enrichment-and-cost-scoring.md`); this entry covers only the agent-facing CRUD surface.
+
+| Feature | Trigger | Purpose |
+|---------|---------|---------|
+| [ListPropertyPois](#listpropertypois) | `GET /api/v1/admin/properties/{id}/pois` | List a property's POIs |
+| [ReplacePropertyPois](#replacepropertypois) | `POST /api/v1/admin/properties/{id}/pois` | Replace the entire catalog (empty list clears) |
+| [UpdatePropertyPoi](#updatepropertypoi) | `PATCH /api/v1/admin/properties/{id}/pois/{poi_id}` | Edit one POI in place |
+| [DeletePropertyPoi](#deletepropertypoi) | `DELETE /api/v1/admin/properties/{id}/pois/{poi_id}` | Remove one POI |
+
 ---
 
 ## Feature details
@@ -340,6 +351,42 @@ Return discovered amenities. The discovery worker fetches up to 9 categories (ho
 - **Inputs:** `property_id`
 - **Output:** `list[PropertyAmenity]`
 - **Source:** `src/properties/application/use_cases/get_property_amenities.py`
+
+### ListPropertyPois
+
+Read the property's POI catalog. Pure read; no aggregate_version bump.
+
+- **Inputs:** `property_id`, `organization_id`
+- **Output:** `list[PropertyPoi]` ordered by `created_at desc`
+- **Raises:** `PropertyNotFoundError` (404) on cross-org or unknown id
+- **Source:** `src/properties/application/use_cases/list_property_pois.py`
+
+### ReplacePropertyPois
+
+Replace the entire POI catalog for one property in a single call. Every persisted row is flagged `manually_edited=true` so the future enrichment workflow won't re-discover categories the agent has touched. Empty list clears the catalog. Bumps `aggregate_version`.
+
+- **Inputs:** `property_id`, `organization_id`, `pois: list[PoiInput]`
+- **Output:** `list[PropertyPoi]` (the persisted rows with their new ids and timestamps)
+- **Raises:** `PropertyNotFoundError`
+- **Source:** `src/properties/application/use_cases/replace_property_pois.py`
+
+### UpdatePropertyPoi
+
+PATCH semantics on a single POI row. Sets `manually_edited=true` on success. Cross-property defense: 404 if `poi_id` exists but belongs to a different property. Bumps `aggregate_version`.
+
+- **Inputs:** `property_id`, `organization_id`, `poi_id`, `patch: PoiPatch`
+- **Output:** updated `PropertyPoi`
+- **Raises:** `PropertyNotFoundError` (cross-org, missing property, missing/cross-property POI)
+- **Source:** `src/properties/application/use_cases/update_property_poi.py`
+
+### DeletePropertyPoi
+
+Remove one POI. Same cross-org + cross-property defense as `UpdatePropertyPoi`. Missing POI raises `PropertyNotFoundError` (not idempotent — matches the `delete_property` precedent). Bumps `aggregate_version`.
+
+- **Inputs:** `property_id`, `organization_id`, `poi_id`
+- **Output:** none (204)
+- **Raises:** `PropertyNotFoundError`
+- **Source:** `src/properties/application/use_cases/delete_property_poi.py`
 
 ## Workers
 

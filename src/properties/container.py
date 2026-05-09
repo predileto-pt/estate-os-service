@@ -13,6 +13,9 @@ from properties.application.ports.repositories.extraction_job_repository import 
 from properties.application.ports.repositories.property_amenity_repository import (
     PropertyAmenityRepository,
 )
+from properties.application.ports.repositories.property_poi_repository import (
+    PropertyPoiRepository,
+)
 from properties.application.ports.repositories.property_repository import (
     PropertyRepository,
 )
@@ -52,12 +55,16 @@ from properties.application.use_cases.generate_image_upload_urls import (
 )
 from properties.application.use_cases.record_property_image import RecordPropertyImage
 from properties.application.use_cases.reorder_property_images import ReorderPropertyImages
+from properties.application.use_cases.delete_property_poi import DeletePropertyPoi
+from properties.application.use_cases.list_property_pois import ListPropertyPois
+from properties.application.use_cases.replace_property_pois import ReplacePropertyPois
 from properties.application.use_cases.update_property_address import (
     UpdatePropertyAddress,
 )
 from properties.application.use_cases.update_property_owner_contact import (
     UpdatePropertyOwnerContact,
 )
+from properties.application.use_cases.update_property_poi import UpdatePropertyPoi
 from properties.application.use_cases.discover_property_amenities import (
     DiscoverPropertyAmenities,
 )
@@ -83,6 +90,7 @@ class Container:
         domain_event_publisher: EventPublisher | None = None,
         places_service: PlacesService | None = None,
         amenity_repo: PropertyAmenityRepository | None = None,
+        property_poi_repo: PropertyPoiRepository | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.document_extractor = document_extractor
@@ -97,6 +105,7 @@ class Container:
         self.domain_event_publisher = domain_event_publisher
         self.places_service = places_service
         self.amenity_repo = amenity_repo
+        self.property_poi_repo = property_poi_repo
 
         # Existing use cases
         self.create_property = CreateProperty(
@@ -134,6 +143,30 @@ class Container:
             property_repo=property_repo,
             domain_event_publisher=domain_event_publisher,
         )
+
+        # POI manual-entry use cases (require property_poi_repo).
+        if property_poi_repo is not None:
+            self.list_property_pois = ListPropertyPois(
+                property_repo=property_repo,
+                property_poi_repo=property_poi_repo,
+            )
+            self.replace_property_pois = ReplacePropertyPois(
+                property_repo=property_repo,
+                property_poi_repo=property_poi_repo,
+            )
+            self.update_property_poi = UpdatePropertyPoi(
+                property_repo=property_repo,
+                property_poi_repo=property_poi_repo,
+            )
+            self.delete_property_poi = DeletePropertyPoi(
+                property_repo=property_repo,
+                property_poi_repo=property_poi_repo,
+            )
+        else:
+            self.list_property_pois = None
+            self.replace_property_pois = None
+            self.update_property_poi = None
+            self.delete_property_poi = None
         self.publish_property = PublishProperty(
             property_repo=property_repo,
             domain_event_publisher=domain_event_publisher,
