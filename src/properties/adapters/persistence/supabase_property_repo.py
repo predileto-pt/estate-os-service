@@ -138,6 +138,14 @@ class SupabasePropertyRepository(PropertyRepository):
             updated_at=row["updated_at"],
             latitude=row.get("latitude"),
             longitude=row.get("longitude"),
+            # Read aggregate_version from the row; without this it
+            # defaults to 0 and `bump_aggregate_version` does
+            # `0 + 1 = 1` on every call, perpetually. Then the
+            # listings projector rejects every event for being equal
+            # to the stored version and `property_listings.pois`
+            # stays at its initial empty state. Spec
+            # `2026-05-listing-semantic-search` debugging session.
+            aggregate_version=row.get("aggregate_version", 0),
             owners=owners,
             prices=prices,
             images=images,
