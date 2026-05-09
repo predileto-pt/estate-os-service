@@ -972,6 +972,152 @@ scripts/stripe-clock.sh cleanup clock_test_xxx
 
 Requires `psql` on `$PATH` and `DATABASE_URL` exported (source your `.env` with `set -a; source .env; set +a`). The SQL goes directly to the database — PostgREST is bypassed for this dev-only operation.
 
+## Listings Semantic Search Setup
+
+The `listings` bounded context ships an indexing pipeline that embeds every published listing into [Pinecone](https://www.pinecone.io/) for free-text semantic search. ADR-013 + spec `2026-05-listing-semantic-search`. This section lists exactly what to provision before flipping `LISTINGS_EMBEDDING_ENABLED=true`.
+
+### 1. Create a Pinecone project + index
+
+Pinecone organizes resources as `account → project → index`. One index per environment (dev / staging / prod), one namespace per embedding model version (so model bumps don't require a code deploy).
+
+In the [Pinecone Dashboard](https://app.pinecone.io/):
+
+1. **Create a project** (one-time per environment). Name it after the environment, e.g. `predileto-prod`.
+2. **Create a serverless index:**
+   - **Name:** `listings-prod` (or whatever you set in `PINECONE_INDEX`).
+   - **Dimensions:** `1536` — must match `EMBEDDING_DIMENSIONS` and the OpenAI model. `text-embedding-3-small` outputs 1536; if you switch to `text-embedding-3-large`, use 3072 and bump both env vars.
+   - **Metric:** `cosine`. The canonical-text composer doesn't pre-normalize, and Pinecone v3+ cosine handles that internally. Other metrics will silently mis-rank.
+   - **Cloud / region:** pick to co-locate with the rest of the infra. AWS `us-east-1` matches LocalStack for local mirrors; production typically uses the same region as the API.
+3. **Get the API key:** Project → API Keys → "Create API key". Copy the value into `PINECONE_API_KEY`. The key is project-scoped, so dev/staging/prod each get their own.
+
+You can also do all of this from the CLI ([Pinecone CLI](https://docs.pinecone.io/reference/cli) — `pip install pinecone` ships it as `pc`):
+
+```bash
+# Auth (interactive — opens a browser)
+pc login
+
+# Create the index
+pc index create-serverless \
+  --name listings-prod \
+  --dimension 1536 \
+  --metric cosine \
+  --cloud aws \
+  --region us-east-1
+
+# Confirm
+pc index describe --name listings-prod
+```
+
+**Namespaces are not provisioned ahead of time.** Pinecone creates a namespace lazily on first upsert; the listings worker writes to whatever string is in `VECTOR_INDEX_NAMESPACE` (default `openai-text-embedding-3-small-v1`). Bumping the embedding model = pick a new namespace string + run the backfill CLI (separate spec) + atomically flip `VECTOR_INDEX_NAMESPACE` + delete the old namespace.
+
+### 2. Fill in the env vars
+
+Add to `.env` (matches the `Settings` block in `src/shared/config.py`):
+
+```bash
+# Master gate — keep false until provisioning is verified, then flip to true.
+LISTINGS_EMBEDDING_ENABLED=true
+
+# OpenAI (embedding model). Reuses the existing OPENAI_API_KEY.
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=1536
+
+# Pinecone
+VECTOR_INDEX_PROVIDER=pinecone
+VECTOR_INDEX_NAMESPACE=openai-text-embedding-3-small-v1
+PINECONE_API_KEY=...   # from the Pinecone dashboard
+PINECONE_INDEX=listings-prod
+
+# Composer knobs (defaults usually fine)
+LISTING_POI_MAX_COUNT=20
+LISTING_POI_MAX_DISTANCE_M=3000
+LISTING_DESCRIPTION_MAX_CHARS=2000
+```
+
+For local dev where you don't want to call Pinecone, leave `LISTINGS_EMBEDDING_ENABLED=false` and the embedding handler short-circuits to a no-op — messages are still consumed (no DLQ buildup) but no external calls fire. Tests use the in-memory `VectorIndex` and a deterministic stub `EmbeddingProvider`, so unit + integration suites run fully offline.
+
+### 3. Restart the listings worker
+
+The worker reads `Settings()` once at startup, so flipping `LISTINGS_EMBEDDING_ENABLED` requires a restart. The bootstrap only constructs the `OpenAIEmbeddingProvider` + `PineconeVectorIndex` adapters when the gate is on, so a missing `PINECONE_API_KEY` with the gate off won't crash the worker — but the gate on with a missing key will fail at the first event.
+
+```bash
+# In the listings worker terminal:
+uv run python -m listings.entrypoints.events_worker
+```
+
+### 4. Verify end-to-end
+
+```bash
+# 1. Tail the listings worker logs in one terminal.
+# 2. Publish a property in another (admin endpoint or DB seed).
+# 3. Watch the logs:
+#    property_listings.upsert applied=True ...
+#    property_listings.fanout_publish_failed   <-- should NOT appear
+#    listing_embedding.indexed text_hash=... property_id=...
+
+# 4. Confirm the row state in Postgres
+psql "$DATABASE_URL" -c "
+  SELECT id, embedding_status, embedded_at, embedding_text_hash IS NOT NULL AS has_hash
+  FROM property_listings
+  WHERE id = '<the-property-id>';
+"
+# Expect: embedding_status='INDEXED', embedded_at NOT NULL, has_hash TRUE.
+
+# 5. Confirm the vector exists in Pinecone
+pc index stats --name listings-prod
+# `namespaces` should include `openai-text-embedding-3-small-v1` with vector_count >= 1.
+```
+
+If any of these are off, the [ops query](#listings-embedding-ops) below surfaces the bad state.
+
+### 5. Listings embedding ops
+
+The partial index `idx_property_listings_embedding_status_pending` makes these dashboard queries cheap:
+
+```sql
+-- Listings not yet indexed
+SELECT id, organization_id, embedding_status, updated_at
+FROM property_listings
+WHERE embedding_status != 'INDEXED'
+ORDER BY updated_at DESC;
+
+-- Stuck FAILED rows — investigate before re-driving from the DLQ
+SELECT id, embedding_status, updated_at
+FROM property_listings
+WHERE embedding_status = 'FAILED';
+
+-- Hot-loop indicator: embedding wrote more than 3× per hour for one listing
+-- (suggests upstream is firing per-POI updates instead of batching — see the
+-- precondition in ADR-013 §2a).
+SELECT id, count(*)
+FROM property_listings
+WHERE embedded_at > now() - interval '1 hour'
+GROUP BY id
+HAVING count(*) > 3;
+```
+
+The DLQ for the listings worker is `listings-events-dlq` (LocalStack) / the corresponding prod queue. Messages land there after `maxReceiveCount=5` (ADR-008 §6); the row keeps `embedding_status='FAILED'` until ops investigates and re-drives.
+
+### 6. Rotating the Pinecone API key
+
+API keys are project-scoped and rotate at-will from the Pinecone Dashboard:
+
+1. Create a new key in the dashboard (don't delete the old one yet).
+2. Update `PINECONE_API_KEY` in the deployed env (and `.env` for local).
+3. Restart the listings worker. Confirm `listing_embedding.indexed` log lines on the next event.
+4. Delete the old key from the Pinecone Dashboard.
+
+### 7. Bumping the embedding model
+
+Out of scope for this section but worth flagging the playbook:
+
+1. Pick a new model + namespace string (e.g. `EMBEDDING_MODEL=text-embedding-3-large`, `VECTOR_INDEX_NAMESPACE=openai-text-embedding-3-large-v1`, `EMBEDDING_DIMENSIONS=3072`).
+2. **Provision a new index** (Pinecone indexes are dimension-locked — you can't reuse `listings-prod` if dimensions change). Update `PINECONE_INDEX` accordingly.
+3. Backfill the new namespace from `property_listings` via the backfill CLI (separate spec).
+4. Atomically flip `VECTOR_INDEX_NAMESPACE` (and `PINECONE_INDEX` if changed) and restart the worker.
+5. Validate retrieval quality on the new namespace (cross-encoder re-ranker possibly involved — ADR-013 v6).
+6. Delete the old namespace (or the old index if you provisioned a new one).
+
 ## Contract Intelligence
 
 Ingests existing lease and sale contracts, extracts their structure via Reducto OCR, classifies each section with an LLM, and produces versioned templates that can be filled from CRM records to generate new contracts.

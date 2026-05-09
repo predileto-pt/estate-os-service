@@ -218,21 +218,17 @@ FROM property_listings
 WHERE embedding_status = 'FAILED';
 ```
 
-### Rollout flag
+### Provisioning + rollout
 
-The pipeline is gated by `LISTINGS_EMBEDDING_ENABLED` (default `false`). When off, the embedding handler is a no-op — messages are still consumed (no DLQ buildup) but no embed/upsert work runs and `embedding_status` stays `PENDING`. Bootstrap doesn't even construct the OpenAI/Pinecone adapters in this mode, so a missing `PINECONE_API_KEY` won't crash the worker.
+Pinecone index creation, API-key management, end-to-end verification, and the model-bump playbook are documented in the [root README → Listings Semantic Search Setup](../../README.md#listings-semantic-search-setup). TL;DR:
 
-To enable in staging:
+1. Create a serverless Pinecone index named `listings-prod` (or whatever `PINECONE_INDEX` is set to), `1536` dimensions, `cosine` metric.
+2. Copy the API key into `PINECONE_API_KEY`.
+3. Set `LISTINGS_EMBEDDING_ENABLED=true` and restart the listings worker.
 
-```bash
-export LISTINGS_EMBEDDING_ENABLED=true
-export PINECONE_API_KEY=...
-export PINECONE_INDEX=listings-staging
-export VECTOR_INDEX_NAMESPACE=openai-text-embedding-3-small-v1
-uv run python -m listings.entrypoints.events_worker
-```
+The pipeline is gated by `LISTINGS_EMBEDDING_ENABLED` (default `false`). When off, the embedding handler is a no-op — messages are still consumed (no DLQ buildup) but no embed/upsert work runs and `embedding_status` stays `PENDING`. Bootstrap doesn't even construct the OpenAI/Pinecone adapters in this mode, so a missing `PINECONE_API_KEY` with the gate off won't crash the worker.
 
-Production flips after staging is clean. A separate spec ships the backfill CLI under `src/listings/entrypoints/backfill_embeddings.py` for pre-existing rows.
+A separate spec ships the backfill CLI under `src/listings/entrypoints/backfill_embeddings.py` for pre-existing rows.
 
 ### Environment variables
 
