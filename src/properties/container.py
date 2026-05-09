@@ -183,6 +183,7 @@ class Container:
                 property_poi_repo=property_poi_repo,
                 places_service=places_service,
                 job_tracker=job_tracker,
+                domain_event_publisher=domain_event_publisher,
             )
         else:
             self.enrich_property = None

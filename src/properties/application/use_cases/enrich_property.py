@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 import structlog
 
+from properties.application.events.property_event import emit_property_updated
 from properties.application.ports.places_service import PlacesService
 from properties.application.ports.repositories.property_poi_repository import (
     PropertyPoiRepository,
@@ -34,6 +35,7 @@ from properties.domain.services.proximity_ranker import (
     KNOWN_BRANDS_BY_CATEGORY,
     rank_top_places,
 )
+from shared.events.ports import EventPublisher
 from shared.jobs.application.ports.job_tracker import JobTracker
 from shared.utils.concurrency import gather_with_concurrency
 
@@ -110,11 +112,13 @@ class EnrichProperty:
         property_poi_repo: PropertyPoiRepository,
         places_service: PlacesService,
         job_tracker: JobTracker | None = None,
+        domain_event_publisher: EventPublisher | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.property_poi_repo = property_poi_repo
         self.places_service = places_service
         self.job_tracker = job_tracker
+        self.domain_event_publisher = domain_event_publisher
 
     async def execute(
         self,
@@ -253,7 +257,16 @@ class EnrichProperty:
                 requested_by_user_id=str(requested_by_user_id),
             )
 
-        await self.property_repo.bump_aggregate_version(property_id)
+        refreshed = await self.property_repo.bump_aggregate_version(property_id)
+
+        # Emit `PROPERTY_UPDATED.v1` so the listings projector picks up
+        # the new POI catalog and the embedding handler re-runs with
+        # `NEARBY:` populated. Lean snapshot shape (category, name,
+        # distance_meters) is fully written by Phase 1, so we can fire
+        # before Phase 2 metadata fan-out — listings doesn't read the
+        # Phase 2 fields. Spec
+        # `2026-05-property-enrich-emits-update-with-pois.md`.
+        await emit_property_updated(self.domain_event_publisher, refreshed, pois=persisted)
 
         # Phase 2: fan out Place Details for the persisted POIs to fetch
         # address + image_urls + reviews. Per-POI fail-silent — Phase 1

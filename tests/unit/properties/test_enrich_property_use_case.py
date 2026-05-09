@@ -471,3 +471,68 @@ async def test_partial_failure_succeeds_when_other_categories_have_results(
     stored = await property_poi_repo.list_by_property(prop.id)
     grocery = [p for p in stored if p.category == PoiCategory.GROCERY]
     assert len(grocery) == 1
+
+
+class _RecordingPublisher:
+    def __init__(self):
+        self.published: list = []
+
+    async def publish(self, event):
+        self.published.append(event)
+
+
+async def test_emits_property_updated_with_pois_after_success(property_repo, property_poi_repo):
+    """Spec `2026-05-property-enrich-emits-update-with-pois.md`. After a
+    successful enrichment run, EnrichProperty must publish
+    PROPERTY_UPDATED.v1 carrying the POIs in the lean snapshot shape so
+    the listings projector + embedding handler pick up the new catalog."""
+    from shared.events.types import PROPERTY_UPDATED_V1
+
+    prop = _property()
+    await property_repo.save(prop)
+    places = TrackingPlacesService(
+        results_by_place_type={"supermarket": [_place("Pingo Doce", place_id="pd-1")]}
+    )
+    publisher = _RecordingPublisher()
+
+    use_case = EnrichProperty(
+        property_repo=property_repo,
+        property_poi_repo=property_poi_repo,
+        places_service=places,
+        domain_event_publisher=publisher,
+    )
+    await use_case.execute(property_id=prop.id, force=False, requested_by_user_id=USER_ID)
+
+    types = [e.event_type for e in publisher.published]
+    assert PROPERTY_UPDATED_V1 in types
+    event = next(e for e in publisher.published if e.event_type == PROPERTY_UPDATED_V1)
+    assert "pois" in event.data
+    # Lean shape: just category, name, distance_meters
+    grocery_pois = [p for p in event.data["pois"] if p["category"] == "grocery"]
+    assert len(grocery_pois) == 1
+    assert grocery_pois[0]["name"] == "Pingo Doce"
+    assert "distance_meters" in grocery_pois[0]
+    # Aggregate version was bumped before emit, so the snapshot version
+    # is the post-bump value.
+    assert event.data["aggregate_version"] >= 1
+
+
+async def test_no_publisher_does_not_raise(property_repo, property_poi_repo):
+    """When domain_event_publisher is None (e.g. test or local-dev
+    container), the use case still completes successfully — the emit
+    helper short-circuits on None publisher."""
+    prop = _property()
+    await property_repo.save(prop)
+    places = TrackingPlacesService(
+        results_by_place_type={"supermarket": [_place("X", place_id="x-1")]}
+    )
+
+    use_case = EnrichProperty(
+        property_repo=property_repo,
+        property_poi_repo=property_poi_repo,
+        places_service=places,
+        domain_event_publisher=None,
+    )
+    # Must not raise.
+    pois = await use_case.execute(property_id=prop.id, force=False, requested_by_user_id=USER_ID)
+    assert len(pois) == 1

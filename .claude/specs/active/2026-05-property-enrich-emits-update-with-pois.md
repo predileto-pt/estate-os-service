@@ -1,7 +1,8 @@
 # `EnrichProperty` should publish `PROPERTY_UPDATED.v1` carrying POIs
 
-**Status:** draft
+**Status:** shipped
 **Created:** 2026-05-09
+**Shipped:** 2026-05-09
 
 ## Problem
 
