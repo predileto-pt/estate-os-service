@@ -1,7 +1,7 @@
 # ADR-013: Listing semantic search — provider-neutral vector index + two-stage retrieval
 
 **Date:** 2026-05-09
-**Status:** Accepted — v2 architecture pinned; v3+ are non-architectural implementation refinements moving to `.claude/specs/active/`.
+**Status:** Accepted — v3 amends §2b (SNS-based dispatch, replacing v2's in-process choice) after the implementation spec surfaced an existing precedent. v3+ are non-architectural implementation refinements moving to `.claude/specs/active/`.
 **Relates to:** Supersedes ADR-010 §"Semantic embedding" storage shape. ADR-010 defaulted to pgvector inside `property_listings`; this ADR moves the vector behind a `VectorIndex` port with **Pinecone as the v1 adapter**. All other parts of ADR-010 (POIs, cost-of-living, listing projector, event triggers) stand. This ADR also adds one new event contract: listings fires `PROPERTY_LISTING_UPDATED.v1` after each projection upsert (intra-context, in-process). It assumes properties' existing `PROPERTY_*.v1` events carry POIs as structured data in the snapshot — see §2a precondition.
 
 ## Context
@@ -65,18 +65,24 @@ The listings worker subscribes to the existing properties events (see `src/listi
 1. `PROPERTY_*.v1` event payloads carry the property snapshot *with POIs as structured data* (categories, names, distances), not a pre-rendered summary string. Exact payload shape — max POI count per property, payload-size budget — lands in a properties-context spec.
 2. The POI auto-discovery workflow **batches POI writes into a single property-aggregate update** and fires one `PROPERTY_UPDATED.v1` at the end of the workflow. Per-POI writes (one event per discovered POI) would cause N+1 redundant embed calls per listing during enrichment. The hash check would catch them, but the canonical text would change at every step, defeating the dedup. Properties is expected to coalesce.
 
-#### 2b. Listings domain events (intra-context, in-process)
+#### 2b. Listings domain events — SNS-based dispatch (v3 amendment)
 
-After each projector upsert/delete commits, the handler dispatches a listings-owned domain event. Subscribers run in the same worker, in the same SQS-message lifecycle:
+After each projector upsert/delete commits, the handler publishes a listings-owned domain event to SNS. The listings queue subscribes back to its own SNS topics; the dispatched handler runs on the same `SQSWorker`, same context, but on a fresh SQS message:
 
-| Listings domain event | When emitted | Subscribers (v1) |
+| Listings domain event | When published | Subscribers (v1) |
 |---|---|---|
-| `PROPERTY_LISTING_UPDATED.v1` | After a successful upsert of `property_listings`. Carries `listing_id`. | Embedding handler. Future: search-side caches, denormalized projections, analytics. |
-| `PROPERTY_LISTING_DELETED.v1` | After a successful delete of `property_listings`. Carries `listing_id`. | Embedding handler. |
+| `PROPERTY_LISTING_UPDATED.v1` | After a successful upsert of `property_listings`. Carries `property_id`. | Embedding handler. Future: search-side caches, denormalized projections, analytics. |
+| `PROPERTY_LISTING_DELETED.v1` | After a successful delete of `property_listings`. Carries `property_id`. | Embedding handler. |
 
-Dispatch is **in-process** within the listings worker — domain events are not persisted to an outbox or sent over SQS in v1. Durability rests on SQS redrive of the *upstream* property event: if the projector commits but the in-process subscriber crashes before completing, the next SQS redelivery re-runs the projector (idempotent upsert) and re-dispatches the domain event (the embedding handler's hash check de-duplicates redundant embed calls).
+**v2 prescribed in-process dispatch.** The implementation spec (`2026-05-listing-semantic-search`) reversed that choice in v3 of this ADR after surfacing the existing precedent: `PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1` already uses the same SNS pattern (see `src/listings/adapters/workers/property_event_handler.py:78-87`). The reasons to match the precedent rather than introduce a second mechanism:
 
-A transactional outbox for listings domain events is a future iteration if we add cross-process subscribers.
+- **Per-handler DLQ** (ADR-008 §6). An embedding failure DLQs only the embedding event; the row stays alive and the address-enrichment handler isn't blocked. With in-process dispatch, all handlers share a single redrive lifecycle on the upstream message.
+- **Failure isolation across handlers.** A poisoned LLM call on the address path doesn't block the embedding pipeline and vice versa.
+- **Single mechanism for listings-internal events.** Operators have one mental model for listings worker fan-out, not two.
+
+Durability still rests on SQS redrive of the *upstream* property event: if the projector commits but the SNS publish fails, the next upstream redelivery re-runs the projector (idempotent upsert) and re-publishes (the embedding handler's hash check de-duplicates redundant embed calls). Publish failures are log-and-swallow on the projector side — same pattern as `NEEDS_ADDRESS_ENRICHMENT`.
+
+A transactional outbox for listings domain events remains a future iteration if we ever need cross-process subscribers with stronger guarantees.
 
 #### 2c. Embedding handler — driven by `PROPERTY_LISTING_UPDATED.v1` only
 
@@ -480,10 +486,10 @@ Stages 0 run in parallel with each other; stage 1 waits on the slower of `(rewri
 
 This ADR is intentionally light. We iterate by adding:
 
-- **v2 (current):** listings owns its embedding trigger via an in-context domain event (`PROPERTY_LISTING_UPDATED.v1`); upstream `PROPERTY_*.v1` events carry POIs as structured data in their snapshots (POI auto-discovery batches its writes and fires a single `PROPERTY_UPDATED.v1` at the end); cross-context `PoiSummaryReader` port removed.
-- **v3:** concrete domain model types (`EmbeddingState`, `VectorFilter`, `VectorMatch`, `ExtractedLocation`) — full Python definitions, not the sketches in §6 — and the pure-function implementation of the canonical-text composition (§3a is the spec, v3 is the code reference, including POI rendering rules: categories, distance formatting, max POI count, ordering).
-- **v4:** schema migration + handler pseudocode + state-transition diagram for `embedding_status`, including the two independent code paths (text hash, metadata) defined in §2c. Also: how the projector stores POI structured data on the `property_listings` row (denormalized columns, JSONB, or adjacent table).
-- **v5:** provider-adapter contracts (Pinecone request/response shapes, OpenAI embedding API shape, location-extraction + query-rewriting prompts) and failure-mode detail.
+- **v2:** listings owns its embedding trigger via an in-context domain event (`PROPERTY_LISTING_UPDATED.v1`); upstream `PROPERTY_*.v1` events carry POIs as structured data in their snapshots (POI auto-discovery batches its writes and fires a single `PROPERTY_UPDATED.v1` at the end); cross-context `PoiSummaryReader` port removed.
+- **v3 (current):** §2b reversed from in-process dispatch to SNS-based dispatch after the implementation spec (`2026-05-listing-semantic-search`) surfaced the existing `NEEDS_ADDRESS_ENRICHMENT` precedent. Per-handler DLQ + failure isolation + single mechanism for listings-internal fan-out. Domain model types, canonical-text composer, and schema migrations also landed in this iteration via the implementation spec.
+- **v4:** state-transition diagram for `embedding_status`, ops dashboard queries, alerting on `WHERE embedding_status = 'FAILED'` and on hot-loop indicators (≥3 indexed/listing/hour). Backfill CLI under `src/listings/entrypoints/backfill_embeddings.py` for pre-existing rows.
+- **v5:** provider-adapter contract details (Pinecone request/response shapes, OpenAI embedding API shape, location-extraction + query-rewriting prompts) and failure-mode catalog.
 - **v6:** cross-encoder re-ranker (if v3/v4 retrieval quality demands it).
 
 Each iteration appends a section here and bumps the status. Once status flips to **Accepted**, we open the implementation spec under `.claude/specs/active/`.

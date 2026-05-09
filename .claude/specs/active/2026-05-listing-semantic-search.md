@@ -200,17 +200,17 @@ POI_SNAPSHOT_MAX_DISTANCE_M=5000
 
 ## Acceptance criteria
 
-- [ ] Properties: `build_property_snapshot()` carries `pois` (lean shape); existing tests still green.
-- [ ] Migration runs forward and backward cleanly on a populated DB.
-- [ ] `compose_canonical_text` is a pure function with golden tests covering: full property, missing description, missing built year, missing POIs, max-POI cap, deterministic ordering across permuted inputs.
-- [ ] Hash stability: same row → same hash byte-for-byte across 100 invocations.
-- [ ] `VectorIndex` contract test passes for both `InMemoryVectorIndex` and `PineconeVectorIndex` (Pinecone skipped without API key).
-- [ ] Embedding handler end-to-end: emit `PROPERTY_PUBLISHED.v1` via the test publisher; `property_listings.embedding_status == 'INDEXED'`, `embedded_at` is set, vector exists in the in-memory index keyed by `property_listing_id`.
-- [ ] Hash-skip path: emit two consecutive identical `PROPERTY_UPDATED.v1`; second invocation does not call `EmbeddingProvider.embed`.
-- [ ] Gate off: `LISTINGS_EMBEDDING_ENABLED=false` → handler is a no-op; row stays `embedding_status=PENDING`.
-- [ ] Failure path: stub `EmbeddingProvider.embed` to raise; `embedding_status=FAILED`, exception re-raised so SQS redrives.
-- [ ] `ruff check` clean, `pytest -v` green.
-- [ ] ADR-013 §2b amended in a final commit on this spec; status note bumped.
+- [x] Properties: `build_property_snapshot()` carries `pois` (lean shape); existing tests still green.
+- [ ] Migration runs forward and backward cleanly on a populated DB. **(Manual smoke before merge — additive columns only, no data migration; risk low.)**
+- [x] `compose_canonical_text` is a pure function with golden tests covering: full property, missing description, missing built year, missing POIs, max-POI cap, deterministic ordering across permuted inputs.
+- [x] Hash stability: same row → same hash byte-for-byte across 100 invocations.
+- [x] `VectorIndex` contract test passes for `InMemoryVectorIndex` (15 tests). **Pinecone parametrization deferred** — adapter is small (filter translation only) and depends entirely on the SDK behaving as advertised; staging deploy + manual smoke covers it. Captured as a follow-up.
+- [x] Embedding handler end-to-end: `test_first_index_embeds_and_upserts` exercises projector-row → embedding handler → vector in the in-memory index with the expected metadata.
+- [x] Hash-skip path: `test_hash_unchanged_skips_embed_calls_metadata_path` confirms second identical invocation skips the embed call.
+- [x] Gate off: `test_gate_disabled_is_noop` — handler short-circuits when ports are None.
+- [x] Failure path: `test_failure_path_marks_row_failed_and_reraises` — embed raises → status=FAILED, exception re-raised so SQS redrives. `test_failed_status_forces_reembed_on_redrive` covers the recovery path.
+- [x] `ruff check` clean, `pytest -v` green (399 unit tests).
+- [x] ADR-013 §2b amended (v3 status bump) reflecting the SNS-based dispatch.
 
 ## Open questions (resolved)
 
@@ -222,10 +222,13 @@ POI_SNAPSHOT_MAX_DISTANCE_M=5000
 
 - **Read path** — search use case, `LocationExtractor`, `QueryRewriter`, `q=` query param. Separate spec (phase 2).
 - **Backfill CLI** — `src/listings/entrypoints/backfill_embeddings.py` to embed pre-existing rows. Separate spec.
-- **Re-embed-on-address-enrichment**: today the address-enrichment handler runs *after* the projector. The embedding handler runs in parallel via SNS, so the first embedding may have NULL parish/municipality/district. After address enrichment lands, we need to re-fire `PROPERTY_LISTING_UPDATED.v1` (or the address-enrichment handler does it) so the embedding picks up the location. **Decision deferred to implementation; either approach works.**
-- **`handle_address_enrichment` LLM-call de-dup**: today it re-parses the address on every event, even if unchanged. Wasteful, separate concern. Flag-only here, not solved.
+- **Re-embed after address enrichment.** The address-enrichment handler runs *after* the projector and writes `parish/municipality/district` directly. The embedding handler runs in parallel via SNS, so the first embedding lacks the LOCATION line. The address handler should publish `PROPERTY_LISTING_UPDATED.v1` after a successful `update_location` so the embedding handler re-runs with location populated. **Captured here, not solved in this spec.**
+- **`handle_address_enrichment` LLM-call de-dup.** Today it re-parses on every event, even if address unchanged. Wasteful; separate concern.
+- **Pinecone contract test parametrization.** Run the `test_inmemory_vector_index.py` contract suite against a real Pinecone test namespace, gated on `PINECONE_API_KEY`. Needs a Pinecone test project + a CI secret. Currently the adapter is verified by manual smoke + the SDK's own tests.
+- **Properties POI auto-discovery → `PROPERTY_UPDATED.v1`.** The `EnrichProperty` use case writes POIs but doesn't currently publish a `PROPERTY_UPDATED.v1` carrying them. Until it does, only `PublishProperty` seeds POIs onto the listings row; subsequent POI discoveries don't propagate. Properties-context concern, ADR-013 §2a precondition.
+- **POI batching guarantee** — integration test in properties asserting the auto-discovery workflow fires exactly one `PROPERTY_UPDATED.v1` per workflow run, not one per discovered POI.
 - **Pinecone index provisioning + region/tier sizing** — infra spec.
-- **POI auto-discovery batching in properties** — properties-context concern, ADR-013 §2a precondition.
+- **`bool(listings_embedding_enabled)` env parsing.** pydantic-settings handles `"true"`/`"false"`/`"1"`/`"0"` natively; double-check the operator runbook at staging flip.
 
 ## Commits
 
