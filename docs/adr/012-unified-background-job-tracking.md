@@ -1,7 +1,7 @@
 # ADR-012: Unified background-job tracking for cross-context async workflows
 
 **Date:** 2026-05-09
-**Status:** Proposed (v2 — sharpened from review; ready to break into an implementation spec)
+**Status:** Proposed (v3 — open questions resolved; ready to break into an implementation spec)
 
 ## Context
 
@@ -72,7 +72,7 @@ One aggregate root per piece of tracked work. Fields (v1):
 | `status` | enum: `PENDING` \| `PROCESSING` \| `COMPLETED` \| `FAILED` |
 | `entity_type` | enum: `PROPERTY` \| `LISTING` \| `APPLICANT` \| `CONTRACT` \| `GENERATED_MEDIA` (extensible) — what this job is *operating on* |
 | `entity_id` | UUID. **FK-by-id**: a UUID with no SQL FK constraint, since `jobs` is shared infra and cannot reference tables in other contexts. Pair `(entity_type, entity_id)` is the common UI filter. |
-| `title` | text — human-readable label rendered in the UI ("Extract documents from upload `acme-3.pdf`", "Discover POIs near Avenida Liberdade 12"). See §11 for i18n. |
+| `title` | text — human-readable label rendered in the UI ("Extrair documentos do upload `acme-3.pdf`", "Descobrir POIs perto de Avenida da Liberdade 12"). **Stored in pt-PT only** (the producing context generates the string in Portuguese). The frontend may key-map for other locales later; v1 ships PT-only. |
 | `error_code` | text nullable — short machine-readable code (e.g. `provider_unavailable`, `validation_failed`) for UI grouping |
 | `error_message` | text nullable — human-readable failure summary |
 | `result_summary` | JSONB nullable, **soft-capped at 4KB**, per-kind schema discipline (§10). Small structured payload the UI renders on completion (e.g. `{"created_property_id": "..."}`, `{"pois_discovered": 14, "had_failures": false}`). |
@@ -176,7 +176,7 @@ The producing context keeps a `tracked_job_id: UUID` on its own aggregate (or in
 
 | Route | Lives in | Use case |
 |---|---|---|
-| `GET /admin/jobs` | `src/shared/jobs/adapters/api/routes/jobs.py` | `ListJobs` — query params: `status` (comma-separated for `pending,processing`), `kind`, `entity_type`, `entity_id`, `limit`, `cursor`. Org is always inferred from `require_org_member`. |
+| `GET /admin/jobs` | `src/shared/jobs/adapters/api/routes/jobs.py` | `ListJobs` — query params: `status` (comma-separated for `pending,processing`), `kind`, `entity_type`, `entity_id`, `limit` (default 10, max 50). Returns the most recent matching jobs ordered by `created_at DESC`. **No pagination** — UI consumers want "the last few," not full history paging. Org is always inferred from `require_org_member`. |
 | `GET /admin/jobs/{id}` | `src/shared/jobs/adapters/api/routes/jobs.py` | `GetJob` — single record. The UI polls this for in-flight jobs in v1; SSE/websockets deferred. |
 | `GET /admin/properties/{id}/jobs` | `src/properties/adapters/api/routes/properties.py` | Calls `request.app.state.jobs.list_jobs.execute(entity_type=PROPERTY, entity_id=...)`. Same model for `/applicants/{id}/jobs`, `/contracts/{id}/jobs`. The producing context owns the URL because it owns the entity; shared infra owns the data. |
 
@@ -255,7 +255,8 @@ The `entity_id` already lets the UI fetch the rich domain row (e.g. the created 
 
 ### 11. Authorization
 
-- All read routes are behind `require_org_member`. Members of an org see all jobs for that org regardless of who initiated them. Per-user filtering is a UI concern, not a backend authz concern.
+- All read routes are behind `require_org_member`. **Any org member sees all jobs for that org**, regardless of who initiated them or which kind. No per-kind role gating in v1 — if a kind ever needs role-restricted visibility (e.g. financial, legal), that's a future column on `Job` (`visibility_role`) and a separate ADR.
+- Per-user filtering is a UI concern, not a backend authz concern.
 - The `JobTracker` write port is **trusted** — it's only called from inside producing-context workflows, which have already authorized the originating action. `start()` does not re-verify that `requested_by_user_id` is a member of `organization_id`; the producing context vouches for the inputs.
 - Admin (Predileto staff) cross-org visibility is **out of scope** in v1 — would require a new route bypassing `require_org_member`. Deferred.
 
@@ -312,21 +313,21 @@ If we later add push-based UI updates (SSE), that's a v5 concern with its own en
 - **Migration of `screening` and `contract_intelligence` job-like state into the unified surface.** First implementation ships with `properties` (extraction + enrichment) and `media_generation` (ADR-011) as the integrators. Other contexts opt in over time.
 - **`progress_pct`.** Re-introduce when one workflow commits to producing it (§2).
 
-## Open questions
+## Resolved decisions (from v2 review)
 
-To be resolved before v3 (implementation spec) is opened:
+The five questions surfaced in v2 have been answered and folded into the body above. Recorded here for traceability:
 
-1. **i18n for `title`.** The Portolar monorepo is multilingual (PT / EN / DE / FR / ES per the root `CLAUDE.md`). Producing contexts generate `title` strings. Options: (a) store `title` in PT only and let the frontend translate via a key map, (b) store `title_key` + `title_args` JSON and let the frontend localize, (c) store `title` in the user's locale at the moment of `start()`. Decision needed; my lean is (b) — it's the only option that handles late-rendering correctly when an admin changes locale.
-2. **Reaper cadence and threshold.** The orphan reaper is committed (Consequences); the parameters aren't. Probably "older than 30 min in PROCESSING" run every 5 min, but should be confirmed against the longest legitimate workflow runtime (Runway video — multi-minute, per ADR-011 §5).
-3. **Per-kind authorization.** v1 says "any org member sees any org job." Are there job kinds (e.g. financial, contract-related) where only specific roles should see them? Punted to product; if yes, add a `visibility_role` column to `Job` in a future iteration.
-4. **`error_code` taxonomy.** The column exists; the closed set of values doesn't. v3 should ship with a per-kind error code map (e.g. `provider_unavailable`, `validation_failed`, `quota_exceeded`, `tracker_orphaned`) so the UI can group consistently across kinds.
-5. **Pagination contract.** Cursor-based vs offset-based for `GET /admin/jobs`. Cursor scales better; offset is simpler. v3 picks one.
+1. **`title` i18n** → **PT-only.** Producing contexts generate the string in Portuguese; frontend may key-map for other locales later. (§2)
+2. **Reaper cadence** → **30-min threshold, 5-min cadence.** Confirmed against ADR-011's Runway video runtime (multi-minute but well under 30 min). v3 implementation spec wires the cron. (§Consequences)
+3. **Per-kind authorization** → **No gating.** Any org member sees all jobs for their org regardless of kind. `visibility_role` is a future column behind a separate ADR if it ever becomes needed. (§11)
+4. **`error_code` taxonomy** → **Confirmed; per-kind map ships in v3 implementation spec.** Initial set across kinds: `provider_unavailable`, `validation_failed`, `quota_exceeded`, `tracker_orphaned`. Each kind extends with its own values as needed.
+5. **Pagination** → **None.** `GET /admin/jobs?limit=N` returns the N most recent (default 10, max 50) sorted by `created_at DESC`. UI consumers want "the last few," not full history paging. (§6)
 
 ## Iteration plan
 
 This ADR is intentionally light. We iterate by adding:
 
-- **v3:** concrete domain models, exception hierarchy, full state-transition rules, schema migration (table + indexes), `tracked_job_id` column on `extraction_jobs`, integration spec for the two initial workflows (`SubmitPropertyExtraction`, `EnqueueEnrichProperty`), per-kind `result_summary` schemas, orphan-reaper cron, resolution of all five Open Questions.
+- **v3:** concrete domain models, exception hierarchy, full state-transition rules, schema migration (table + indexes), `tracked_job_id` column on `extraction_jobs`, integration spec for the two initial workflows (`SubmitPropertyExtraction`, `EnqueueEnrichProperty`), per-kind `result_summary` schemas, per-kind `error_code` map, orphan-reaper cron (30-min threshold, 5-min cadence).
 - **v4:** retry chaining (`parent_job_id`), SQS-fanout support (parent-status computation, sidecar children table pattern), cooperative cancellation if needed.
 - **v5:** push-based progress updates (SSE first; websockets only if SSE proves insufficient), `progress_pct` reintroduction once a workflow commits to producing it.
 
