@@ -113,6 +113,36 @@ def property_poi_repo():
 
 
 @pytest.fixture
+def job_repo():
+    from shared.jobs.adapters.persistence.inmemory_job_repository import (
+        InMemoryJobRepository,
+    )
+
+    return InMemoryJobRepository()
+
+
+@pytest.fixture
+def jobs_container(job_repo):
+    from shared.jobs.container import SharedJobsContainer
+
+    return SharedJobsContainer(job_repo=job_repo)
+
+
+@pytest.fixture
+def job_tracker(jobs_container):
+    return jobs_container.job_tracker
+
+
+@pytest.fixture
+def places_service():
+    from properties.adapters.inmemory.inmemory_places_service import (
+        InMemoryPlacesService,
+    )
+
+    return InMemoryPlacesService()
+
+
+@pytest.fixture
 def listing_repo():
     from listings.adapters.inmemory.inmemory_listing_repository import (
         InMemoryListingRepository,
@@ -279,6 +309,8 @@ def property_container(
     document_classifier,
     document_parser,
     document_content_repo,
+    places_service,
+    job_tracker,
 ):
     return PropertyContainer(
         property_repo=property_repo,
@@ -293,6 +325,8 @@ def property_container(
         document_content_repo=document_content_repo,
         property_poi_repo=property_poi_repo,
         enrichment_queue_url=enrichment_queue_url,
+        places_service=places_service,
+        job_tracker=job_tracker,
     )
 
 
@@ -303,6 +337,7 @@ def app(
     billing_container,
     property_container,
     listing_container,
+    jobs_container,
     monkeypatch,
 ):
     monkeypatch.setattr("shared.config.settings.supabase_jwt_secret", TEST_JWT_SECRET)
@@ -312,6 +347,7 @@ def app(
         billing_container=billing_container,
         property_container=property_container,
         listing_container=listing_container,
+        jobs_container=jobs_container,
     )
 
 

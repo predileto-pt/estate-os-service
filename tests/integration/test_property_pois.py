@@ -388,10 +388,13 @@ class TestEnrichProperty:
             headers=auth_headers,
         )
         assert response.status_code == 202
-        assert response.json() == {
-            "status": "enrichment_queued",
-            "property_id": property_id,
-        }
+        body = response.json()
+        # New unified response shape (ADR-012): job_id surfaced so the
+        # frontend can poll /admin/jobs/{id} for status.
+        assert body["status"] == "processing"
+        assert body["property_id"] == property_id
+        assert "job_id" in body
+        UUID(body["job_id"])  # parses
 
         assert len(command_publisher.sent) == 1
         queue_url, event = command_publisher.sent[0]
@@ -400,6 +403,9 @@ class TestEnrichProperty:
         assert event.data["organization_id"] == TEST_ORGANIZATION_ID
         assert event.data["force"] is False
         assert "requested_by_user_id" in event.data
+        # Job tracker integration: tracked_job_id rides along in the payload
+        # so the worker can transition the unified row.
+        assert event.data["tracked_job_id"] == body["job_id"]
 
     async def test_enrich_with_force_propagates_to_payload(
         self, client, auth_headers, property_repo, command_publisher

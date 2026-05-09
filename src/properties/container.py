@@ -65,6 +65,7 @@ from properties.application.use_cases.update_property_owner_contact import (
 )
 from properties.application.use_cases.update_property_poi import UpdatePropertyPoi
 from shared.events.ports import CommandPublisher, EventPublisher
+from shared.jobs.application.ports.job_tracker import JobTracker
 
 
 class Container:
@@ -84,6 +85,7 @@ class Container:
         places_service: PlacesService | None = None,
         property_poi_repo: PropertyPoiRepository | None = None,
         enrichment_queue_url: str = "",
+        job_tracker: JobTracker | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.document_extractor = document_extractor
@@ -99,6 +101,7 @@ class Container:
         self.places_service = places_service
         self.property_poi_repo = property_poi_repo
         self.enrichment_queue_url = enrichment_queue_url
+        self.job_tracker = job_tracker
 
         # Existing use cases
         self.create_property = CreateProperty(
@@ -168,6 +171,7 @@ class Container:
                 property_repo=property_repo,
                 command_publisher=command_publisher,
                 enrichment_queue_url=enrichment_queue_url,
+                job_tracker=job_tracker,
             )
         else:
             self.enqueue_enrich_property = None
@@ -178,6 +182,7 @@ class Container:
                 property_repo=property_repo,
                 property_poi_repo=property_poi_repo,
                 places_service=places_service,
+                job_tracker=job_tracker,
             )
         else:
             self.enrich_property = None
@@ -226,6 +231,7 @@ class Container:
                 extraction_job_repo=extraction_job_repo,
                 command_publisher=command_publisher,
                 extraction_queue_url=extraction_queue_url,
+                job_tracker=job_tracker,
             )
 
         # Property hard delete (requires document_storage to delete S3 images
@@ -252,6 +258,7 @@ class Container:
                 property_extractor=property_extractor,
                 property_repo=property_repo,
                 domain_event_publisher=domain_event_publisher,
+                job_tracker=job_tracker,
             )
 
         if document_storage and extraction_job_repo and command_publisher:

@@ -6,7 +6,8 @@ them via the proximity ranker, preserves manually-edited categories
 unless `force=True`, and atomically replaces the property's POI catalog.
 
 See `.claude/specs/active/2026-05-property-poi-discovery-workflow.md`
-for the full design.
+for the full design and `.claude/specs/active/2026-05-unified-job-tracking.md`
+for the JobTracker integration.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from properties.domain.services.proximity_ranker import (
     KNOWN_BRANDS_BY_CATEGORY,
     rank_top_places,
 )
+from shared.jobs.application.ports.job_tracker import JobTracker
 from shared.utils.concurrency import gather_with_concurrency
 
 log = structlog.get_logger()
@@ -79,16 +81,27 @@ class CategoryDiscoveryResult:
     had_failures: bool
 
 
+# Maps known exceptions raised inside `_run` to a stable `error_code`
+# string for the unified job row. Anything not listed falls through to
+# `enrich_failed`. ADR-012 §Producing-context integration.
+_ERROR_CODE_BY_EXC: dict[type[Exception], str] = {
+    PropertyNotFoundError: "property_not_found",
+    PropertyMissingCoordinatesError: "property_missing_coordinates",
+}
+
+
 class EnrichProperty:
     def __init__(
         self,
         property_repo: PropertyRepository,
         property_poi_repo: PropertyPoiRepository,
         places_service: PlacesService,
+        job_tracker: JobTracker | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.property_poi_repo = property_poi_repo
         self.places_service = places_service
+        self.job_tracker = job_tracker
 
     async def execute(
         self,
@@ -96,7 +109,56 @@ class EnrichProperty:
         property_id: UUID,
         force: bool,
         requested_by_user_id: UUID,
+        tracked_job_id: UUID | None = None,
     ) -> list[PropertyPoi]:
+        try:
+            persisted = await self._run(
+                property_id=property_id,
+                force=force,
+                requested_by_user_id=requested_by_user_id,
+            )
+        except Exception as exc:
+            error_code = _classify_error(exc)
+            if self.job_tracker is not None and tracked_job_id is not None:
+                try:
+                    await self.job_tracker.fail(
+                        tracked_job_id,
+                        error_code=error_code,
+                        error_message=str(exc),
+                    )
+                except Exception:
+                    log.exception(
+                        "enrich_property.job_tracker_fail_failed",
+                        tracked_job_id=str(tracked_job_id),
+                    )
+            raise
+
+        # Success path — record the unified completion. The result_summary
+        # carries the dashboard-visible counts.
+        if self.job_tracker is not None and tracked_job_id is not None:
+            try:
+                await self.job_tracker.complete(
+                    tracked_job_id,
+                    result_summary={
+                        "pois_discovered": persisted["discovered_count"],
+                        "categories_processed": persisted["run_categories"],
+                        "had_failures": persisted["had_failures"],
+                    },
+                )
+            except Exception:
+                log.exception(
+                    "enrich_property.job_tracker_complete_failed",
+                    tracked_job_id=str(tracked_job_id),
+                )
+        return persisted["pois"]
+
+    async def _run(
+        self,
+        *,
+        property_id: UUID,
+        force: bool,
+        requested_by_user_id: UUID,
+    ) -> dict:
         # 1. Load property + coordinate guard.
         prop = await self.property_repo.get_by_id(property_id)
         if prop is None:
@@ -136,7 +198,7 @@ class EnrichProperty:
                 property_id=str(property_id),
                 category_count=len(categories_to_run),
             )
-            raise RuntimeError(
+            raise ProviderUnavailableError(
                 f"POI discovery failed for property {property_id}: "
                 "every category returned 0 results AND at least one find_nearby call raised. "
                 "Treating as provider outage; SQS will retry."
@@ -189,7 +251,12 @@ class EnrichProperty:
             preserved_count=len(preserved_pois),
             force=force,
         )
-        return persisted
+        return {
+            "pois": persisted,
+            "discovered_count": len(discovered_pois),
+            "run_categories": len(categories_to_run),
+            "had_failures": any_failures,
+        }
 
     async def _discover_category(
         self,
@@ -230,3 +297,21 @@ class EnrichProperty:
             deduped.append(p)
 
         return CategoryDiscoveryResult(category=category, places=deduped, had_failures=had_failures)
+
+
+class ProviderUnavailableError(RuntimeError):
+    """The Places provider returned 0 results for every category AND at
+    least one underlying call raised — treat as provider outage.
+
+    Distinct subclass so the unified error_code mapping can identify it
+    without string-matching."""
+
+
+_ERROR_CODE_BY_EXC[ProviderUnavailableError] = "provider_unavailable"
+
+
+def _classify_error(exc: Exception) -> str:
+    for exc_type, code in _ERROR_CODE_BY_EXC.items():
+        if isinstance(exc, exc_type):
+            return code
+    return "enrich_failed"

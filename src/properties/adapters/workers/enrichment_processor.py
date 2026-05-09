@@ -26,8 +26,10 @@ async def handle_enrich_property_requested(event: DomainEvent, container: Contai
         return
 
     payload = event.data
+    tracked_job_id_raw = payload.get("tracked_job_id")
     await container.enrich_property.execute(
         property_id=UUID(payload["property_id"]),
         force=bool(payload.get("force", False)),
         requested_by_user_id=UUID(payload["requested_by_user_id"]),
+        tracked_job_id=UUID(tracked_job_id_raw) if tracked_job_id_raw else None,
     )

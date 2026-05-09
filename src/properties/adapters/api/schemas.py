@@ -251,6 +251,9 @@ class ExtractionJobResponse(BaseModel):
     typology: str | None = None
     property_id: UUID | None = None
     error_message: str | None = None
+    # Link to the unified background_jobs row (ADR-012). Nullable for
+    # rows created before the unified surface existed.
+    tracked_job_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -303,3 +306,9 @@ class PropertyPoiResponse(PropertyPoiBase):
 
 class EnrichPropertyRequest(BaseModel):
     force: bool = False
+
+
+class EnrichPropertyResponse(BaseModel):
+    job_id: UUID
+    status: str = "processing"
+    property_id: UUID

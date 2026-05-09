@@ -28,6 +28,7 @@ class SupabaseExtractionJobRepository(ExtractionJobRepository):
             typology=row.get("typology"),
             property_id=UUID(row["property_id"]) if row.get("property_id") else None,
             error_message=row.get("error_message"),
+            tracked_job_id=UUID(row["tracked_job_id"]) if row.get("tracked_job_id") else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -43,6 +44,7 @@ class SupabaseExtractionJobRepository(ExtractionJobRepository):
             "typology": job.typology,
             "property_id": str(job.property_id) if job.property_id else None,
             "error_message": job.error_message,
+            "tracked_job_id": str(job.tracked_job_id) if job.tracked_job_id else None,
         }
 
     async def save(self, job: ExtractionJob) -> ExtractionJob:

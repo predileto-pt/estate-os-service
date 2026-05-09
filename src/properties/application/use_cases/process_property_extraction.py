@@ -32,6 +32,7 @@ from properties.application.events.property_event import build_property_snapshot
 from shared.events.base import DomainEvent as SharedDomainEvent
 from shared.events.ports import EventPublisher
 from shared.events.types import PROPERTY_CREATED_V1
+from shared.jobs.application.ports.job_tracker import JobTracker
 
 log = structlog.get_logger()
 
@@ -45,6 +46,7 @@ class ProcessPropertyExtraction:
         property_extractor: PropertyExtractorService,
         property_repo: PropertyRepository,
         domain_event_publisher: EventPublisher | None = None,
+        job_tracker: JobTracker | None = None,
     ) -> None:
         self.extraction_job_repo = extraction_job_repo
         self.document_storage = document_storage
@@ -52,6 +54,7 @@ class ProcessPropertyExtraction:
         self.property_extractor = property_extractor
         self.property_repo = property_repo
         self.domain_event_publisher = domain_event_publisher
+        self.job_tracker = job_tracker
 
     async def execute(self, *, job_id: str) -> ExtractionJob:
         start = time.monotonic()
@@ -138,6 +141,22 @@ class ProcessPropertyExtraction:
             job.mark_completed(prop.id)
             await self.extraction_job_repo.update(job)
 
+            # Repoint the unified tracking row from `extraction_job.id` →
+            # `property.id` so downstream queries on
+            # (entity_type=PROPERTY, entity_id=prop.id) find this job.
+            if self.job_tracker is not None and job.tracked_job_id is not None:
+                try:
+                    await self.job_tracker.update_entity_id(job.tracked_job_id, prop.id)
+                    await self.job_tracker.complete(
+                        job.tracked_job_id,
+                        result_summary={"created_property_id": str(prop.id)},
+                    )
+                except Exception:
+                    log.exception(
+                        "extraction.job_tracker_complete_failed",
+                        tracked_job_id=str(job.tracked_job_id),
+                    )
+
             duration_ms = int((time.monotonic() - start) * 1000)
             log.info(
                 "extraction.completed",
@@ -148,6 +167,19 @@ class ProcessPropertyExtraction:
         except Exception as exc:
             job.mark_failed(str(exc))
             await self.extraction_job_repo.update(job)
+
+            if self.job_tracker is not None and job.tracked_job_id is not None:
+                try:
+                    await self.job_tracker.fail(
+                        job.tracked_job_id,
+                        error_code="extraction_failed",
+                        error_message=str(exc),
+                    )
+                except Exception:
+                    log.exception(
+                        "extraction.job_tracker_fail_failed",
+                        tracked_job_id=str(job.tracked_job_id),
+                    )
 
             duration_ms = int((time.monotonic() - start) * 1000)
             log.exception(
