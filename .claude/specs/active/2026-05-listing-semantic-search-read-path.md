@@ -1,6 +1,6 @@
 # Listing semantic search — read path (ADR-013 phase 2)
 
-**Status:** in-progress (review-cleared 2026-05-10; ready to implement)
+**Status:** in-progress (review-2 cleared 2026-05-10; ready to implement)
 **Owner:** Peter
 **Created:** 2026-05-09
 
@@ -42,7 +42,7 @@ These are enforced via timeout configs at the adapter layer, not via test assert
 - **Faceted result counts** (matches per parish/typology). Separate spec.
 - **Multilingual queries beyond PT** — the canonical text and the `QueryUnderstandingService` prompt are PT-tuned. EN/DE/FR queries work via the multilingual embedder but not optimized.
 - **Search analytics / logging queries to a warehouse.** Privacy + storage decisions out of scope; query strings stay in app logs only at debug level.
-- **Pagination beyond top_k** — first cut returns `top_k` (default 50) results. Cursor pagination over vector results is a follow-up.
+- **Cursor pagination over deep results** — the search path supports `limit`/`offset` paging over the top-k results (`top_k = min(VECTOR_INDEX_TOP_K, limit + offset)`). Paging beyond `VECTOR_INDEX_TOP_K` (default 50) is out of scope; cursor pagination over the score-ordered list lands as a follow-up if usage warrants.
 - **Spell correction / fuzzy matching** beyond what the LLM rewriter does naturally.
 - **Read-path caching** beyond the optional in-memory query cache from ADR §7 (SEARCH_QUERY_CACHE_TTL_SECONDS, default 300).
 
@@ -96,13 +96,16 @@ ListProperties use case (route layer)
                                             from the param, not extracted
                 structured_filter,        ← listing_type, typology, price range
             ),
-            top_k = VECTOR_INDEX_TOP_K,
+            top_k = min(VECTOR_INDEX_TOP_K, limit + offset),
             namespace = VECTOR_INDEX_NAMESPACE,
         )                                                  (100ms p95)
                 │
                 ▼
-        DB hydrate:
-        SELECT … FROM property_listings WHERE id = ANY(:ids) AND status='ACTIVE'
+        DB hydrate via PropertyListingRepository.list_by_ids(ids):
+        SELECT … FROM property_listings WHERE id = ANY(:ids) AND status='ACTIVE'.
+        The ACTIVE filter at SQL is defense in depth on top of the
+        vector-index metadata filter — a stale vector for a since-
+        WITHDRAWN listing won't leak into the public response.
         Reorder rows by vector-index score map.            (50ms p95)
                 │
                 ▼
@@ -128,9 +131,9 @@ class SearchListings:
         query_understanding: QueryUnderstandingService,
         embedding_provider: EmbeddingProvider,
         vector_index: VectorIndex,
-        listing_repo: ListingRepository,
+        property_listing_repo: PropertyListingRepository,
         namespace: str,
-        top_k: int,
+        top_k: int,                   # = settings.vector_index_top_k (default 50)
     ) -> None:
         ...
 
@@ -139,74 +142,81 @@ class SearchListings:
         *,
         query: str,                   # user's raw free-text — guaranteed non-empty here
         location: LocationFilter,     # validated: at least one level set
-        params: SearchParams,         # listing_type, typology, price range, limit, offset
+        filters: PropertyFilters,     # listing_type, typology, price range, limit, offset.
+                                       # `parish`/`municipality`/`district` left empty —
+                                       # location is in `LocationFilter`, single source of truth.
     ) -> tuple[list[PropertyListing], int]:
-        # 1. Understand the query → retrieval-friendly form. Fail-open:
-        #    the identity adapter returns `query` on timeout/raise, so
-        #    this never raises out.
-        rewritten = await self.query_understanding.rewrite(query)
+        # 1. Understand the query → retrieval-friendly form. Fail-open
+        #    explicitly: the LLM adapter CAN raise (timeout, network,
+        #    rate limit). On any exception we fall back to embedding
+        #    the raw query — search runs, just less smart.
+        try:
+            rewritten = await self.query_understanding.rewrite(query)
+        except Exception:
+            log.warning("search_listings.rewrite_failed", query=query)
+            rewritten = query
 
-        # 2. Embed. The vector path uses the user's (limit, offset) to
-        #    size top_k — `top_k = min(VECTOR_INDEX_TOP_K_MAX, limit + offset)`.
-        #    This keeps top_k bounded but lets pagination work for the
-        #    first page natively.
-        top_k = min(self.top_k_max, params.limit + params.offset)
+        # 2. Embed. top_k uses the user's pagination window so deep
+        #    pages still get served — bounded by VECTOR_INDEX_TOP_K so
+        #    a malicious offset=999999 doesn't blow up Pinecone.
+        effective_top_k = min(self.top_k, filters.limit + filters.offset)
 
         try:
             vector = await self.embedding_provider.embed(rewritten)
         except Exception:
             log.exception("search_listings.embed_failed", query=query)
-            return await self._relational_fallback(location, params)
+            return await self._relational_fallback(location, filters)
 
         # 3. ANN search.
         try:
             matches = await self.vector_index.query(
                 vector=vector,
-                filter=self._build_filter(location, params),
-                top_k=top_k,
+                filter=self._build_filter(location, filters),
+                top_k=effective_top_k,
                 namespace=self.namespace,
             )
         except Exception:
             log.exception("search_listings.vector_query_failed", query=query)
-            return await self._relational_fallback(location, params)
+            return await self._relational_fallback(location, filters)
 
         if not matches:
             return [], 0
 
-        # 4. DB hydrate, preserving score order.
+        # 4. DB hydrate. `list_by_ids` filters to status='ACTIVE' at the
+        #    SQL level, so a stale Pinecone vector for a now-WITHDRAWN
+        #    listing doesn't leak into the public response (defense in
+        #    depth on top of the metadata `status` filter applied at the
+        #    vector index).
         rows = await self.property_listing_repo.list_by_ids(
             [UUID(m.id) for m in matches]
         )
         ordered = self._reorder_by_score(rows, matches)
+
         # 5. Apply pagination over the ranked list.
-        page = ordered[params.offset : params.offset + params.limit]
+        page = ordered[filters.offset : filters.offset + filters.limit]
         return page, len(ordered)
 
     async def _relational_fallback(
-        self, location: LocationFilter, params: SearchParams,
+        self, location: LocationFilter, filters: PropertyFilters,
     ) -> tuple[list[PropertyListing], int]:
-        """When the vector path can't run (LLM/embed/vector failure),
-        fall back to the same `PropertyListingRepository.list_active`
-        the structured-filter (`q` empty) path uses, with the user's
-        location filters applied as exact-match column predicates.
+        """When the vector path can't run (embed/vector failure), fall
+        back to the same `PropertyListingRepository.list_active` the
+        structured-filter (`q` empty) path uses, with the user's
+        location filters merged in as exact-match column predicates.
 
         Trade-off: we lose semantic ranking (the user's `q` text is
         ignored), but they keep getting results — same shape as if
         they'd searched without `q`. Better than 503'ing the page.
         """
-        filters = PropertyFilters(
-            listing_type=params.listing_type,
-            typology=params.typology,
-            min_price=params.min_price,
-            max_price=params.max_price,
+        from dataclasses import replace
+        merged = replace(
+            filters,
             parish=location.parish,
             municipality=location.municipality,
             district=location.district,
-            limit=params.limit,
-            offset=params.offset,
         )
-        rows = await self.property_listing_repo.list_active(filters)
-        total = await self.property_listing_repo.count_active(filters)
+        rows = await self.property_listing_repo.list_active(merged)
+        total = await self.property_listing_repo.count_active(merged)
         return rows, total
 ```
 
@@ -313,22 +323,22 @@ All failures log a structured event at WARN/ERROR level. Search keeps working; u
 
 1. **`QueryUnderstandingService` port** at `src/listings/application/ports/query_understanding.py`.
 2. **LLM adapter** at `src/listings/adapters/ai/langchain_query_understanding.py` — structured-output prompt, 4s timeout.
-3. **Identity adapter** at `src/listings/adapters/inmemory/inmemory_query_understanding.py` — returns input unchanged. Used for tests + as the LLM-failure fallback at the use-case level.
+3. **Identity adapter** at `src/listings/adapters/inmemory/inmemory_query_understanding.py` — returns input unchanged. Used for tests; production fail-open is handled by the use case via `try/except`, not by an in-memory fallback.
 4. **`LocationFilter` value object** at `src/listings/domain/location_filter.py` with at-least-one-level invariant.
-5. **Extend `SearchParams`** — add `limit`, `offset` fields. Already partly exists in `PropertyFilters`; consider folding both into one or keeping them separate (decision at implementation).
-6. **`SearchListings` use case** at `src/listings/application/use_cases/search_listings.py`. Orchestrates rewrite → embed → ANN → hydrate with fail-open at each step.
-7. **`ListLocations` use case** at `src/listings/application/use_cases/list_locations.py` — hierarchical tree, TTL-cached.
-8. **Two new methods on `PropertyListingRepository`**:
+5. **`SearchListings` use case** at `src/listings/application/use_cases/search_listings.py`. Orchestrates rewrite → embed → ANN → hydrate with fail-open at each step. Reuses existing `PropertyFilters` (no separate `SearchParams` type) — the route hands `LocationFilter` and `PropertyFilters` (with location fields blank) as separate args, single source of truth for location is the value object.
+6. **`ListLocations` use case** at `src/listings/application/use_cases/list_locations.py` — hierarchical tree, TTL-cached.
+7. **Two new methods on `PropertyListingRepository`**:
     - `list_locations() -> list[LocationTriple]` — distinct (parish, municipality, district) triples for the FE selector.
-    - `list_by_ids(ids: list[UUID]) -> list[PropertyListing]` — for the hydrate step. Returns rows in arbitrary order; `SearchListings._reorder_by_score` re-sorts.
-9. **Adapter implementations** for both new methods (SqlAlchemy + InMemory).
-10. **Route changes** in `src/listings/adapters/api/routes/listings.py`:
-    - Add `q`, `parish`, `municipality`, `district` query params to the existing `GET /api/v1/listings/properties`. Branch: `q` empty → existing structured-filter path (no change); `q` set → `SearchListings.execute(...)`.
+    - `list_by_ids(ids: list[UUID]) -> list[PropertyListing]` — for the hydrate step. Returns rows in arbitrary order (the use case re-sorts by score). **Filters to `status='ACTIVE'` at the SQL level** so a stale Pinecone vector for a now-WITHDRAWN listing doesn't leak into the public response.
+8. **Adapter implementations** for both new methods (SqlAlchemy + InMemory).
+9. **Route changes** in `src/listings/adapters/api/routes/listings.py`:
+    - Add `q`, `parish`, `municipality`, `district` query params to the existing `GET /api/v1/listings/properties`. Branch: `q` empty (or whitespace-only after `.strip()`) → existing structured-filter path (no change); `q` set → `SearchListings.execute(...)`.
     - 422 validation when `q` is set without a location.
+    - `q` constrained to a sane max length (suggest `Query(max_length=2000)`) to avoid unbounded LLM/embed costs.
     - New `GET /api/v1/listings/locations` route.
-11. **Container wiring** in `src/listings/container.py` — add `query_understanding`, `search_listings`, `list_locations`. The existing `embedding_provider` and `vector_index` ports are reused (already wired in phase 1).
-12. **Bootstrap** in `src/shared/entrypoints/bootstrap.py` — construct `LangChainQueryUnderstandingService` when `LISTINGS_SEARCH_ENABLED=true`. Identity adapter is used otherwise.
-13. **Settings** in `src/shared/config.py`: `LISTINGS_SEARCH_ENABLED`, `SEARCH_LLM_MODEL`, `SEARCH_LLM_TIMEOUT_SECONDS`, `SEARCH_LLM_MAX_OUTPUT_TOKENS`, `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`, `VECTOR_INDEX_TOP_K_MAX`.
+10. **Container wiring** in `src/listings/container.py` — add `query_understanding_service`, `search_listings`, `list_locations`. The existing `embedding_provider` and `vector_index` ports are reused (already wired in phase 1).
+11. **Bootstrap** in `src/shared/entrypoints/bootstrap.py` — construct `LangChainQueryUnderstandingService` when `LISTINGS_SEARCH_ENABLED=true`. `IdentityQueryUnderstandingService` is used otherwise (and in tests).
+12. **Settings** in `src/shared/config.py`: `LISTINGS_SEARCH_ENABLED`, `SEARCH_LLM_MODEL`, `SEARCH_LLM_TIMEOUT_SECONDS`, `SEARCH_LLM_MAX_OUTPUT_TOKENS`, `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`, `VECTOR_INDEX_TOP_K`.
 
 ### Filter translation: user location + structured params → `VectorFilter`
 
@@ -337,7 +347,7 @@ The metadata filter passed to `VectorIndex.query` is the AND of three blocks. Bu
 ```python
 def _build_filter(
     location: LocationFilter,    # at-least-one-level invariant enforced at construction
-    params: SearchParams,
+    filters: PropertyFilters,
 ) -> VectorFilter:
     clauses: list[dict] = [{"status": {"eq": "ACTIVE"}}]
 
@@ -351,15 +361,15 @@ def _build_filter(
     if location.district:
         clauses.append({"district": {"eq": location.district.lower().strip()}})
 
-    # Structured params (existing query params from ADR-010).
-    if params.listing_type:
-        clauses.append({"listing_type": {"eq": params.listing_type.value}})
-    if params.typology:
-        clauses.append({"typology": {"eq": params.typology.value}})
-    if params.min_price is not None:
-        clauses.append({"price_eur": {"gte": float(params.min_price)}})
-    if params.max_price is not None:
-        clauses.append({"price_eur": {"lte": float(params.max_price)}})
+    # Structured params (existing PropertyFilters from ADR-010).
+    if filters.listing_type:
+        clauses.append({"listing_type": {"eq": filters.listing_type.value}})
+    if filters.typology:
+        clauses.append({"typology": {"eq": filters.typology.value}})
+    if filters.min_price is not None:
+        clauses.append({"price_eur": {"gte": float(filters.min_price)}})
+    if filters.max_price is not None:
+        clauses.append({"price_eur": {"lte": float(filters.max_price)}})
 
     return {"and": clauses}
 ```
@@ -374,7 +384,7 @@ def _build_filter(
 ### Test strategy
 
 - **Unit** — `tests/unit/listings/application/use_cases/test_search_listings.py` covers every fail-open branch with stubs for `QueryUnderstandingService`, `EmbeddingProvider`, `VectorIndex`, and an `InMemoryPropertyListingRepository` for hydrate.
-- **Unit** — same file (or a sibling) covers `_build_filter` translation of `LocationFilter` + `SearchParams` → `VectorFilter`. Bare cases: parish-only, municipality-only, district-only, narrow-further (multiple levels), with-and-without structured params.
+- **Unit** — same file (or a sibling) covers `_build_filter` translation of `LocationFilter` + `PropertyFilters` → `VectorFilter`. Bare cases: parish-only, municipality-only, district-only, narrow-further (multiple levels), with-and-without structured params.
 - **Unit** — `tests/unit/listings/domain/test_location_filter.py` pins the at-least-one-level invariant.
 - **Unit** — golden tests for the `IdentityQueryUnderstandingService` (identity returns input unchanged) and the `LangChainQueryUnderstandingService` prompt against ~10 worked PT examples (deterministic when the LLM call is mocked with `langchain.fake.FakeListLLM` or similar).
 - **Unit** — `tests/unit/listings/application/use_cases/test_list_locations.py` against the in-memory repo. Assert hierarchical tree shape, alphabetical ordering at each level, empty-DB returns `{"districts": []}`, TTL cache returns the same response twice without a second repo call.
@@ -386,7 +396,6 @@ def _build_filter(
     - Embedder stub raises → relational fallback returns location-correct (but unranked) results.
     - Vector returns 0 → empty list, 200.
 - **Contract** — read path doesn't add new VectorIndex contract tests; phase 1's `test_inmemory_vector_index.py` already covers `query()`.
-- **Contract** — read path doesn't add new VectorIndex contract tests; phase 1's `test_inmemory_vector_index.py` already covers `query()`.
 
 ## Affected files / surfaces
 
@@ -395,7 +404,6 @@ def _build_filter(
 - `src/listings/adapters/ai/langchain_query_understanding.py` — LLM adapter with structured-output prompt.
 - `src/listings/adapters/inmemory/inmemory_query_understanding.py` — identity rewriter (returns input unchanged); doubles as production LLM-failure fallback.
 - `src/listings/domain/location_filter.py` — `LocationFilter` value object, enforces at-least-one-level invariant at construction.
-- `src/listings/domain/search_params.py` — `SearchParams` value object (or extend the existing `PropertyFilters`; decision at implementation).
 - `src/listings/application/use_cases/search_listings.py` — orchestration class.
 - `src/listings/application/use_cases/list_locations.py` — hierarchical tree for the FE selector.
 - `tests/unit/listings/application/use_cases/test_search_listings.py` — covers every fail-open branch.
@@ -411,7 +419,7 @@ def _build_filter(
 - `src/listings/application/use_cases/list_properties.py` — no change; the existing structured-filter use case keeps reading from `PropertyListingRepository.list_active`. The route handler picks between `list_properties` and `search_listings` based on `q` presence.
 - `src/listings/container.py` — wire `query_understanding`, `search_listings`, `list_locations`. `embedding_provider` and `vector_index` are already wired (phase 1).
 - `src/shared/entrypoints/bootstrap.py` — construct `LangChainQueryUnderstandingService` under `LISTINGS_SEARCH_ENABLED=true`; otherwise wire the identity adapter.
-- `src/shared/config.py` — `LISTINGS_SEARCH_ENABLED`, `SEARCH_LLM_MODEL`, `SEARCH_LLM_TIMEOUT_SECONDS`, `SEARCH_LLM_MAX_OUTPUT_TOKENS`, `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`, `VECTOR_INDEX_TOP_K_MAX`.
+- `src/shared/config.py` — `LISTINGS_SEARCH_ENABLED`, `SEARCH_LLM_MODEL`, `SEARCH_LLM_TIMEOUT_SECONDS`, `SEARCH_LLM_MAX_OUTPUT_TOKENS`, `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`, `VECTOR_INDEX_TOP_K`.
 - `.env.example` — append search-side block.
 - `README.md` § Listings Semantic Search Setup — document the gate + LLM env vars + the new endpoints + required-location semantics.
 - `docs/features/listings.md` — add "Search read path" section + endpoint behavior matrix.
@@ -428,7 +436,7 @@ Each criterion phrases an **externally observable** behavior — passing it mean
 - [ ] `q` set with multiple location levels → all apply as AND filters in the vector query.
 - [ ] DB hydrate response preserves vector-index score ordering (top match first). Integration test asserts row order.
 - [ ] `limit`/`offset` apply over the ranked list. `limit=2&offset=0` → 2 rows, top-2 by score. `limit=2&offset=2` → next 2 rows.
-- [ ] Top-k bound respected: response length ≤ min(`VECTOR_INDEX_TOP_K_MAX`, `limit + offset`).
+- [ ] Top-k bound respected: response length ≤ min(`VECTOR_INDEX_TOP_K`, `limit + offset`).
 - [ ] `total` in the response equals the count of ranked candidates returned by Pinecone (capped by `top_k`), with a documentation note about the limitation.
 
 ### Fail-open behavior (assert externally observable)
@@ -459,7 +467,7 @@ Each criterion phrases an **externally observable** behavior — passing it mean
 ### Resolved (decisions captured for the record)
 
 - **~~Required-location scope~~** → required only when `q` is set; empty `q` preserves the existing browse-without-location behavior.
-- **~~Pagination over vector results~~** → `limit`/`offset` apply over the ranked list. `top_k = min(VECTOR_INDEX_TOP_K_MAX, limit + offset)`. Sufficient for the first page; cursor pagination over deep pages punted to a follow-up if usage warrants it.
+- **~~Pagination over vector results~~** → `limit`/`offset` apply over the ranked list. `top_k = min(VECTOR_INDEX_TOP_K, limit + offset)`. Sufficient for paging within the top-k window; cursor pagination beyond `VECTOR_INDEX_TOP_K` (default 50) punted to a follow-up if usage warrants it.
 - **~~Which repo / which read-model~~** → resolved before this spec started; single `PropertyListingRepository` over the `property_listings` projection.
 - **~~`district` query-param semantic conflict~~** → resolved with the read-model collapse; the column is exact-match. The legacy ILIKE-on-address behavior is gone.
 - **~~`_relational_fallback` definition~~** → calls `PropertyListingRepository.list_active(filters)` with the user's location + structured filters as exact-match column predicates. Unranked but location-correct.
@@ -481,7 +489,7 @@ Each criterion phrases an **externally observable** behavior — passing it mean
 
 Conventional commits, scope = `listings`:
 
-- `feat(listings): LocationFilter + SearchParams value objects with at-least-one-location invariant`
+- `feat(listings): LocationFilter value object with at-least-one-level invariant`
 - `feat(listings): QueryUnderstandingService port + identity adapter + LLM adapter`
 - `feat(listings): list_by_ids + list_locations on PropertyListingRepository + adapters`
 - `feat(listings): SearchListings use case with fail-open fallbacks`
