@@ -1,6 +1,6 @@
 # Listing semantic search — read path (ADR-013 phase 2)
 
-**Status:** draft
+**Status:** in-progress (review-cleared 2026-05-10; ready to implement)
 **Owner:** Peter
 **Created:** 2026-05-09
 
@@ -12,7 +12,7 @@ Phase 2 ships the read path: `GET /api/v1/listings/properties?q=<text>` runs the
 
 ## Goal
 
-`GET /api/v1/listings/properties?q=<free-text>&parish=…&municipality=…&district=…` answers PT free-text queries like *"casa com piscina perto de boas escolas"* (with `parish=Cascais` selected via FE dropdown) with semantic-ranked listings, p95 < 800ms end-to-end.
+`GET /api/v1/listings/properties?q=<free-text>&parish=…&municipality=…&district=…` answers PT free-text queries like *"casa com piscina perto de boas escolas"* (with `parish=Cascais` selected via FE dropdown) with semantic-ranked listings.
 
 Two endpoint behaviors:
 
@@ -21,18 +21,41 @@ Two endpoint behaviors:
 
 A second new endpoint, `GET /api/v1/listings/locations`, returns the hierarchical tree of populated locations (district → municipality → parish) so the FE can render the selector.
 
+### Latency budget (constraint, not a test)
+
+ADR-013 §8 specifies the per-stage budgets:
+
+| Stage | Budget |
+|---|---|
+| `QueryUnderstandingService` (LLM) | 300ms p95 (4s timeout) |
+| `EmbeddingProvider.embed` | 150ms p95 |
+| `VectorIndex.query` | 100ms p95 |
+| DB hydrate | 50ms p95 |
+| **Total p95 budget** | **600ms** (≈ 200ms headroom on the 800ms end-to-end target) |
+
+These are enforced via timeout configs at the adapter layer, not via test assertions. The unit suite asserts ordering + correctness; production p95 is measured in metrics.
+
 ## Non-goals
 
 - **Cross-encoder re-ranking** — ADR-013 v6, deferred until v1 retrieval quality demands it.
 - **Personalized search** (user history, saved filters). Out for v1.
 - **Faceted result counts** (matches per parish/typology). Separate spec.
-- **Multilingual queries beyond PT** — the canonical text and `LocationExtractor` prompts are PT-tuned. EN/DE/FR queries work via the multilingual embedder but not optimized.
+- **Multilingual queries beyond PT** — the canonical text and the `QueryUnderstandingService` prompt are PT-tuned. EN/DE/FR queries work via the multilingual embedder but not optimized.
 - **Search analytics / logging queries to a warehouse.** Privacy + storage decisions out of scope; query strings stay in app logs only at debug level.
 - **Pagination beyond top_k** — first cut returns `top_k` (default 50) results. Cursor pagination over vector results is a follow-up.
 - **Spell correction / fuzzy matching** beyond what the LLM rewriter does naturally.
 - **Read-path caching** beyond the optional in-memory query cache from ADR §7 (SEARCH_QUERY_CACHE_TTL_SECONDS, default 300).
 
 ## Approach
+
+### Read-model: single repo, projection-backed
+
+The legacy `ListingRepository` (read mapping over the live `properties` table) was collapsed into `PropertyListingRepository` (the carried-state projection over `property_listings`) before this spec started — see commits `2794f119226c` (data layer expansion) + `332320c11888` (route migration + delete legacy). What that gives this spec for free:
+
+- The route already reads from the projection. The structured `parish` / `municipality` / `district` columns the search filter wants are populated and indexed.
+- `district` filter semantic is already exact-match against the column (was ILIKE on the address string in the legacy repo).
+- `PropertyListing.images` and `.prices` are full lists projected from the snapshot — the hydrate step returns the full response shape via the same repo as the existing `q`-empty path.
+- One repo, one domain type. No "which read-model" branching in the route handler.
 
 ### Pipeline (deviates from ADR-013 §5: drops `LocationExtractor`)
 
@@ -116,16 +139,23 @@ class SearchListings:
         *,
         query: str,                   # user's raw free-text — guaranteed non-empty here
         location: LocationFilter,     # validated: at least one level set
-        params: SearchParams,         # listing_type, typology, min_price, max_price
-    ) -> list[ListedProperty]:
-        # 1. Understand the query → retrieval-friendly form.
-        rewritten = await self.query_understanding.rewrite(query)  # fail-open: returns
-                                                                    # `query` on timeout/raise
+        params: SearchParams,         # listing_type, typology, price range, limit, offset
+    ) -> tuple[list[PropertyListing], int]:
+        # 1. Understand the query → retrieval-friendly form. Fail-open:
+        #    the identity adapter returns `query` on timeout/raise, so
+        #    this never raises out.
+        rewritten = await self.query_understanding.rewrite(query)
 
-        # 2. Embed.
+        # 2. Embed. The vector path uses the user's (limit, offset) to
+        #    size top_k — `top_k = min(VECTOR_INDEX_TOP_K_MAX, limit + offset)`.
+        #    This keeps top_k bounded but lets pagination work for the
+        #    first page natively.
+        top_k = min(self.top_k_max, params.limit + params.offset)
+
         try:
             vector = await self.embedding_provider.embed(rewritten)
-        except EmbeddingError:
+        except Exception:
+            log.exception("search_listings.embed_failed", query=query)
             return await self._relational_fallback(location, params)
 
         # 3. ANN search.
@@ -133,21 +163,58 @@ class SearchListings:
             matches = await self.vector_index.query(
                 vector=vector,
                 filter=self._build_filter(location, params),
-                top_k=self.top_k,
+                top_k=top_k,
                 namespace=self.namespace,
             )
-        except VectorIndexError:
+        except Exception:
+            log.exception("search_listings.vector_query_failed", query=query)
             return await self._relational_fallback(location, params)
 
         if not matches:
-            return []
+            return [], 0
 
         # 4. DB hydrate, preserving score order.
-        rows = await self.listing_repo.list_by_ids([UUID(m.id) for m in matches])
-        return self._reorder_by_score(rows, matches)
+        rows = await self.property_listing_repo.list_by_ids(
+            [UUID(m.id) for m in matches]
+        )
+        ordered = self._reorder_by_score(rows, matches)
+        # 5. Apply pagination over the ranked list.
+        page = ordered[params.offset : params.offset + params.limit]
+        return page, len(ordered)
+
+    async def _relational_fallback(
+        self, location: LocationFilter, params: SearchParams,
+    ) -> tuple[list[PropertyListing], int]:
+        """When the vector path can't run (LLM/embed/vector failure),
+        fall back to the same `PropertyListingRepository.list_active`
+        the structured-filter (`q` empty) path uses, with the user's
+        location filters applied as exact-match column predicates.
+
+        Trade-off: we lose semantic ranking (the user's `q` text is
+        ignored), but they keep getting results — same shape as if
+        they'd searched without `q`. Better than 503'ing the page.
+        """
+        filters = PropertyFilters(
+            listing_type=params.listing_type,
+            typology=params.typology,
+            min_price=params.min_price,
+            max_price=params.max_price,
+            parish=location.parish,
+            municipality=location.municipality,
+            district=location.district,
+            limit=params.limit,
+            offset=params.offset,
+        )
+        rows = await self.property_listing_repo.list_active(filters)
+        total = await self.property_listing_repo.count_active(filters)
+        return rows, total
 ```
 
 Every external dependency is a port; the use case sees no adapters. Same pattern as `EnrichProperty`.
+
+**Exception handling note**: `EmbeddingProvider` and `VectorIndex` adapter errors aren't wrapped in domain exceptions in v1 — the use case catches `Exception` broadly with a structured-log line. Spec for v2 would introduce typed wrappers (`EmbeddingError` / `VectorIndexError`) once we have observability data on which adapter failures actually need different handling. Keeping it simple now.
+
+**Pagination**: the use case returns `(rows, total)` matching the existing list endpoint's tuple. `total` is the count of ranked candidates returned by Pinecone (capped by `top_k`), NOT the global match count. This is a known limitation of vector-ANN pagination: there's no cheap way to know how many listings would have matched at lower similarity. Document on the response.
 
 ### `QueryUnderstandingService` — the prompt for better retrieval
 
@@ -247,50 +314,21 @@ All failures log a structured event at WARN/ERROR level. Search keeps working; u
 1. **`QueryUnderstandingService` port** at `src/listings/application/ports/query_understanding.py`.
 2. **LLM adapter** at `src/listings/adapters/ai/langchain_query_understanding.py` — structured-output prompt, 4s timeout.
 3. **Identity adapter** at `src/listings/adapters/inmemory/inmemory_query_understanding.py` — returns input unchanged. Used for tests + as the LLM-failure fallback at the use-case level.
-4. **`SearchListings` use case** at `src/listings/application/use_cases/search_listings.py`. Orchestrates rewrite → embed → ANN → hydrate with fail-open at each step.
-5. **`LocationFilter` value object** at `src/listings/domain/location_filter.py` with at-least-one-level invariant.
-6. **`ListLocations` use case** at `src/listings/application/use_cases/list_locations.py` — hierarchical tree.
-7. **`ListingRepository.list_locations()` port method** at `src/listings/application/ports/listing_repository.py` returning the distinct triples.
-8. **`ListingRepository.list_by_ids(ids)` port method** for the hydrate step.
-9. **Repo implementations** in both SQLAlchemy + InMemory adapters.
+4. **`LocationFilter` value object** at `src/listings/domain/location_filter.py` with at-least-one-level invariant.
+5. **Extend `SearchParams`** — add `limit`, `offset` fields. Already partly exists in `PropertyFilters`; consider folding both into one or keeping them separate (decision at implementation).
+6. **`SearchListings` use case** at `src/listings/application/use_cases/search_listings.py`. Orchestrates rewrite → embed → ANN → hydrate with fail-open at each step.
+7. **`ListLocations` use case** at `src/listings/application/use_cases/list_locations.py` — hierarchical tree, TTL-cached.
+8. **Two new methods on `PropertyListingRepository`**:
+    - `list_locations() -> list[LocationTriple]` — distinct (parish, municipality, district) triples for the FE selector.
+    - `list_by_ids(ids: list[UUID]) -> list[PropertyListing]` — for the hydrate step. Returns rows in arbitrary order; `SearchListings._reorder_by_score` re-sorts.
+9. **Adapter implementations** for both new methods (SqlAlchemy + InMemory).
 10. **Route changes** in `src/listings/adapters/api/routes/listings.py`:
-    - Add `q`, `parish`, `municipality`, `district` query params to the existing `GET /api/v1/listings/properties`.
-    - 422 validation when q is set without a location.
+    - Add `q`, `parish`, `municipality`, `district` query params to the existing `GET /api/v1/listings/properties`. Branch: `q` empty → existing structured-filter path (no change); `q` set → `SearchListings.execute(...)`.
+    - 422 validation when `q` is set without a location.
     - New `GET /api/v1/listings/locations` route.
-11. **Container wiring** + **bootstrap** + **settings** (`LISTINGS_SEARCH_ENABLED`, `SEARCH_LLM_MODEL`, `SEARCH_LLM_TIMEOUT_SECONDS`, `SEARCH_LLM_MAX_OUTPUT_TOKENS`, `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`).
-
-### Fail-open semantics
-
-Every LLM and external call has fallback behavior — search degrades gracefully rather than 500's:
-
-| Failure | Behavior |
-|---|---|
-| `LocationExtractor` times out / raises | Skip the location filter. Vector ANN runs with status + structured filters only; semantic rank carries the location burden. |
-| `LocationExtractor` returns low-confidence (multiple candidates) | Use the most-specific level returned (parish > municipality > district) and pass remaining candidates as a metadata `IN` filter, not a single-value match. |
-| `QueryRewriter` times out / raises | Embed the raw user query verbatim. |
-| `EmbeddingProvider` raises | Fall back to relational filtering: existing structured-filter SQL with `district ILIKE %extracted%` if location was extracted. Logged + alerted. |
-| `VectorIndex.query` raises | Same relational fallback as above. |
-| `q` is empty string or missing | Skip stages 0–2 entirely. Fall through to the existing relational endpoint. Semantic search is a feature, not a requirement. |
-
-All failures log a structured event at WARN/ERROR level for ops dashboards. The user gets results either way.
-
-### Components to build
-
-1. **`LocationExtractor` port** (already sketched in ADR §6) at `src/listings/application/ports/location_extractor.py`. Returns `ExtractedLocation(parish, municipality, district, confidence)`.
-2. **`QueryRewriter` port** at `src/listings/application/ports/query_rewriter.py`. Returns rewritten query string.
-3. **LLM adapters** (LangChain + OpenAI):
-   - `src/listings/adapters/ai/langchain_location_extractor.py` — structured-output prompt that extracts parish/municipality/district + confidence from a PT query.
-   - `src/listings/adapters/ai/langchain_query_rewriter.py` — rewrites colloquial / typo'd / mixed-language queries to canonical search vocabulary.
-4. **Test doubles** at `src/listings/adapters/inmemory/`:
-   - `inmemory_location_extractor.py` — rule-based regex matcher over a fixed PT location corpus (also serves as the LLM-failure fallback adapter in production).
-   - `inmemory_query_rewriter.py` — identity rewriter (returns input unchanged) + a fixture-based one for tests.
-5. **`SearchListings` use case** at `src/listings/application/use_cases/search_listings.py`. Orchestrates stage 0 (`asyncio.gather`), stage 1 (`VectorIndex.query`), stage 2 (DB hydrate via `ListingRepository.list_by_ids`). Sees only ports.
-6. **Repo extension** — add `ListingRepository.list_by_ids(ids: list[UUID]) -> list[ListedProperty]` to the existing read-model port + adapters. Idempotent SELECT for the hydrate step.
-7. **Route changes**:
-   - `src/listings/adapters/api/routes/listings.py` — add `q: str | None = None` to the existing `GET /api/v1/listings/properties` endpoint. Branch: q empty → existing path; q present → `SearchListings.execute(q=q, filters=…)`.
-8. **Container wiring** — `src/listings/container.py` adds `location_extractor`, `query_rewriter` ports.
-9. **Bootstrap** — construct LLM adapters when `LISTINGS_SEARCH_ENABLED=true` (parallel to the indexing gate).
-10. **Settings** — `SEARCH_LLM_MODEL`, `SEARCH_LLM_TIMEOUT_SECONDS`, `SEARCH_LLM_MAX_OUTPUT_TOKENS`, `LISTINGS_SEARCH_ENABLED`.
+11. **Container wiring** in `src/listings/container.py` — add `query_understanding`, `search_listings`, `list_locations`. The existing `embedding_provider` and `vector_index` ports are reused (already wired in phase 1).
+12. **Bootstrap** in `src/shared/entrypoints/bootstrap.py` — construct `LangChainQueryUnderstandingService` when `LISTINGS_SEARCH_ENABLED=true`. Identity adapter is used otherwise.
+13. **Settings** in `src/shared/config.py`: `LISTINGS_SEARCH_ENABLED`, `SEARCH_LLM_MODEL`, `SEARCH_LLM_TIMEOUT_SECONDS`, `SEARCH_LLM_MAX_OUTPUT_TOKENS`, `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`, `VECTOR_INDEX_TOP_K_MAX`.
 
 ### Filter translation: user location + structured params → `VectorFilter`
 
@@ -335,10 +373,19 @@ def _build_filter(
 
 ### Test strategy
 
-- **Unit** — `tests/unit/listings/application/use_cases/test_search_listings.py` exercises every fail-open branch using stub `LocationExtractor`/`QueryRewriter`/`EmbeddingProvider`/`VectorIndex`.
-- **Unit** — `tests/unit/listings/services/test_search_filter_builder.py` (or fold into the use case test) for the location → filter translation, including hierarchy fallback + structured param merging.
-- **Unit** — golden tests for the rule-based `InMemoryLocationExtractor` covering the top-N PT cities/parishes (Lisboa, Porto, Cascais, Sintra, Almada, …).
-- **Integration** — `tests/integration/listings/test_search_endpoint.py` against the in-memory `VectorIndex` (seeded with 20 listings) hitting the real route handler. Assert score-ordered results, location prefilter behavior, fallback when LLM stub raises.
+- **Unit** — `tests/unit/listings/application/use_cases/test_search_listings.py` covers every fail-open branch with stubs for `QueryUnderstandingService`, `EmbeddingProvider`, `VectorIndex`, and an `InMemoryPropertyListingRepository` for hydrate.
+- **Unit** — same file (or a sibling) covers `_build_filter` translation of `LocationFilter` + `SearchParams` → `VectorFilter`. Bare cases: parish-only, municipality-only, district-only, narrow-further (multiple levels), with-and-without structured params.
+- **Unit** — `tests/unit/listings/domain/test_location_filter.py` pins the at-least-one-level invariant.
+- **Unit** — golden tests for the `IdentityQueryUnderstandingService` (identity returns input unchanged) and the `LangChainQueryUnderstandingService` prompt against ~10 worked PT examples (deterministic when the LLM call is mocked with `langchain.fake.FakeListLLM` or similar).
+- **Unit** — `tests/unit/listings/application/use_cases/test_list_locations.py` against the in-memory repo. Assert hierarchical tree shape, alphabetical ordering at each level, empty-DB returns `{"districts": []}`, TTL cache returns the same response twice without a second repo call.
+- **Integration** — `tests/integration/listings/test_search_endpoint.py` against the in-memory adapters (seeded with ~20 listings), hits the real route handler:
+    - Empty `q` → falls through to the existing structured-filter path.
+    - `q` set without location → 422.
+    - `q` set with location → ranked results, score-ordered, hydrate honors order.
+    - LLM stub raises → search still returns results (fail-open).
+    - Embedder stub raises → relational fallback returns location-correct (but unranked) results.
+    - Vector returns 0 → empty list, 200.
+- **Contract** — read path doesn't add new VectorIndex contract tests; phase 1's `test_inmemory_vector_index.py` already covers `query()`.
 - **Contract** — read path doesn't add new VectorIndex contract tests; phase 1's `test_inmemory_vector_index.py` already covers `query()`.
 
 ## Affected files / surfaces
@@ -348,7 +395,7 @@ def _build_filter(
 - `src/listings/adapters/ai/langchain_query_understanding.py` — LLM adapter with structured-output prompt.
 - `src/listings/adapters/inmemory/inmemory_query_understanding.py` — identity rewriter (returns input unchanged); doubles as production LLM-failure fallback.
 - `src/listings/domain/location_filter.py` — `LocationFilter` value object, enforces at-least-one-level invariant at construction.
-- `src/listings/domain/search_params.py` — `SearchParams` value object wrapping listing_type/typology/price-range query params.
+- `src/listings/domain/search_params.py` — `SearchParams` value object (or extend the existing `PropertyFilters`; decision at implementation).
 - `src/listings/application/use_cases/search_listings.py` — orchestration class.
 - `src/listings/application/use_cases/list_locations.py` — hierarchical tree for the FE selector.
 - `tests/unit/listings/application/use_cases/test_search_listings.py` — covers every fail-open branch.
@@ -357,33 +404,49 @@ def _build_filter(
 - `tests/integration/listings/test_search_endpoint.py` — end-to-end against in-memory adapters; asserts score order, location prefilter, fallbacks, 422 when q without location.
 
 ### Modified
-- `src/listings/adapters/api/routes/listings.py` — add `q`, `parish`, `municipality`, `district` query params; 422 validation when q is set without location; new `GET /api/v1/listings/locations` route.
-- `src/listings/application/ports/listing_repository.py` — add `list_by_ids(ids: list[UUID]) -> list[ListedProperty]` and `list_locations() -> list[LocationTriple]`.
-- `src/listings/adapters/database/listing_repository.py` + `inmemory/inmemory_listing_repository.py` — implement.
-- `src/listings/container.py` — wire `QueryUnderstandingService`, `SearchListings`, `ListLocations`.
-- `src/shared/entrypoints/bootstrap.py` — construct LLM adapter under the gate.
-- `src/shared/config.py` — `LISTINGS_SEARCH_ENABLED`, `SEARCH_LLM_MODEL`, `SEARCH_LLM_TIMEOUT_SECONDS`, `SEARCH_LLM_MAX_OUTPUT_TOKENS`, `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`.
+- `src/listings/adapters/api/routes/listings.py` — add `q`, `parish`, `municipality`, `district` query params; 422 validation when `q` is set without location; new `GET /api/v1/listings/locations` route. Existing `_to_response` reused for both the structured-filter and search paths (same `PropertyListing` → `ListedPropertyResponse` mapping, since the read-model collapse already landed).
+- `src/listings/adapters/api/schemas.py` — add a response schema for `GET /api/v1/listings/locations` (`LocationTreeResponse` or similar; small).
+- `src/listings/application/ports/repositories/property_listing_repository.py` — add `list_by_ids` + `list_locations` methods.
+- `src/listings/adapters/database/property_listing_repository.py` + `inmemory/inmemory_property_listing_repo.py` — implement the two new read methods.
+- `src/listings/application/use_cases/list_properties.py` — no change; the existing structured-filter use case keeps reading from `PropertyListingRepository.list_active`. The route handler picks between `list_properties` and `search_listings` based on `q` presence.
+- `src/listings/container.py` — wire `query_understanding`, `search_listings`, `list_locations`. `embedding_provider` and `vector_index` are already wired (phase 1).
+- `src/shared/entrypoints/bootstrap.py` — construct `LangChainQueryUnderstandingService` under `LISTINGS_SEARCH_ENABLED=true`; otherwise wire the identity adapter.
+- `src/shared/config.py` — `LISTINGS_SEARCH_ENABLED`, `SEARCH_LLM_MODEL`, `SEARCH_LLM_TIMEOUT_SECONDS`, `SEARCH_LLM_MAX_OUTPUT_TOKENS`, `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`, `VECTOR_INDEX_TOP_K_MAX`.
 - `.env.example` — append search-side block.
 - `README.md` § Listings Semantic Search Setup — document the gate + LLM env vars + the new endpoints + required-location semantics.
 - `docs/features/listings.md` — add "Search read path" section + endpoint behavior matrix.
 
 ## Acceptance criteria
 
-- [ ] `GET /api/v1/listings/properties?q=apartamento&parish=Cascais` returns vector-ranked results when `LISTINGS_SEARCH_ENABLED=true`; falls through to structured-filter when `false`.
-- [ ] Empty `q` (or `q` not provided) falls through to the existing endpoint behavior unchanged. Regression tests on the existing list endpoint still pass. **Location is NOT required when `q` is empty** — preserves existing browse behavior.
-- [ ] `q` set with no location params (no parish, no municipality, no district) → **422** with a machine-readable error code. Unit + integration test.
-- [ ] `q` set with any one location level → 200, search runs.
-- [ ] `q` set with multiple location levels → all apply as AND filters in the Pinecone query (e.g. district=Lisboa AND municipality=Cascais both filter; vector search runs only on rows matching both).
-- [ ] `QueryUnderstandingService` rewrites a colloquial PT query into a retrieval-friendly form. Golden test against ~10 worked examples (including the ones in the spec).
-- [ ] LLM rewrite times out / raises → embed the raw query. Unit test stubs the LLM to time out, asserts the embedder receives the raw input.
-- [ ] `EmbeddingProvider` failure → relational fallback (existing structured-filter SQL with the user-supplied location filter applied via SQL). Unit test asserts.
-- [ ] `VectorIndex.query` failure → same relational fallback. Unit test asserts.
-- [ ] DB hydrate preserves vector-index score ordering (top match first). Integration test.
-- [ ] Top-k bound respected (response length ≤ `VECTOR_INDEX_TOP_K`).
-- [ ] `LocationFilter` raises a domain error when constructed with all three levels None. Unit test.
-- [ ] `GET /api/v1/listings/locations` returns the hierarchical tree from populated rows; districts/municipalities/parishes with zero published listings are excluded. Integration test seeds rows + asserts response shape.
-- [ ] `/locations` response is cached with TTL `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`; second request inside the window doesn't re-hit the DB. Unit test with a fake clock.
-- [ ] Latency: `SearchListings.execute` against in-memory adapters with stub LLM (no real network) < 50ms p99. Production budgets in ADR §8 are enforced via timeout configs, not test assertions.
+Each criterion phrases an **externally observable** behavior — passing it means the user-facing behavior is correct, not just that an internal function got called.
+
+### Endpoint contract
+- [ ] `GET /api/v1/listings/properties?q=apartamento&parish=Cascais` → 200 with vector-ranked results when `LISTINGS_SEARCH_ENABLED=true`; falls through to the structured-filter list (no ranking) when `false`.
+- [ ] Empty `q` (or `q` not provided) → existing endpoint behavior unchanged. Regression tests on the existing list endpoint still pass. **Location is NOT required when `q` is empty** — browse without location works.
+- [ ] `q` set with no location params → **422** with a machine-readable error code (`location_required_for_search` or similar). Unit + integration test.
+- [ ] `q` set with any one location level → 200, search runs, results are filtered to that level.
+- [ ] `q` set with multiple location levels → all apply as AND filters in the vector query.
+- [ ] DB hydrate response preserves vector-index score ordering (top match first). Integration test asserts row order.
+- [ ] `limit`/`offset` apply over the ranked list. `limit=2&offset=0` → 2 rows, top-2 by score. `limit=2&offset=2` → next 2 rows.
+- [ ] Top-k bound respected: response length ≤ min(`VECTOR_INDEX_TOP_K_MAX`, `limit + offset`).
+- [ ] `total` in the response equals the count of ranked candidates returned by Pinecone (capped by `top_k`), with a documentation note about the limitation.
+
+### Fail-open behavior (assert externally observable)
+- [ ] LLM rewrite times out / raises → search **still returns 200 with results**, ranked. Unit test stubs the LLM to raise; the response is non-empty.
+- [ ] `EmbeddingProvider` raises → search **returns 200 with location-correct unranked results** (relational fallback). Unit test stubs the embedder; response items all match the user-supplied location filter.
+- [ ] `VectorIndex.query` raises → same observable behavior as above.
+- [ ] Vector returns 0 matches → 200 with empty `items`, `total=0`. (Not 404, not 500.)
+
+### Domain invariants
+- [ ] `LocationFilter(parish=None, municipality=None, district=None)` raises a domain error at construction.
+- [ ] `QueryUnderstandingService` rewrites a colloquial PT query into a retrieval-friendly form. Golden test against ~10 worked examples (the ones in the spec).
+
+### `/locations` endpoint
+- [ ] `GET /api/v1/listings/locations` returns the hierarchical tree from populated rows. Districts/municipalities/parishes with zero published listings are excluded.
+- [ ] Empty DB: returns `{"districts": []}` (200, not 500).
+- [ ] Cached with TTL `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`. Second request inside the window doesn't re-hit the DB. Unit test with a fake clock.
+
+### Hygiene
 - [ ] `ruff check` clean, full unit suite green.
 - [ ] README + `docs/features/listings.md` updated with the two endpoints + the required-location semantics.
 
@@ -391,9 +454,16 @@ def _build_filter(
 
 - **LLM model choice.** ADR §7 placeholders `SEARCH_LLM_MODEL=gpt-...`. `gpt-4o-mini` is the cheap default; `gpt-5-mini` (when available) might be better for PT query understanding. Decision deferred to implementation; pin in `.env.example` with a comment about cost.
 - **Score field on response.** Do we expose `_score` on each result for the frontend to render relevance? Default no — keeps the response shape symmetric with the existing endpoint. Easy to add later.
-- **Pagination over vector results.** Current scope: top-k bounded. If queries routinely return >50 useful matches, we'd need cursor pagination over the score-ordered list. Out of scope; revisit.
 - **`/locations` shape — flat vs hierarchical.** The spec proposes hierarchical (district → municipality → parish). If the FE wants a flat searchable selector instead, we can return `[{district, municipality, parish}, ...]` triples. Both shapes derive from the same underlying SELECT DISTINCT; pick at implementation based on FE preference.
-- **Required-location scope.** Currently: required only when `q` is set. If you want it required ALWAYS (browse-without-location is forbidden), that's a behavior change to the existing structured-filter endpoint and a one-line edit in the validator. Flagged for confirmation.
+
+### Resolved (decisions captured for the record)
+
+- **~~Required-location scope~~** → required only when `q` is set; empty `q` preserves the existing browse-without-location behavior.
+- **~~Pagination over vector results~~** → `limit`/`offset` apply over the ranked list. `top_k = min(VECTOR_INDEX_TOP_K_MAX, limit + offset)`. Sufficient for the first page; cursor pagination over deep pages punted to a follow-up if usage warrants it.
+- **~~Which repo / which read-model~~** → resolved before this spec started; single `PropertyListingRepository` over the `property_listings` projection.
+- **~~`district` query-param semantic conflict~~** → resolved with the read-model collapse; the column is exact-match. The legacy ILIKE-on-address behavior is gone.
+- **~~`_relational_fallback` definition~~** → calls `PropertyListingRepository.list_active(filters)` with the user's location + structured filters as exact-match column predicates. Unranked but location-correct.
+- **~~`EmbeddingError`/`VectorIndexError` types~~** → punted; v1 catches `Exception` broadly with a structured-log line. Typed wrappers are a v2 concern once we have observability data on which adapter failures need different handling.
 
 ## Out of scope follow-ups
 
@@ -413,7 +483,7 @@ Conventional commits, scope = `listings`:
 
 - `feat(listings): LocationFilter + SearchParams value objects with at-least-one-location invariant`
 - `feat(listings): QueryUnderstandingService port + identity adapter + LLM adapter`
-- `feat(listings): list_by_ids + list_locations on ListingRepository + adapters`
+- `feat(listings): list_by_ids + list_locations on PropertyListingRepository + adapters`
 - `feat(listings): SearchListings use case with fail-open fallbacks`
 - `feat(listings): ListLocations use case with TTL cache`
 - `feat(listings): GET /api/v1/listings/properties q+location params + 422 validation`
