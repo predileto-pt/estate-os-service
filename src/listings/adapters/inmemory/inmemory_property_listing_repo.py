@@ -16,7 +16,9 @@ from listings.application.ports.address_searcher import ParsedAddress
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
+from listings.domain.location_filter import LocationFilter
 from listings.domain.models import ListingType, PropertyStatus, Typology
+from listings.domain.parsed_query import ParsedQuery
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import (
     ListingImage,
@@ -97,6 +99,97 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             for row in self._rows.values()
             if row.id in wanted and row.status == PropertyStatus.ACTIVE
         ]
+
+    async def list_ids_for_search(
+        self,
+        *,
+        location: LocationFilter,
+        route_filters: PropertyFilters,
+        parsed: ParsedQuery,
+        limit: int,
+    ) -> list[UUID]:
+        """Python-side mirror of the SQL pre-filter. Same semantics —
+        status='active' + location + route-param hard filters +
+        ParsedQuery soft-hard (NULL admitted) — applied via predicates
+        in a list comprehension."""
+        # Conflict resolution: route-param wins WHEN SET; parsed
+        # applies when route is None.
+        eff_typology = (
+            route_filters.typology if route_filters.typology is not None else parsed.typology
+        )
+        eff_min_price = (
+            route_filters.min_price
+            if route_filters.min_price is not None
+            else parsed.min_price
+        )
+        eff_max_price = (
+            route_filters.max_price
+            if route_filters.max_price is not None
+            else parsed.max_price
+        )
+
+        def _matches(row: PropertyListing) -> bool:
+            if row.status != PropertyStatus.ACTIVE:
+                return False
+            if location.parish and row.parish != location.parish:
+                return False
+            if location.municipality and row.municipality != location.municipality:
+                return False
+            if location.district and row.district != location.district:
+                return False
+
+            if eff_typology is not None and row.typology != eff_typology:
+                return False
+            if (
+                route_filters.listing_type is not None
+                and row.listing_type != route_filters.listing_type
+            ):
+                return False
+
+            if eff_min_price is not None:
+                if row.min_price is not None and row.min_price < eff_min_price:
+                    return False
+            if eff_max_price is not None:
+                if row.min_price is not None and row.min_price > eff_max_price:
+                    return False
+
+            # ParsedQuery soft-hard filters — NULL admitted (the
+            # column being None doesn't fail; the column being set
+            # and failing the criterion does).
+            if parsed.min_bedrooms is not None:
+                if row.num_of_bedrooms is not None and row.num_of_bedrooms < parsed.min_bedrooms:
+                    return False
+            if parsed.min_bathrooms is not None:
+                if row.num_of_bathrooms is not None and row.num_of_bathrooms < parsed.min_bathrooms:
+                    return False
+            if parsed.min_area_m2 is not None:
+                if row.area_in_m2 is not None and row.area_in_m2 < parsed.min_area_m2:
+                    return False
+            if parsed.max_area_m2 is not None:
+                if row.area_in_m2 is not None and row.area_in_m2 > parsed.max_area_m2:
+                    return False
+            if parsed.has_pool is True:
+                if row.has_pool is not None and row.has_pool is not True:
+                    return False
+            if parsed.has_garden is True:
+                if row.has_garden is not None and row.has_garden is not True:
+                    return False
+            if parsed.has_elevator is True:
+                if row.has_elevator is not None and row.has_elevator is not True:
+                    return False
+            if parsed.has_parking is True:
+                # has_parking derives from parking_spaces > 0; NULL admitted.
+                if row.parking_spaces is not None and row.parking_spaces <= 0:
+                    return False
+            return True
+
+        ids: list[UUID] = []
+        for row in self._rows.values():
+            if _matches(row):
+                ids.append(row.id)
+                if len(ids) >= limit:
+                    break
+        return ids
 
     # NOTE: `list_locations` was removed 2026-05-11 — /locations now
     # reads from a static JSON catalog. See port docstring.

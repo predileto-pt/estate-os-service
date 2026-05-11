@@ -30,6 +30,8 @@ from datetime import datetime
 from uuid import UUID
 
 from listings.application.ports.address_searcher import ParsedAddress
+from listings.domain.location_filter import LocationFilter
+from listings.domain.parsed_query import ParsedQuery
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import PropertyListing
 
@@ -80,6 +82,41 @@ class PropertyListingRepository(ABC):
         leak into the public response.
 
         Empty `ids` returns an empty list (no SQL round-trip).
+        """
+
+    @abstractmethod
+    async def list_ids_for_search(
+        self,
+        *,
+        location: LocationFilter,
+        route_filters: PropertyFilters,
+        parsed: ParsedQuery,
+        limit: int,
+    ) -> list[UUID]:
+        """Pre-filter candidate listing IDs for the search read path.
+
+        Applies `status='active'` + location + route-param hard
+        filters + `ParsedQuery` soft-hard filters (each as
+        `col IS NULL OR col <op> value` — NULL-data rows are
+        admitted, then app-side `_partition_and_rank` pushes them
+        to the bottom of the result page). Returns up to `limit`
+        matching IDs.
+
+        **Saturation contract**: a result with `len == limit` is
+        the caller's signal that the SQL filter was too broad to
+        push down to the vector index. The caller's cardinality
+        guard reads this as "fall back to a broad-mode Pinecone
+        query + post-intersect" rather than passing the (large) ID
+        list as a Pinecone filter argument.
+
+        **Conflict resolution** between `route_filters` (FE form)
+        and `parsed` (LLM-extracted) for the same field:
+        route_filters win when set (`is not None`, not truthy —
+        Decimal('0') and int(0) round-trip explicitly), parsed
+        applies when the route param is None.
+
+        Order is unspecified — the caller re-ranks by vector
+        score and partition (matched vs partial-data).
         """
 
     # NOTE: `list_locations` (DISTINCT parish/municipality/district

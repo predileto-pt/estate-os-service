@@ -24,7 +24,7 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from listings.adapters.database.property_listing_model import PropertyListingModel
@@ -32,7 +32,9 @@ from listings.application.ports.address_searcher import ParsedAddress
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
+from listings.domain.location_filter import LocationFilter
 from listings.domain.models import ListingType, PropertyStatus, Typology
+from listings.domain.parsed_query import ParsedQuery
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import (
     ListingImage,
@@ -219,6 +221,135 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             )
             result = await session.execute(query)
             return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def list_ids_for_search(
+        self,
+        *,
+        location: LocationFilter,
+        route_filters,  # PropertyFilters; forward-declared to avoid circular import noise
+        parsed: ParsedQuery,
+        limit: int,
+    ) -> list[UUID]:
+        """SQL pre-filter for ADR-014 hybrid retrieval. See port
+        docstring for full semantics (saturation contract, conflict
+        resolution, NULL admission)."""
+        async with self._session_factory() as session:
+            q = select(PropertyListingModel.id).where(
+                PropertyListingModel.status == PropertyStatus.ACTIVE,
+            )
+            # Always-applied location filters (LocationFilter has the
+            # at-least-one-level invariant; no need to guard against
+            # the all-None case here).
+            if location.parish:
+                q = q.where(PropertyListingModel.parish == location.parish)
+            if location.municipality:
+                q = q.where(PropertyListingModel.municipality == location.municipality)
+            if location.district:
+                q = q.where(PropertyListingModel.district == location.district)
+
+            # Route-param HARD filters (FE form) — conflict resolution:
+            # route wins WHEN SET. `is not None` to avoid falsy-trap on
+            # Decimal('0') / int(0).
+            eff_typology = (
+                route_filters.typology
+                if route_filters.typology is not None
+                else parsed.typology
+            )
+            if eff_typology is not None:
+                q = q.where(PropertyListingModel.typology == eff_typology.value)
+            if route_filters.listing_type is not None:
+                q = q.where(
+                    PropertyListingModel.listing_type == route_filters.listing_type.value
+                )
+
+            eff_min_price = (
+                route_filters.min_price
+                if route_filters.min_price is not None
+                else parsed.min_price
+            )
+            eff_max_price = (
+                route_filters.max_price
+                if route_filters.max_price is not None
+                else parsed.max_price
+            )
+            if eff_min_price is not None:
+                q = q.where(
+                    or_(
+                        PropertyListingModel.min_price.is_(None),
+                        PropertyListingModel.min_price >= eff_min_price,
+                    )
+                )
+            if eff_max_price is not None:
+                q = q.where(
+                    or_(
+                        PropertyListingModel.min_price.is_(None),
+                        PropertyListingModel.min_price <= eff_max_price,
+                    )
+                )
+
+            # ParsedQuery-only soft-hard filters (NULL admitted).
+            if parsed.min_bedrooms is not None:
+                q = q.where(
+                    or_(
+                        PropertyListingModel.num_of_bedrooms.is_(None),
+                        PropertyListingModel.num_of_bedrooms >= parsed.min_bedrooms,
+                    )
+                )
+            if parsed.min_bathrooms is not None:
+                q = q.where(
+                    or_(
+                        PropertyListingModel.num_of_bathrooms.is_(None),
+                        PropertyListingModel.num_of_bathrooms >= parsed.min_bathrooms,
+                    )
+                )
+            if parsed.min_area_m2 is not None:
+                q = q.where(
+                    or_(
+                        PropertyListingModel.area_in_m2.is_(None),
+                        PropertyListingModel.area_in_m2 >= parsed.min_area_m2,
+                    )
+                )
+            if parsed.max_area_m2 is not None:
+                q = q.where(
+                    or_(
+                        PropertyListingModel.area_in_m2.is_(None),
+                        PropertyListingModel.area_in_m2 <= parsed.max_area_m2,
+                    )
+                )
+            if parsed.has_pool is True:
+                q = q.where(
+                    or_(
+                        PropertyListingModel.has_pool.is_(None),
+                        PropertyListingModel.has_pool.is_(True),
+                    )
+                )
+            if parsed.has_garden is True:
+                q = q.where(
+                    or_(
+                        PropertyListingModel.has_garden.is_(None),
+                        PropertyListingModel.has_garden.is_(True),
+                    )
+                )
+            if parsed.has_elevator is True:
+                q = q.where(
+                    or_(
+                        PropertyListingModel.has_elevator.is_(None),
+                        PropertyListingModel.has_elevator.is_(True),
+                    )
+                )
+            if parsed.has_parking is True:
+                # has_parking derives from parking_spaces > 0; NULL
+                # column is still admitted as "unknown".
+                q = q.where(
+                    or_(
+                        PropertyListingModel.parking_spaces.is_(None),
+                        PropertyListingModel.parking_spaces > 0,
+                    )
+                )
+
+            q = q.limit(limit)
+            result = await session.execute(q)
+            return [UUID(row[0]) for row in result.all()]
 
     # NOTE: `list_locations` was removed 2026-05-11 — /locations
     # now reads from a static JSON catalog. See port docstring.
