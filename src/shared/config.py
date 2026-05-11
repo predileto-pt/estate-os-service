@@ -158,6 +158,30 @@ class Settings(BaseSettings):
     # Database (direct PostgreSQL for Alembic migrations)
     database_url: str = ""
 
+    # Portal Supabase project (portal users + portal sessions live here —
+    # distinct project from admin Supabase). See ADR + spec
+    # `2026-05-portal-session-backend` §2.
+    supabase_portal_url: str = ""
+    supabase_portal_jwt_secret: str = ""
+    supabase_portal_audience: str = "authenticated"
+
+    # Portal Postgres (portal Supabase project's DB). Holds `sessions` and,
+    # in a follow-up spec, portal `users`. Independent from `database_url`.
+    portal_database_url: str = ""
+
+    # Portal session backend (spec `2026-05-portal-session-backend`).
+    session_cookie_domain: str = ""  # empty → host-only (local dev)
+    session_cookie_secure: bool = True
+    session_cookie_max_age_seconds: int = 31_536_000  # 1 year
+    session_last_seen_debounce_seconds: int = 60
+    session_anonymous_ttl_days: int = 90
+    session_prefs_max_bytes: int = 8192
+    session_favorites_max: int = 500
+    # Comma-separated `version:base64url_key` pairs (versions are plain ints).
+    # Example: `1:abc...,2:def...`. Empty in tests; tests inject keys directly.
+    session_signing_keys: str = ""
+    session_signing_active_key: int = 0  # 0 = unset; production sets via env
+
     # CORS
     cors_origins: str = "http://localhost:3000,http://localhost:3001"
 

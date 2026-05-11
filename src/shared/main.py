@@ -51,6 +51,10 @@ from contract_intelligence.adapters.api.routes import (
     source_documents,
     template_versions,
 )
+from sessions.adapters.api.exception_handlers import (
+    register_exception_handlers as _register_session_handlers,
+)
+from sessions.adapters.api.routes import session as session_routes
 
 
 def create_app(
@@ -63,6 +67,7 @@ def create_app(
     booking_container=None,
     contract_intelligence_container=None,
     jobs_container=None,
+    sessions_container=None,
 ) -> FastAPI:
     setup_logging(settings.log_level)
 
@@ -79,6 +84,7 @@ def create_app(
                 get_listing_container,
                 get_property_container,
                 get_screening_container,
+                get_sessions_container,
             )
 
             app.state.identity_container = await get_identity_container()
@@ -98,6 +104,16 @@ def create_app(
             app.state.listing_container = listing_cont
             app.state.booking_container = await get_booking_container()
             app.state.contract_intelligence_container = await get_contract_intelligence_container()
+            # Portal sessions: portal Supabase + portal DB. Tolerant of missing
+            # env in dev — the route handlers will 500 cleanly if invoked without
+            # the container, but the rest of the app still boots.
+            try:
+                app.state.sessions_container = await get_sessions_container()
+            except Exception as e:  # noqa: BLE001
+                import structlog as _sl
+
+                _sl.get_logger().warning("sessions_container_unavailable", error=str(e))
+                app.state.sessions_container = None
             # Expose document storage for image presigned URLs in listing context
             app.state._listing_document_storage = getattr(
                 app.state.property_container, "document_storage", None
@@ -174,6 +190,9 @@ def create_app(
     # on request. Effective request order: RequestLogging → CORS →
     # JWTAuth → IdentityMiddleware → route. CORS is outermost because
     # pre-flight OPTIONS bypasses everything inner.
+    # Register sessions-domain exception handlers (domain exceptions → HTTP).
+    _register_session_handlers(app)
+
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(IdentityMiddleware)
     app.add_middleware(JWTAuthMiddleware)
@@ -187,6 +206,10 @@ def create_app(
 
     # Health (no prefix change)
     app.include_router(health.router, prefix="/api/v1")
+
+    # Portal session backend (spec 2026-05-portal-session-backend).
+    # Cookie-authed; whitelisted in PUBLIC_PREFIXES so JWT + Identity middleware skip it.
+    app.include_router(session_routes.router, prefix="/api/v1")
 
     # Auth — split across identity (portal register, /me, /profile) and
     # organizations (admin register — compound RegisterAdminAccount).
@@ -262,6 +285,8 @@ def create_app(
         app.state.contract_intelligence_container = contract_intelligence_container
     if jobs_container:
         app.state.jobs_container = jobs_container
+    if sessions_container:
+        app.state.sessions_container = sessions_container
 
     return app
 

@@ -70,35 +70,55 @@ Edit `.env` with your values:
 
 ### 3. Run database migrations
 
+This repo manages **two databases** with two parallel Alembic configurations
+(see [`docs/adr/`](docs/adr/) and spec
+`.claude/specs/active/2026-05-portal-session-backend.md`):
+
+| DB | URL env var | Wrapper script | Owns tables |
+|---|---|---|---|
+| **Admin DB** | `DATABASE_URL` | `scripts/migrate_admin.sh` | identity, organizations, billing, properties, screening, bookings, contract_intelligence, listings |
+| **Portal DB** | `PORTAL_DATABASE_URL` | `scripts/migrate_portal.sh` | `sessions` (and, in a follow-up spec, portal `users`) |
+
+The wrappers pin each invocation to its correct Alembic config + env var,
+fail fast on missing env, and print the target host (password redacted)
+to stderr. Raw `alembic` calls still work but are debug-only.
+
 ```bash
-uv run alembic upgrade head
+# Admin DB
+bash scripts/migrate_admin.sh upgrade head
+bash scripts/migrate_admin.sh revision --autogenerate -m "description"
+bash scripts/migrate_admin.sh current
+bash scripts/migrate_admin.sh downgrade -1
+bash scripts/migrate_admin.sh stamp head
+
+# Portal DB
+bash scripts/migrate_portal.sh upgrade head
+bash scripts/migrate_portal.sh revision --autogenerate -m "description"
+bash scripts/migrate_portal.sh current
+bash scripts/migrate_portal.sh downgrade -1
+bash scripts/migrate_portal.sh stamp head
 ```
 
-Other useful Alembic commands:
+Admin-DB schema is defined across bounded contexts:
+`src/identity/adapters/database/models.py`,
+`src/organizations/adapters/database/models.py`,
+`src/billing/adapters/database/models.py`,
+`src/properties/adapters/database/models.py`,
+`src/screening/adapters/database/models.py`,
+`src/bookings/adapters/database/models.py`,
+`src/contract_intelligence/adapters/database/models.py`,
+`src/listings/adapters/database/models.py`.
+
+Portal-DB schema lives in `src/sessions/adapters/database/models.py` and
+registers against a separate `Base` (`src/sessions/adapters/database/base.py`)
+so autogenerate on either side cannot cross-contaminate the other DB.
+
+**Adopting on an existing database:** if the DB already has the schema
+(e.g. production), stamp it as current without executing any DDL:
 
 ```bash
-# Check current migration status
-uv run alembic current
-
-# View migration history
-uv run alembic history
-
-# Create a new migration after editing SQLAlchemy models
-uv run alembic revision --autogenerate -m "description"
-
-# Rollback one migration
-uv run alembic downgrade -1
-
-# Stamp an existing database as up-to-date (no DDL)
-uv run alembic stamp head
-```
-
-Schema is defined in SQLAlchemy models across bounded contexts: `src/identity/adapters/database/models.py`, `src/organizations/adapters/database/models.py`, `src/billing/adapters/database/models.py`, `src/properties/adapters/database/models.py`, `src/screening/adapters/database/models.py`, `src/bookings/adapters/database/models.py`, `src/contract_intelligence/adapters/database/models.py`, and `src/listings/adapters/database/models.py`.
-
-**Adopting on an existing database:** If the database already has the schema (e.g. production), stamp it as current without executing any DDL:
-
-```bash
-DATABASE_URL=postgresql+asyncpg://... uv run alembic stamp head
+DATABASE_URL=postgresql+asyncpg://... bash scripts/migrate_admin.sh stamp head
+PORTAL_DATABASE_URL=postgresql+asyncpg://... bash scripts/migrate_portal.sh stamp head
 ```
 
 ### 4. Start LocalStack (for SQS/S3)
@@ -278,6 +298,33 @@ Query parameters for listing: `listing_type`, `typology`, `min_price`, `max_pric
 | `POST` | `/bookings` | Create a booking (requires booking invitation token) |
 | `GET` | `/bookings/status` | List applicant's bookings |
 
+### Portal Sessions (Public — `/api/v1/session`)
+
+Cookie-authed visitor sessions for the portal. The cookie (`predileto_session`)
+is HTTP-only, HMAC-signed with versioned keys, `SameSite=Lax`, backed by the
+**portal** Supabase project's Postgres (distinct from the admin DB). See spec
+`.claude/specs/active/2026-05-portal-session-backend.md`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/init` | Mint a new anonymous session (or refresh an existing valid cookie). |
+| `GET` | `/me` | Return the public `SessionView` (kind, capabilities, favorites, prefs). |
+| `PATCH` | `/me` | Apply slice writes — `favorites.add/remove` and `prefs.merge`. |
+| `POST` | `/claim` | Bind the session to a portal user (header: `Authorization: Bearer <portal-Supabase JWT>`). Cookie is not rotated. |
+| `POST` | `/logout` | Flip back to anonymous; clears favorites + prefs (idempotent). |
+
+Capability model: anonymous → `{SAVE_FAVORITE, VIEW_HISTORY, SET_PREFERENCES}`; authenticated adds `{COMMENT, CONTACT_AGENT, SAVE_PROPERTY}`.
+
+**JWT verification.** `POST /claim` validates the portal Supabase JWT via the shared decoder (`shared.auth.supabase.decode_supabase_token`). The default path is **ES256 via JWKS**: the decoder fetches the public key from `{SUPABASE_PORTAL_URL}/auth/v1/.well-known/jwks.json` and verifies asymmetrically. Modern Supabase projects (created 2024+) sign with ES256, so **`SUPABASE_PORTAL_URL` is the only env var you need** for token verification.
+
+If you're on a legacy HS256-signing project, also set `SUPABASE_PORTAL_JWT_SECRET=<secret>` (from **Project Settings → API → JWT Secret** in the Supabase dashboard); the decoder falls back to HS256 with that key when ES256 verification can't be completed. It is not part of the documented `.env.example` since new projects don't need it.
+
+Maintenance — prune stale anonymous sessions (run daily via external cron):
+
+```bash
+uv run python -m sessions.entrypoints.prune_stale_anonymous
+```
+
 ## Architecture
 
 ```
@@ -303,19 +350,22 @@ Identity follows the same hexagonal structure — a smaller tree, owning just `U
 
 ### Bounded Contexts
 
-The service hosts seven independent bounded contexts, each following hexagonal architecture:
+The service hosts eight independent bounded contexts, each following hexagonal architecture:
 
 | Context | Package | Entities | Persistence |
 |---------|---------|----------|-------------|
-| **Identity** | `src/identity/` | `User` (Supabase-backed; no organization FK — tenancy is in memberships) | Supabase PostgREST + SQLAlchemy |
-| **Organizations** | `src/organizations/` | `Organization`, `Membership`, `Invitation`, `Subscription`, `Notification` | Supabase PostgREST + SQLAlchemy |
-| **Property Management** | `src/properties/` | Property, PropertyOwner, PropertyImage, PropertyAmenity, ExtractionJob, DocumentContent | Supabase PostgREST |
-| **Applicant Screening** | `src/screening/` | Applicant, Document, ExtractedData, ScreeningReport, Submission, IntakeFormRequest | SQLAlchemy + Alembic |
-| **Properties Listing** | `src/listings/` | ListedProperty (read-only view of properties data) | SQLAlchemy (read-only) |
-| **Booking Management** | `src/bookings/` | Slot, Booking, BookingApplicant | SQLAlchemy + Alembic |
-| **Contract Intelligence** | `src/contract_intelligence/` | SourceDocument, TemplateVersion, GeneratedContract | SQLAlchemy + Alembic |
+| **Identity** | `src/identity/` | `User` (Supabase-backed; no organization FK — tenancy is in memberships) | Admin DB · Supabase PostgREST + SQLAlchemy |
+| **Organizations** | `src/organizations/` | `Organization`, `Membership`, `Invitation`, `Subscription`, `Notification` | Admin DB · Supabase PostgREST + SQLAlchemy |
+| **Property Management** | `src/properties/` | Property, PropertyOwner, PropertyImage, PropertyAmenity, ExtractionJob, DocumentContent | Admin DB · Supabase PostgREST |
+| **Applicant Screening** | `src/screening/` | Applicant, Document, ExtractedData, ScreeningReport, Submission, IntakeFormRequest | Admin DB · SQLAlchemy + Alembic |
+| **Properties Listing** | `src/listings/` | ListedProperty (read-only view of properties data) | Admin DB · SQLAlchemy (read-only) |
+| **Booking Management** | `src/bookings/` | Slot, Booking, BookingApplicant | Admin DB · SQLAlchemy + Alembic |
+| **Contract Intelligence** | `src/contract_intelligence/` | SourceDocument, TemplateVersion, GeneratedContract | Admin DB · SQLAlchemy + Alembic |
+| **Sessions** | `src/sessions/` | `Session` (portal visitor session — cookie-authed, anonymous or claimed to a portal user) | **Portal DB** · SQLAlchemy + Alembic (`alembic-portal/`) |
 
-Cross-context dependency rule: **organizations depends on identity** via two callable Protocols (`UserLookupById`, `RegisterUserPort`) injected at construction. No other cross-context dependencies — everything else is loose coupling through the shared event bus (ADR-008).
+Cross-context dependency rule: **organizations depends on identity** via two callable Protocols (`UserLookupById`, `RegisterUserPort`) injected at construction. **Sessions** depends on a `ValidatePortalAuthToken` Protocol implemented by an adapter that decodes portal-Supabase JWTs via the shared `shared.auth.supabase.decode_supabase_token` helper. No other cross-context dependencies — everything else is loose coupling through the shared event bus (ADR-008).
+
+**Dual Supabase + dual database.** Admin/agency users authenticate against the admin Supabase project (verified by `JWTAuthMiddleware`) and write to the admin DB. Portal visitors authenticate against a separate portal Supabase project (verified per-request by `SupabasePortalTokenValidator`); their sessions live in the portal DB. The two databases share nothing — no cross-DB FKs, no shared SQLAlchemy `MetaData`, separate Alembic configs (`alembic/` and `alembic-portal/`). See spec `.claude/specs/active/2026-05-portal-session-backend.md`.
 
 All are wired in `shared/main.py` via `create_app()` and bootstrapped in `shared/entrypoints/bootstrap.py`. `IdentityMiddleware` populates `request.state.{user, memberships}` from identity + organizations on every authenticated request; admin routes enforce membership via `require_org_member` with zero additional DB hits.
 

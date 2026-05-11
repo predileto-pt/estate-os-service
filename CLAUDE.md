@@ -24,12 +24,18 @@ uv run pytest -k "test_name" -v
 uv run ruff check .
 uv run ruff format .
 
-# Database migrations (Alembic)
-uv run alembic upgrade head           # apply all migrations
-uv run alembic revision --autogenerate -m "description"  # generate from model diff
-uv run alembic current                # check current revision
-uv run alembic downgrade -1           # rollback one migration
-uv run alembic stamp head             # mark DB as up-to-date without DDL
+# Database migrations — wrapper scripts pin each invocation to the right
+# config + env var. Raw `alembic ...` works but is debug-only; the wrappers
+# fail fast on missing env (DATABASE_URL / PORTAL_DATABASE_URL).
+bash scripts/migrate_admin.sh upgrade head            # admin DB
+bash scripts/migrate_admin.sh revision --autogenerate -m "desc"
+bash scripts/migrate_portal.sh upgrade head           # portal DB (sessions, etc.)
+bash scripts/migrate_portal.sh revision --autogenerate -m "desc"
+bash scripts/migrate_portal.sh downgrade -1
+bash scripts/migrate_portal.sh current
+
+# Prune stale anonymous portal sessions (run daily via external scheduler)
+uv run python -m sessions.entrypoints.prune_stale_anonymous
 
 # Start LocalStack (SQS/S3)
 docker compose up -d
@@ -57,6 +63,7 @@ Hexagonal (ports & adapters) architecture with three layers:
 | **Bookings** | `src/bookings/` | `app.state.booking_container` | Slot + booking management. |
 | **Contract Intelligence** | `src/contract_intelligence/` | `app.state.contract_intelligence_container` | |
 | **Listings** | `src/listings/` | `app.state.listing_container` | Public-facing property listings. Owns the `property_listings` projection (carried-state from `PROPERTY_*.v1` events) and the semantic-search indexing pipeline (Pinecone v1, gated by `LISTINGS_EMBEDDING_ENABLED`). |
+| **Sessions** | `src/sessions/` | `app.state.sessions_container` | Portal visitor sessions (anonymous + claimable). Cookie-authed (`predileto_session`, HMAC-signed, versioned keys). Backed by the **portal** Supabase project + portal DB — distinct from the admin DB. JWT decode for claim uses the portal Supabase secret/JWKS via `SupabasePortalTokenValidator`. Migrations live under `alembic-portal/`. |
 
 Cross-context dependency rules:
 

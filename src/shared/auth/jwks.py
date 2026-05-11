@@ -1,3 +1,10 @@
+"""Supabase JWKS fetcher with per-URL cache.
+
+The cache **must be keyed by `supabase_url`** so admin and portal Supabase
+projects don't fight over a single global cached key — see spec
+`2026-05-portal-session-backend` §2.
+"""
+
 import httpx
 import structlog
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -5,18 +12,18 @@ from jwt.algorithms import ECAlgorithm
 
 log = structlog.get_logger()
 
-_cached_public_key: str | None = None
+_cached_public_keys: dict[str, str] = {}
 
 
 async def fetch_jwks_public_key(supabase_url: str) -> str | None:
-    """Fetch the ES256 public key from Supabase's JWKS endpoint.
+    """Fetch the ES256 public key from a given Supabase project's JWKS endpoint.
 
-    Returns the PEM-encoded public key, or None if fetching fails.
-    The result is cached after the first successful fetch.
+    Returns the PEM-encoded public key, or None if fetching fails. Cache is
+    keyed by `supabase_url` so multiple projects (admin + portal) coexist.
     """
-    global _cached_public_key
-    if _cached_public_key is not None:
-        return _cached_public_key
+    cached = _cached_public_keys.get(supabase_url)
+    if cached is not None:
+        return cached
 
     jwks_url = f"{supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
     try:
@@ -32,9 +39,9 @@ async def fetch_jwks_public_key(supabase_url: str) -> str | None:
                     encoding=Encoding.PEM,
                     format=PublicFormat.SubjectPublicKeyInfo,
                 ).decode("utf-8")
-                _cached_public_key = pem
+                _cached_public_keys[supabase_url] = pem
                 log.info("jwks_public_key_fetched", url=jwks_url)
-                return _cached_public_key
+                return pem
 
         log.warning("jwks_no_signing_key_found", url=jwks_url)
     except Exception as e:
@@ -44,6 +51,5 @@ async def fetch_jwks_public_key(supabase_url: str) -> str | None:
 
 
 def clear_cache() -> None:
-    """Clear the cached public key (useful for testing)."""
-    global _cached_public_key
-    _cached_public_key = None
+    """Clear all cached public keys (useful for testing)."""
+    _cached_public_keys.clear()

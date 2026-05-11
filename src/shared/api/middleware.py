@@ -3,7 +3,7 @@ import structlog
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from shared.auth.jwks import fetch_jwks_public_key
+from shared.auth.supabase import decode_supabase_token
 from shared.config import settings
 
 log = structlog.get_logger()
@@ -22,7 +22,13 @@ PUBLIC_PATHS = {
 # where individual path params (IDs, slugs) make exact-matching infeasible.
 # Stripe webhook uses the signature header for auth, not a JWT — the route
 # handler calls `BillingGateway.verify_webhook` to validate the payload.
-PUBLIC_PREFIXES = ("/api/v1/listings/", "/api/v1/billing/webhooks/")
+PUBLIC_PREFIXES = (
+    "/api/v1/listings/",
+    "/api/v1/billing/webhooks/",
+    # Portal sessions are cookie-authed; bypass JWTAuthMiddleware + IdentityMiddleware.
+    # Spec: 2026-05-portal-session-backend §9.
+    "/api/v1/session/",
+)
 
 # Registration paths bypass the `IdentityMiddleware` User-exists + membership
 # checks (Q6 = 6.a). JWT is still verified by `JWTAuthMiddleware`; the route
@@ -35,22 +41,12 @@ REGISTRATION_PATHS = {
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
     async def _decode_token(self, token: str) -> dict:
-        """Decode JWT, trying ES256 via JWKS first, then HS256 fallback."""
-        # Try ES256 with JWKS public key
-        if settings.supabase_url:
-            public_key = await fetch_jwks_public_key(settings.supabase_url)
-            if public_key:
-                try:
-                    return jwt.decode(
-                        token, public_key, algorithms=["ES256"], audience="authenticated"
-                    )
-                except jwt.InvalidTokenError:
-                    if not settings.supabase_jwt_secret:
-                        raise
-
-        # Fallback to HS256 with shared secret
-        return jwt.decode(
-            token, settings.supabase_jwt_secret, algorithms=["HS256"], audience="authenticated"
+        """Decode an admin Supabase JWT — delegates to the shared helper."""
+        return await decode_supabase_token(
+            token,
+            supabase_url=settings.supabase_url,
+            jwt_secret=settings.supabase_jwt_secret,
+            audience="authenticated",
         )
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
