@@ -18,18 +18,37 @@ from uuid import UUID
 from listings.domain.models import ListingType, PropertyStatus, Typology
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=True, unsafe_hash=False)
 class ListingPoi:
-    """Lean POI projection carried from the upstream property snapshot.
+    """POI projection carried from the upstream property snapshot.
 
-    Spec `2026-05-listing-semantic-search`: only the three fields the
-    canonical-text composer needs to render `NEARBY:`. Listings does
-    not import `properties.PropertyPoi`.
+    Three lean fields (`category`, `name`, `distance_meters`) drive
+    the canonical-text composer's `NEARBY:` line. Three rich fields
+    (`address`, `image_urls`, `reviews`) drive the
+    `matched_pois` response on the search read path (ADR-014 §14)
+    — populated from the snapshot once `build_property_snapshot`
+    on the properties side ships its §13 extension.
+
+    `unsafe_hash=False`: `frozen=True` would normally synthesize
+    `__hash__` from all fields, but `list[dict]` reviews are
+    unhashable contents — calling `hash(ListingPoi(...))` would
+    raise `TypeError`. We disable the synthesized hash explicitly:
+    `ListingPoi` is a value object (immutable) but not hashable.
+    The matched-POI composition path never hashes individual POIs
+    (it hashes only `poi.category` strings via set comprehensions),
+    so this is safe.
+
+    Listings does NOT import `properties.PropertyPoi` — the
+    closed-vocabulary alignment is pinned by a contract test in
+    `tests/unit/listings/test_poi_category_contract.py`.
     """
 
     category: str
     name: str
     distance_meters: float
+    address: str | None = None
+    image_urls: list[str] = field(default_factory=list)
+    reviews: list[dict] | None = None
 
 
 @dataclass(frozen=True)

@@ -103,11 +103,18 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             source_occurred_at=m.source_occurred_at,
             created_at=m.created_at,
             updated_at=m.updated_at,
+            # Rich fields (address, image_urls, reviews) — ADR-014 §13/§14.
+            # JSONB absorbs the new keys without DDL; rows projected
+            # before the rich snapshot ship in production return None / []
+            # for them. The next PROPERTY_UPDATED.v1 refreshes them.
             pois=[
                 ListingPoi(
                     category=p["category"],
                     name=p["name"],
                     distance_meters=float(p["distance_meters"]),
+                    address=p.get("address"),
+                    image_urls=list(p.get("image_urls") or []),
+                    reviews=p.get("reviews"),
                 )
                 for p in pois_raw
             ],

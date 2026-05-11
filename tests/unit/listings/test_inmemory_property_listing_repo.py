@@ -305,3 +305,57 @@ class TestListByIds:
 # /api/v1/listings/locations endpoint now reads from a bundled JSON
 # catalog (`src/listings/static_data/locations.json`); see
 # `tests/unit/listings/test_list_locations_use_case.py` for its tests.
+
+
+# ──────────── ListingPoi rich-fields round-trip (ADR-014 §14) ────────────
+
+
+async def test_listing_poi_rich_fields_round_trip(repo):
+    """Snapshot carries `address`, `image_urls`, `reviews` per ADR-014
+    §13; the projector reads them onto `ListingPoi`."""
+    pid = str(uuid4())
+    event = _event(id_=pid, version=1)
+    event["pois"] = [
+        {
+            "category": "school",
+            "name": "Escola Básica",
+            "distance_meters": 480.0,
+            "address": "Rua das Flores, 12",
+            "image_urls": ["https://x/1.jpg", "https://x/2.jpg"],
+            "reviews": [{"rating": 4, "text": "Boa"}],
+        }
+    ]
+    listing = await repo.upsert_from_event(
+        event_data=event,
+        source_occurred_at=datetime.now(timezone.utc),
+    )
+    assert listing is not None
+    assert len(listing.pois) == 1
+    poi = listing.pois[0]
+    assert poi.category == "school"
+    assert poi.name == "Escola Básica"
+    assert poi.distance_meters == 480.0
+    assert poi.address == "Rua das Flores, 12"
+    assert poi.image_urls == ["https://x/1.jpg", "https://x/2.jpg"]
+    assert poi.reviews == [{"rating": 4, "text": "Boa"}]
+
+
+async def test_listing_poi_rich_fields_default_when_absent(repo):
+    """Old-shape snapshot (only the 3 lean fields) projects with
+    None / [] defaults for the rich fields — back-compat for events
+    still in the queue at the time of the deploy."""
+    pid = str(uuid4())
+    event = _event(id_=pid, version=1)
+    event["pois"] = [
+        {"category": "gym", "name": "Ginásio X", "distance_meters": 200.0}
+    ]
+    listing = await repo.upsert_from_event(
+        event_data=event,
+        source_occurred_at=datetime.now(timezone.utc),
+    )
+    assert listing is not None
+    poi = listing.pois[0]
+    assert poi.category == "gym"
+    assert poi.address is None
+    assert poi.image_urls == []
+    assert poi.reviews is None

@@ -138,12 +138,18 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
 
         # POIs: when the snapshot carries `pois` it's authoritative; when
         # absent, preserve whatever's on the existing row.
+        # Rich fields (address, image_urls, reviews) — ADR-014 §13/§14:
+        # default to None / [] for snapshots that pre-date the rich
+        # payload (back-compat with old events still in the queue).
         if "pois" in event_data:
             pois = [
                 ListingPoi(
                     category=p["category"],
                     name=p["name"],
                     distance_meters=float(p["distance_meters"]),
+                    address=p.get("address"),
+                    image_urls=list(p.get("image_urls") or []),
+                    reviews=p.get("reviews"),
                 )
                 for p in (event_data.get("pois") or [])
             ]
