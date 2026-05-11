@@ -210,6 +210,38 @@ async def get_property(property_id: UUID, request: Request) -> ListedPropertyRes
     return _to_response(prop, image_urls)
 
 
+@router.get(
+    "/locations",
+    response_model=LocationTreeResponse,
+    summary="Hierarchical tree of populated locations (FE selector)",
+)
+async def list_locations(request: Request) -> LocationTreeResponse:
+    """Powers the FE's location selector for the search read path.
+
+    Returns the hierarchical tree of populated locations
+    (district → municipality → parish) derived from the
+    `property_listings` projection. Regions with zero published
+    listings are excluded.
+
+    TTL-cached at the use-case layer — repeated requests inside the
+    window don't re-query the DB.
+    """
+    container = request.app.state.listing_container
+    tree = await container.list_locations.execute()
+    return LocationTreeResponse(
+        districts=[
+            DistrictNode(
+                name=d.name,
+                municipalities=[
+                    MunicipalityNode(name=m.name, parishes=m.parishes)
+                    for m in d.municipalities
+                ],
+            )
+            for d in tree.districts
+        ]
+    )
+
+
 # ── Admin (auth-gated, org-scoped) ───────────────────────────────────────────
 
 
