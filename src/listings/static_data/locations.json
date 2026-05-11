@@ -1,0 +1,426 @@
+{
+  "_meta": {
+    "description": "Static country → district → municipality → parish catalog served by GET /api/v1/listings/locations. Spec: 2026-05-listing-semantic-search-read-path. Replace with the canonical INE (Instituto Nacional de Estatística) dataset before scaling beyond PT — current file is a curated starter focused on the metro Lisboa/Porto/Setúbal areas plus full municipality coverage for every district.",
+    "last_updated": "2026-05-11",
+    "sources": [
+      "INE Geographic Codes (CAOP 2024)",
+      "Lei n.º 11-A/2013 (parish reorganization)"
+    ]
+  },
+  "countries": [
+    {
+      "code": "PT",
+      "name": "Portugal",
+      "districts": [
+        {
+          "name": "Aveiro",
+          "municipalities": [
+            {"name": "Águeda", "parishes": []},
+            {"name": "Albergaria-a-Velha", "parishes": []},
+            {"name": "Anadia", "parishes": []},
+            {"name": "Arouca", "parishes": []},
+            {"name": "Aveiro", "parishes": ["Aradas", "Cacia", "Esgueira", "Glória e Vera Cruz", "Oliveirinha", "Santa Joana", "São Bernardo", "São Jacinto", "Eixo e Eirol", "Requeixo, Nossa Senhora de Fátima e Nariz"]},
+            {"name": "Castelo de Paiva", "parishes": []},
+            {"name": "Espinho", "parishes": []},
+            {"name": "Estarreja", "parishes": []},
+            {"name": "Ílhavo", "parishes": []},
+            {"name": "Mealhada", "parishes": []},
+            {"name": "Murtosa", "parishes": []},
+            {"name": "Oliveira de Azeméis", "parishes": []},
+            {"name": "Oliveira do Bairro", "parishes": []},
+            {"name": "Ovar", "parishes": []},
+            {"name": "Santa Maria da Feira", "parishes": []},
+            {"name": "São João da Madeira", "parishes": []},
+            {"name": "Sever do Vouga", "parishes": []},
+            {"name": "Vagos", "parishes": []},
+            {"name": "Vale de Cambra", "parishes": []}
+          ]
+        },
+        {
+          "name": "Beja",
+          "municipalities": [
+            {"name": "Aljustrel", "parishes": []},
+            {"name": "Almodôvar", "parishes": []},
+            {"name": "Alvito", "parishes": []},
+            {"name": "Barrancos", "parishes": []},
+            {"name": "Beja", "parishes": []},
+            {"name": "Castro Verde", "parishes": []},
+            {"name": "Cuba", "parishes": []},
+            {"name": "Ferreira do Alentejo", "parishes": []},
+            {"name": "Mértola", "parishes": []},
+            {"name": "Moura", "parishes": []},
+            {"name": "Odemira", "parishes": []},
+            {"name": "Ourique", "parishes": []},
+            {"name": "Serpa", "parishes": []},
+            {"name": "Vidigueira", "parishes": []}
+          ]
+        },
+        {
+          "name": "Braga",
+          "municipalities": [
+            {"name": "Amares", "parishes": []},
+            {"name": "Barcelos", "parishes": []},
+            {"name": "Braga", "parishes": ["Adaúfe", "Arentim e Cunha", "Braga (Maximinos, Sé e Cividade)", "Braga (São José de São Lázaro e São João do Souto)", "Braga (São Vicente)", "Braga (São Vítor)", "Cabreiros e Passos (São Julião)", "Celeirós, Aveleda e Vimieiro", "Esporões", "Espinho", "Este (São Pedro e São Mamede)", "Ferreiros e Gondizalves", "Figueiredo", "Frossos", "Gualtar", "Lamas", "Lomar e Arcos", "Merelim (São Paio), Panoias e Parada de Tibães", "Merelim (São Pedro) e Frossos", "Mire de Tibães", "Morreira e Trandeiras", "Nogueira, Fraião e Lamaçães", "Nogueiró e Tenões", "Padim da Graça", "Palmeira", "Pedralva", "Real, Dume e Semelhe", "Ruilhe", "Sequeira", "Sobreposta", "Tadim", "Tebosa"]},
+            {"name": "Cabeceiras de Basto", "parishes": []},
+            {"name": "Celorico de Basto", "parishes": []},
+            {"name": "Esposende", "parishes": []},
+            {"name": "Fafe", "parishes": []},
+            {"name": "Guimarães", "parishes": []},
+            {"name": "Póvoa de Lanhoso", "parishes": []},
+            {"name": "Terras de Bouro", "parishes": []},
+            {"name": "Vieira do Minho", "parishes": []},
+            {"name": "Vila Nova de Famalicão", "parishes": []},
+            {"name": "Vila Verde", "parishes": []},
+            {"name": "Vizela", "parishes": []}
+          ]
+        },
+        {
+          "name": "Bragança",
+          "municipalities": [
+            {"name": "Alfândega da Fé", "parishes": []},
+            {"name": "Bragança", "parishes": []},
+            {"name": "Carrazeda de Ansiães", "parishes": []},
+            {"name": "Freixo de Espada à Cinta", "parishes": []},
+            {"name": "Macedo de Cavaleiros", "parishes": []},
+            {"name": "Miranda do Douro", "parishes": []},
+            {"name": "Mirandela", "parishes": []},
+            {"name": "Mogadouro", "parishes": []},
+            {"name": "Torre de Moncorvo", "parishes": []},
+            {"name": "Vila Flor", "parishes": []},
+            {"name": "Vimioso", "parishes": []},
+            {"name": "Vinhais", "parishes": []}
+          ]
+        },
+        {
+          "name": "Castelo Branco",
+          "municipalities": [
+            {"name": "Belmonte", "parishes": []},
+            {"name": "Castelo Branco", "parishes": []},
+            {"name": "Covilhã", "parishes": []},
+            {"name": "Fundão", "parishes": []},
+            {"name": "Idanha-a-Nova", "parishes": []},
+            {"name": "Oleiros", "parishes": []},
+            {"name": "Penamacor", "parishes": []},
+            {"name": "Proença-a-Nova", "parishes": []},
+            {"name": "Sertã", "parishes": []},
+            {"name": "Vila de Rei", "parishes": []},
+            {"name": "Vila Velha de Ródão", "parishes": []}
+          ]
+        },
+        {
+          "name": "Coimbra",
+          "municipalities": [
+            {"name": "Arganil", "parishes": []},
+            {"name": "Cantanhede", "parishes": []},
+            {"name": "Coimbra", "parishes": ["Almalaguês", "Almedina", "Antanhol", "Antuzede e Vil de Matos", "Assafarge e Antanhol", "Brasfemes", "Ceira", "Cernache", "Eiras e São Paulo de Frades", "Lamarosa", "Ribeira de Frades", "Santa Clara e Castelo Viegas", "Santo António dos Olivais", "São João do Campo", "São Martinho de Árvore e Lamarosa", "São Martinho do Bispo e Ribeira de Frades", "São Silvestre", "Sé Nova, Santa Cruz, Almedina e São Bartolomeu", "Souselas e Botão", "Taveiro, Ameal e Arzila", "Torre de Vilela", "Torres do Mondego", "Trouxemil e Torre de Vilela"]},
+            {"name": "Condeixa-a-Nova", "parishes": []},
+            {"name": "Figueira da Foz", "parishes": []},
+            {"name": "Góis", "parishes": []},
+            {"name": "Lousã", "parishes": []},
+            {"name": "Mira", "parishes": []},
+            {"name": "Miranda do Corvo", "parishes": []},
+            {"name": "Montemor-o-Velho", "parishes": []},
+            {"name": "Oliveira do Hospital", "parishes": []},
+            {"name": "Pampilhosa da Serra", "parishes": []},
+            {"name": "Penacova", "parishes": []},
+            {"name": "Penela", "parishes": []},
+            {"name": "Soure", "parishes": []},
+            {"name": "Tábua", "parishes": []},
+            {"name": "Vila Nova de Poiares", "parishes": []}
+          ]
+        },
+        {
+          "name": "Évora",
+          "municipalities": [
+            {"name": "Alandroal", "parishes": []},
+            {"name": "Arraiolos", "parishes": []},
+            {"name": "Borba", "parishes": []},
+            {"name": "Estremoz", "parishes": []},
+            {"name": "Évora", "parishes": []},
+            {"name": "Montemor-o-Novo", "parishes": []},
+            {"name": "Mora", "parishes": []},
+            {"name": "Mourão", "parishes": []},
+            {"name": "Portel", "parishes": []},
+            {"name": "Redondo", "parishes": []},
+            {"name": "Reguengos de Monsaraz", "parishes": []},
+            {"name": "Vendas Novas", "parishes": []},
+            {"name": "Viana do Alentejo", "parishes": []},
+            {"name": "Vila Viçosa", "parishes": []}
+          ]
+        },
+        {
+          "name": "Faro",
+          "municipalities": [
+            {"name": "Albufeira", "parishes": ["Albufeira e Olhos de Água", "Ferreiras", "Guia", "Paderne"]},
+            {"name": "Alcoutim", "parishes": []},
+            {"name": "Aljezur", "parishes": []},
+            {"name": "Castro Marim", "parishes": []},
+            {"name": "Faro", "parishes": ["Conceição e Estoi", "Faro (Sé e São Pedro)", "Montenegro", "Santa Bárbara de Nexe"]},
+            {"name": "Lagoa", "parishes": []},
+            {"name": "Lagos", "parishes": ["Bensafrim e Barão de São João", "Lagos (Santa Maria)", "Lagos (São Sebastião)", "Luz", "Odiáxere"]},
+            {"name": "Loulé", "parishes": ["Almancil", "Alte", "Ameixial", "Boliqueime", "Loulé (São Clemente)", "Loulé (São Sebastião)", "Quarteira", "Querença, Tôr e Benafim", "Salir"]},
+            {"name": "Monchique", "parishes": []},
+            {"name": "Olhão", "parishes": []},
+            {"name": "Portimão", "parishes": ["Alvor", "Mexilhoeira Grande", "Portimão"]},
+            {"name": "São Brás de Alportel", "parishes": []},
+            {"name": "Silves", "parishes": []},
+            {"name": "Tavira", "parishes": []},
+            {"name": "Vila do Bispo", "parishes": []},
+            {"name": "Vila Real de Santo António", "parishes": []}
+          ]
+        },
+        {
+          "name": "Guarda",
+          "municipalities": [
+            {"name": "Aguiar da Beira", "parishes": []},
+            {"name": "Almeida", "parishes": []},
+            {"name": "Celorico da Beira", "parishes": []},
+            {"name": "Figueira de Castelo Rodrigo", "parishes": []},
+            {"name": "Fornos de Algodres", "parishes": []},
+            {"name": "Gouveia", "parishes": []},
+            {"name": "Guarda", "parishes": []},
+            {"name": "Manteigas", "parishes": []},
+            {"name": "Meda", "parishes": []},
+            {"name": "Pinhel", "parishes": []},
+            {"name": "Sabugal", "parishes": []},
+            {"name": "Seia", "parishes": []},
+            {"name": "Trancoso", "parishes": []},
+            {"name": "Vila Nova de Foz Côa", "parishes": []}
+          ]
+        },
+        {
+          "name": "Leiria",
+          "municipalities": [
+            {"name": "Alcobaça", "parishes": []},
+            {"name": "Alvaiázere", "parishes": []},
+            {"name": "Ansião", "parishes": []},
+            {"name": "Batalha", "parishes": []},
+            {"name": "Bombarral", "parishes": []},
+            {"name": "Caldas da Rainha", "parishes": []},
+            {"name": "Castanheira de Pera", "parishes": []},
+            {"name": "Figueiró dos Vinhos", "parishes": []},
+            {"name": "Leiria", "parishes": []},
+            {"name": "Marinha Grande", "parishes": []},
+            {"name": "Nazaré", "parishes": []},
+            {"name": "Óbidos", "parishes": []},
+            {"name": "Pedrógão Grande", "parishes": []},
+            {"name": "Peniche", "parishes": []},
+            {"name": "Pombal", "parishes": []},
+            {"name": "Porto de Mós", "parishes": []}
+          ]
+        },
+        {
+          "name": "Lisboa",
+          "municipalities": [
+            {"name": "Alenquer", "parishes": []},
+            {"name": "Amadora", "parishes": ["Águas Livres", "Alfragide", "Encosta do Sol", "Falagueira-Venda Nova", "Mina de Água", "Venteira"]},
+            {"name": "Arruda dos Vinhos", "parishes": []},
+            {"name": "Azambuja", "parishes": []},
+            {"name": "Cadaval", "parishes": []},
+            {"name": "Cascais", "parishes": ["Alcabideche", "Carcavelos e Parede", "Cascais e Estoril", "São Domingos de Rana"]},
+            {"name": "Lisboa", "parishes": ["Ajuda", "Alcântara", "Alvalade", "Areeiro", "Arroios", "Avenidas Novas", "Beato", "Belém", "Benfica", "Campo de Ourique", "Campolide", "Carnide", "Estrela", "Lumiar", "Marvila", "Misericórdia", "Olivais", "Parque das Nações", "Penha de França", "Santa Clara", "Santa Maria Maior", "Santo António", "São Domingos de Benfica", "São Vicente"]},
+            {"name": "Loures", "parishes": ["Bucelas", "Camarate, Unhos e Apelação", "Fanhões", "Loures", "Lousa", "Moscavide e Portela", "Sacavém e Prior Velho", "Santa Iria de Azoia, São João da Talha e Bobadela", "Santo Antão e São Julião do Tojal", "Santo António dos Cavaleiros e Frielas"]},
+            {"name": "Lourinhã", "parishes": []},
+            {"name": "Mafra", "parishes": ["Azueira e Sobral da Abelheira", "Carvoeira", "Encarnação", "Enxara do Bispo, Gradil e Vila Franca do Rosário", "Ericeira", "Igreja Nova e Cheleiros", "Mafra", "Malveira e São Miguel de Alcainça", "Milharado", "Santo Estêvão das Galés e Cheleiros", "Santo Isidoro", "Venda do Pinheiro e Santo Estêvão das Galés"]},
+            {"name": "Odivelas", "parishes": ["Famões", "Odivelas", "Olival Basto", "Pontinha e Famões", "Póvoa de Santo Adrião e Olival Basto", "Ramada e Caneças"]},
+            {"name": "Oeiras", "parishes": ["Algés, Linda-a-Velha e Cruz Quebrada-Dafundo", "Barcarena", "Carnaxide e Queijas", "Oeiras e São Julião da Barra, Paço de Arcos e Caxias", "Porto Salvo"]},
+            {"name": "Sintra", "parishes": ["Agualva e Mira-Sintra", "Algueirão-Mem Martins", "Almargem do Bispo, Pero Pinheiro e Montelavar", "Cacém e São Marcos", "Casal de Cambra", "Colares", "Massamá e Monte Abraão", "Queluz e Belas", "Rio de Mouro", "Santa Maria e São Miguel, São Martinho e São Pedro de Penaferrim", "São João das Lampas e Terrugem"]},
+            {"name": "Sobral de Monte Agraço", "parishes": []},
+            {"name": "Torres Vedras", "parishes": []},
+            {"name": "Vila Franca de Xira", "parishes": ["Alhandra, São João dos Montes e Calhandriz", "Alverca do Ribatejo e Sobralinho", "Castanheira do Ribatejo e Cachoeiras", "Póvoa de Santa Iria e Forte da Casa", "Vialonga", "Vila Franca de Xira"]}
+          ]
+        },
+        {
+          "name": "Portalegre",
+          "municipalities": [
+            {"name": "Alter do Chão", "parishes": []},
+            {"name": "Arronches", "parishes": []},
+            {"name": "Avis", "parishes": []},
+            {"name": "Campo Maior", "parishes": []},
+            {"name": "Castelo de Vide", "parishes": []},
+            {"name": "Crato", "parishes": []},
+            {"name": "Elvas", "parishes": []},
+            {"name": "Fronteira", "parishes": []},
+            {"name": "Gavião", "parishes": []},
+            {"name": "Marvão", "parishes": []},
+            {"name": "Monforte", "parishes": []},
+            {"name": "Nisa", "parishes": []},
+            {"name": "Ponte de Sor", "parishes": []},
+            {"name": "Portalegre", "parishes": []},
+            {"name": "Sousel", "parishes": []}
+          ]
+        },
+        {
+          "name": "Porto",
+          "municipalities": [
+            {"name": "Amarante", "parishes": []},
+            {"name": "Baião", "parishes": []},
+            {"name": "Felgueiras", "parishes": []},
+            {"name": "Gondomar", "parishes": ["Baguim do Monte", "Fânzeres e São Pedro da Cova", "Foz do Sousa e Covelo", "Gondomar (São Cosme), Valbom e Jovim", "Lomba", "Melres e Medas", "Rio Tinto"]},
+            {"name": "Lousada", "parishes": []},
+            {"name": "Maia", "parishes": ["Águas Santas", "Castêlo da Maia", "Cidade da Maia", "Folgosa", "Milheirós", "Moreira", "Nogueira e Silva Escura", "Pedrouços", "Vermoim", "Vila Nova da Telha"]},
+            {"name": "Marco de Canaveses", "parishes": []},
+            {"name": "Matosinhos", "parishes": ["Custóias, Leça do Balio e Guifões", "Matosinhos e Leça da Palmeira", "Perafita, Lavra e Santa Cruz do Bispo", "São Mamede de Infesta e Senhora da Hora"]},
+            {"name": "Paços de Ferreira", "parishes": []},
+            {"name": "Paredes", "parishes": []},
+            {"name": "Penafiel", "parishes": []},
+            {"name": "Porto", "parishes": ["Bonfim", "Campanhã", "Cedofeita, Santo Ildefonso, Sé, Miragaia, São Nicolau e Vitória", "Lordelo do Ouro e Massarelos", "Paranhos", "Ramalde"]},
+            {"name": "Póvoa de Varzim", "parishes": ["Aguçadoura e Navais", "Argivai", "Aver-o-Mar, Amorim e Terroso", "Balazar", "Beiriz", "Estela", "Laundos", "Póvoa de Varzim, Beiriz e Argivai", "Rates"]},
+            {"name": "Santo Tirso", "parishes": []},
+            {"name": "Trofa", "parishes": []},
+            {"name": "Valongo", "parishes": ["Alfena", "Campo e Sobrado", "Ermesinde", "Valongo"]},
+            {"name": "Vila do Conde", "parishes": []},
+            {"name": "Vila Nova de Gaia", "parishes": ["Arcozelo", "Avintes", "Canelas", "Canidelo", "Grijó e Sermonde", "Gulpilhares e Valadares", "Madalena", "Mafamude e Vilar do Paraíso", "Oliveira do Douro", "Pedroso e Seixezelo", "Sandim, Olival, Lever e Crestuma", "Santa Marinha e São Pedro da Afurada", "São Félix da Marinha", "Serzedo e Perosinho", "Vilar de Andorinho"]}
+          ]
+        },
+        {
+          "name": "Santarém",
+          "municipalities": [
+            {"name": "Abrantes", "parishes": []},
+            {"name": "Alcanena", "parishes": []},
+            {"name": "Almeirim", "parishes": []},
+            {"name": "Alpiarça", "parishes": []},
+            {"name": "Benavente", "parishes": []},
+            {"name": "Cartaxo", "parishes": []},
+            {"name": "Chamusca", "parishes": []},
+            {"name": "Constância", "parishes": []},
+            {"name": "Coruche", "parishes": []},
+            {"name": "Entroncamento", "parishes": []},
+            {"name": "Ferreira do Zêzere", "parishes": []},
+            {"name": "Golegã", "parishes": []},
+            {"name": "Mação", "parishes": []},
+            {"name": "Ourém", "parishes": []},
+            {"name": "Rio Maior", "parishes": []},
+            {"name": "Salvaterra de Magos", "parishes": []},
+            {"name": "Santarém", "parishes": []},
+            {"name": "Sardoal", "parishes": []},
+            {"name": "Tomar", "parishes": []},
+            {"name": "Torres Novas", "parishes": []},
+            {"name": "Vila Nova da Barquinha", "parishes": []}
+          ]
+        },
+        {
+          "name": "Setúbal",
+          "municipalities": [
+            {"name": "Alcácer do Sal", "parishes": []},
+            {"name": "Alcochete", "parishes": ["Alcochete", "Samouco", "São Francisco"]},
+            {"name": "Almada", "parishes": ["Almada, Cova da Piedade, Pragal e Cacilhas", "Caparica e Trafaria", "Charneca de Caparica e Sobreda", "Costa da Caparica", "Laranjeiro e Feijó"]},
+            {"name": "Barreiro", "parishes": ["Alto do Seixalinho, Santo André e Verderena", "Barreiro e Lavradio", "Palhais e Coina", "Santo António da Charneca"]},
+            {"name": "Grândola", "parishes": []},
+            {"name": "Moita", "parishes": ["Alhos Vedros", "Baixa da Banheira e Vale da Amoreira", "Gaio-Rosário e Sarilhos Pequenos", "Moita"]},
+            {"name": "Montijo", "parishes": ["Atalaia e Alto Estanqueiro-Jardia", "Canha", "Montijo e Afonsoeiro", "Pegões", "Sarilhos Grandes"]},
+            {"name": "Palmela", "parishes": ["Palmela", "Pinhal Novo", "Poceirão e Marateca", "Quinta do Anjo"]},
+            {"name": "Santiago do Cacém", "parishes": []},
+            {"name": "Seixal", "parishes": ["Amora", "Arrentela", "Corroios", "Fernão Ferro", "Seixal, Arrentela e Aldeia de Paio Pires"]},
+            {"name": "Sesimbra", "parishes": ["Castelo (Sesimbra)", "Quinta do Conde", "Santiago (Sesimbra)"]},
+            {"name": "Setúbal", "parishes": ["Azeitão (São Lourenço e São Simão)", "Gâmbia-Pontes-Alto da Guerra", "Sado", "Setúbal (Nossa Senhora da Anunciada)", "Setúbal (Santa Maria da Graça)", "Setúbal (São Julião, Nossa Senhora da Anunciada e Santa Maria da Graça)", "Setúbal (São Sebastião)"]},
+            {"name": "Sines", "parishes": []}
+          ]
+        },
+        {
+          "name": "Viana do Castelo",
+          "municipalities": [
+            {"name": "Arcos de Valdevez", "parishes": []},
+            {"name": "Caminha", "parishes": []},
+            {"name": "Melgaço", "parishes": []},
+            {"name": "Monção", "parishes": []},
+            {"name": "Paredes de Coura", "parishes": []},
+            {"name": "Ponte da Barca", "parishes": []},
+            {"name": "Ponte de Lima", "parishes": []},
+            {"name": "Valença", "parishes": []},
+            {"name": "Viana do Castelo", "parishes": []},
+            {"name": "Vila Nova de Cerveira", "parishes": []}
+          ]
+        },
+        {
+          "name": "Vila Real",
+          "municipalities": [
+            {"name": "Alijó", "parishes": []},
+            {"name": "Boticas", "parishes": []},
+            {"name": "Chaves", "parishes": []},
+            {"name": "Mesão Frio", "parishes": []},
+            {"name": "Mondim de Basto", "parishes": []},
+            {"name": "Montalegre", "parishes": []},
+            {"name": "Murça", "parishes": []},
+            {"name": "Peso da Régua", "parishes": []},
+            {"name": "Ribeira de Pena", "parishes": []},
+            {"name": "Sabrosa", "parishes": []},
+            {"name": "Santa Marta de Penaguião", "parishes": []},
+            {"name": "Valpaços", "parishes": []},
+            {"name": "Vila Pouca de Aguiar", "parishes": []},
+            {"name": "Vila Real", "parishes": []}
+          ]
+        },
+        {
+          "name": "Viseu",
+          "municipalities": [
+            {"name": "Armamar", "parishes": []},
+            {"name": "Carregal do Sal", "parishes": []},
+            {"name": "Castro Daire", "parishes": []},
+            {"name": "Cinfães", "parishes": []},
+            {"name": "Lamego", "parishes": []},
+            {"name": "Mangualde", "parishes": []},
+            {"name": "Moimenta da Beira", "parishes": []},
+            {"name": "Mortágua", "parishes": []},
+            {"name": "Nelas", "parishes": []},
+            {"name": "Oliveira de Frades", "parishes": []},
+            {"name": "Penalva do Castelo", "parishes": []},
+            {"name": "Penedono", "parishes": []},
+            {"name": "Resende", "parishes": []},
+            {"name": "Santa Comba Dão", "parishes": []},
+            {"name": "São João da Pesqueira", "parishes": []},
+            {"name": "São Pedro do Sul", "parishes": []},
+            {"name": "Sátão", "parishes": []},
+            {"name": "Sernancelhe", "parishes": []},
+            {"name": "Tabuaço", "parishes": []},
+            {"name": "Tarouca", "parishes": []},
+            {"name": "Tondela", "parishes": []},
+            {"name": "Vila Nova de Paiva", "parishes": []},
+            {"name": "Viseu", "parishes": []},
+            {"name": "Vouzela", "parishes": []}
+          ]
+        },
+        {
+          "name": "Madeira",
+          "municipalities": [
+            {"name": "Calheta", "parishes": []},
+            {"name": "Câmara de Lobos", "parishes": []},
+            {"name": "Funchal", "parishes": ["Imaculado Coração de Maria", "Monte", "Santa Luzia", "Santa Maria Maior", "Santo António", "São Gonçalo", "São Martinho", "São Pedro", "São Roque", "Sé"]},
+            {"name": "Machico", "parishes": []},
+            {"name": "Ponta do Sol", "parishes": []},
+            {"name": "Porto Moniz", "parishes": []},
+            {"name": "Porto Santo", "parishes": []},
+            {"name": "Ribeira Brava", "parishes": []},
+            {"name": "Santa Cruz", "parishes": []},
+            {"name": "Santana", "parishes": []},
+            {"name": "São Vicente", "parishes": []}
+          ]
+        },
+        {
+          "name": "Açores",
+          "municipalities": [
+            {"name": "Angra do Heroísmo", "parishes": []},
+            {"name": "Calheta (São Jorge)", "parishes": []},
+            {"name": "Corvo", "parishes": []},
+            {"name": "Horta", "parishes": []},
+            {"name": "Lagoa (Açores)", "parishes": []},
+            {"name": "Lajes das Flores", "parishes": []},
+            {"name": "Lajes do Pico", "parishes": []},
+            {"name": "Madalena", "parishes": []},
+            {"name": "Nordeste", "parishes": []},
+            {"name": "Ponta Delgada", "parishes": []},
+            {"name": "Povoação", "parishes": []},
+            {"name": "Praia da Vitória", "parishes": []},
+            {"name": "Ribeira Grande", "parishes": []},
+            {"name": "Santa Cruz da Graciosa", "parishes": []},
+            {"name": "Santa Cruz das Flores", "parishes": []},
+            {"name": "São Roque do Pico", "parishes": []},
+            {"name": "Velas", "parishes": []},
+            {"name": "Vila do Porto", "parishes": []},
+            {"name": "Vila Franca do Campo", "parishes": []}
+          ]
+        }
+      ]
+    }
+  ]
+}

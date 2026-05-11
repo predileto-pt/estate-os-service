@@ -372,7 +372,6 @@ async def get_listing_container() -> ListingContainer:
         vector_index_namespace=settings.vector_index_namespace,
         embedding_model_version=settings.embedding_model,
         query_understanding_service=query_understanding_service,
-        listings_locations_cache_ttl_seconds=settings.listings_locations_cache_ttl_seconds,
         vector_index_top_k=settings.vector_index_top_k,
     )
     return _listing_container

@@ -16,7 +16,6 @@ from listings.application.ports.address_searcher import ParsedAddress
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
-from listings.domain.location_triple import LocationTriple
 from listings.domain.models import ListingType, PropertyStatus, Typology
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import (
@@ -85,7 +84,7 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
     ) -> int:
         return len(self._matched_rows(filters, organization_id=organization_id))
 
-    # ──────────── Search read path (hydrate + /locations) ────────────
+    # ──────────── Search read path (hydrate) ────────────
 
     async def list_by_ids(self, ids: list[UUID]) -> list[PropertyListing]:
         if not ids:
@@ -99,20 +98,8 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             if row.id in wanted and row.status == PropertyStatus.ACTIVE
         ]
 
-    async def list_locations(self) -> list[LocationTriple]:
-        seen: set[tuple[str | None, str | None, str | None]] = set()
-        out: list[LocationTriple] = []
-        for row in self._rows.values():
-            if row.status != PropertyStatus.ACTIVE:
-                continue
-            key = (row.parish, row.municipality, row.district)
-            if key == (None, None, None):
-                continue
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(LocationTriple(*key))
-        return out
+    # NOTE: `list_locations` was removed 2026-05-11 — /locations now
+    # reads from a static JSON catalog. See port docstring.
 
     # ──────────── Write side (listings worker handlers) ───────────────
 

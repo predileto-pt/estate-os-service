@@ -366,37 +366,28 @@ class TestEmptyVectorMatches:
 
 
 class TestLocationsEndpoint:
-    async def test_returns_hierarchical_tree(
-        self, client, search_property_listing_repo, search_vector_index, search_embedding_provider
-    ):
-        await _seed_listing(
-            search_property_listing_repo,
-            search_vector_index,
-            search_embedding_provider,
-            description="x",
-            parish="Cascais",
-            municipality="Cascais",
-            district="Lisboa",
-        )
-        await _seed_listing(
-            search_property_listing_repo,
-            search_vector_index,
-            search_embedding_provider,
-            description="y",
-            parish="Foz",
-            municipality="Porto",
-            district="Porto",
-        )
+    """`/locations` is served from the static JSON catalog
+    (`src/listings/static_data/locations.json`), not from the DB.
+    These tests just verify the wiring + response shape."""
 
+    async def test_returns_country_district_municipality_parish_tree(self, client):
         response = await client.get("/api/v1/listings/locations")
         assert response.status_code == 200
         tree = response.json()
-        assert [d["name"] for d in tree["districts"]] == ["Lisboa", "Porto"]
-        lisboa = tree["districts"][0]
-        assert lisboa["municipalities"][0]["name"] == "Cascais"
-        assert lisboa["municipalities"][0]["parishes"] == ["Cascais"]
+        assert "countries" in tree
+        assert len(tree["countries"]) >= 1
+        pt = next(c for c in tree["countries"] if c["code"] == "PT")
+        assert pt["name"] == "Portugal"
+        assert len(pt["districts"]) == 20  # 18 mainland + Madeira + Açores
 
-    async def test_empty_db_returns_200_empty_tree(self, client):
+        lisboa = next(d for d in pt["districts"] if d["name"] == "Lisboa")
+        lisboa_city = next(m for m in lisboa["municipalities"] if m["name"] == "Lisboa")
+        assert "Santa Maria Maior" in lisboa_city["parishes"]
+
+    async def test_does_not_depend_on_seeded_data(self, client):
+        """No rows seeded → catalog still returns the full PT geography."""
         response = await client.get("/api/v1/listings/locations")
         assert response.status_code == 200
-        assert response.json() == {"districts": []}
+        pt = response.json()["countries"][0]
+        # Even with an empty DB, all 20 top-level units are present.
+        assert len(pt["districts"]) == 20

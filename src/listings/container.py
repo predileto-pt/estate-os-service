@@ -22,7 +22,6 @@ class Container:
         vector_index_namespace: str = "openai-text-embedding-3-small-v1",
         embedding_model_version: str = "text-embedding-3-small",
         query_understanding_service: QueryUnderstandingService | None = None,
-        listings_locations_cache_ttl_seconds: float = 300.0,
         vector_index_top_k: int = 50,
     ) -> None:
         # Single read-model: the carried-state `property_listings`
@@ -81,10 +80,10 @@ class Container:
                 top_k=vector_index_top_k,
             )
 
-        # /locations use case is always wired — it's a thin wrapper
-        # over property_listing_repo and doesn't need the LLM/vector
-        # stack. The FE selector should work even with search disabled.
-        self.list_locations = ListLocations(
-            property_listing_repo=property_listing_repo,
-            ttl_seconds=listings_locations_cache_ttl_seconds,
-        )
+        # /locations use case is always wired. As of 2026-05-11 it
+        # reads from a bundled JSON catalog
+        # (src/listings/static_data/locations.json) rather than from
+        # the property_listings projection — the FE selector renders
+        # the full geography from day one. The use case loads the
+        # file once at construction; no repo, no TTL cache.
+        self.list_locations = ListLocations()

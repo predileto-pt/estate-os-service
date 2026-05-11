@@ -301,55 +301,7 @@ class TestListByIds:
         assert await repo.list_by_ids([UUID(str(uuid4()))]) == []
 
 
-class TestListLocations:
-    async def test_distinct_triples_from_enriched_rows(self, repo):
-        for parish, municipality, district in [
-            ("Cascais", "Cascais", "Lisboa"),
-            ("Cascais", "Cascais", "Lisboa"),  # duplicate
-            ("Estoril", "Cascais", "Lisboa"),
-            ("Belém", "Lisboa", "Lisboa"),
-        ]:
-            await _seed(
-                repo,
-                pid=str(uuid4()),
-                parish=parish,
-                municipality=municipality,
-                district=district,
-            )
-        triples = await repo.list_locations()
-        # Three distinct triples; ordering is unspecified.
-        as_tuples = {(t.parish, t.municipality, t.district) for t in triples}
-        assert as_tuples == {
-            ("Cascais", "Cascais", "Lisboa"),
-            ("Estoril", "Cascais", "Lisboa"),
-            ("Belém", "Lisboa", "Lisboa"),
-        }
-
-    async def test_excludes_rows_with_no_location_columns(self, repo):
-        # No enrichment → all three columns are None → excluded.
-        await _seed(repo, pid=str(uuid4()))
-        await _seed(
-            repo,
-            pid=str(uuid4()),
-            parish="Cascais",
-            municipality="Cascais",
-            district="Lisboa",
-        )
-        triples = await repo.list_locations()
-        assert {(t.parish, t.municipality, t.district) for t in triples} == {
-            ("Cascais", "Cascais", "Lisboa")
-        }
-
-    async def test_excludes_non_active_rows(self, repo):
-        await _seed(
-            repo,
-            pid=str(uuid4()),
-            status="draft",
-            parish="Cascais",
-            municipality="Cascais",
-            district="Lisboa",
-        )
-        assert await repo.list_locations() == []
-
-    async def test_empty_repo_returns_empty(self, repo):
-        assert await repo.list_locations() == []
+# `list_locations` was removed from the repo on 2026-05-11. The
+# /api/v1/listings/locations endpoint now reads from a bundled JSON
+# catalog (`src/listings/static_data/locations.json`); see
+# `tests/unit/listings/test_list_locations_use_case.py` for its tests.

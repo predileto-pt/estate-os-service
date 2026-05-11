@@ -62,9 +62,6 @@ class Settings(BaseSettings):
     search_llm_model: str = "gpt-4o-mini"
     search_llm_timeout_seconds: float = 4.0
     search_llm_max_output_tokens: int = 200
-    # TTL for the in-memory `/api/v1/listings/locations` cache.
-    # Locations don't churn fast; 5 minutes is plenty.
-    listings_locations_cache_ttl_seconds: float = 300.0
     # Cap on Pinecone `top_k`. The use case takes
     # `min(top_k, limit+offset)` so pagination beyond this is out
     # of scope for v1 (cursor pagination is a follow-up).

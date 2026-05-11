@@ -1,6 +1,6 @@
 # Listing semantic search — read path (ADR-013 phase 2)
 
-**Status:** in-progress (review-4 cleared 2026-05-11; ready to implement)
+**Status:** in-progress — implementation amended 2026-05-11 to swap /locations from DB-derived to static-catalog (see §"GET /api/v1/listings/locations")
 **Owner:** Peter
 **Created:** 2026-05-09
 
@@ -281,9 +281,15 @@ if q and not (parish or municipality or district):
 
 The structured `detail={"code": ..., "message": ...}` shape matches the existing convention in `properties/adapters/api/routes/properties.py` (e.g. `detail={"message": ..., "reasons": ...}` on publish/unpublish errors) — extended here with a `code` field so the FE can branch on it without parsing the message.
 
-### `GET /api/v1/listings/locations` — hierarchical tree for the FE selector
+### `GET /api/v1/listings/locations` — static country catalog for the FE selector
 
-New endpoint, public (same auth posture as the existing public listings endpoint). Returns the populated location tree derived from `property_listings`:
+**Amended 2026-05-11.** Previously this endpoint derived the location tree from `property_listings` (only populated regions surfaced). Pulled forward the "Static PT location catalog" follow-up because:
+
+- The FE selector needs to render the full geography from day one — even before any listings are indexed in a region.
+- Locations are inherently stable. The PT geography catalog rarely changes (last major reform: 2013 parish mergers). Storing it as a JSON file in the app is cheaper than a query-time DISTINCT scan.
+- Trade-off accepted: empty regions in the dropdown. Acceptable — the FE will still show an empty results state when the search returns 0.
+
+New endpoint, public (same auth posture as the existing public listings endpoint). Returns the full country → district → municipality → parish tree, loaded from a JSON file bundled with the app.
 
 ```http
 GET /api/v1/listings/locations
@@ -291,33 +297,38 @@ GET /api/v1/listings/locations
 
 ```json
 {
-  "districts": [
+  "countries": [
     {
-      "name": "Lisboa",
-      "municipalities": [
+      "code": "PT",
+      "name": "Portugal",
+      "districts": [
         {
           "name": "Lisboa",
-          "parishes": ["Santa Maria Maior", "Santo António", "Belém", ...]
+          "municipalities": [
+            {
+              "name": "Lisboa",
+              "parishes": ["Ajuda", "Alcântara", "Alvalade", ...]
+            },
+            {
+              "name": "Cascais",
+              "parishes": ["Alcabideche", "Carcavelos e Parede", ...]
+            }
+          ]
         },
-        {
-          "name": "Cascais",
-          "parishes": ["Cascais", "Estoril", ...]
-        }
+        ...
       ]
-    },
-    {
-      "name": "Porto",
-      "municipalities": [...]
     }
   ]
 }
 ```
 
-**Source of truth**: `SELECT DISTINCT parish, municipality, district FROM property_listings WHERE district IS NOT NULL OR municipality IS NOT NULL OR parish IS NOT NULL`. App-side groups the rows hierarchically. Districts/municipalities/parishes the user has zero published listings in are not returned — UX win, no empty regions in the dropdown.
+**Source of truth**: `src/listings/static_data/locations.json`. Multi-country shape with `countries[].code` (ISO 3166-1 alpha-2) + `countries[].name`. v1 ships only Portugal populated; future countries are appended as additional entries. The JSON should be replaced with the canonical INE (Instituto Nacional de Estatística) parish/municipality dataset before scaling beyond PT-EU early adopters — the initial commit is a curated starter covering the major districts comprehensively and the rest at municipality level.
 
-**Caching**: in-memory cache with TTL `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS` (default 300s — 5 min). Locations don't churn fast; the FE can cache the response too.
+**Loading**: read once at use-case construction (module-level `json.load` on import is fine — file is small, no need for cold-load latency). No TTL cache needed since the file doesn't change between deploys; the in-memory `ListLocations` cache from the previous design is **dropped**.
 
-**Limits**: response is small (~few hundred entries for PT), gzipped fits well under 100KB.
+**Repo method dropped**: `PropertyListingRepository.list_locations()` is removed (port + both adapters + tests). The static catalog is the single source of truth.
+
+**Limits**: response is small (~few hundred entries for PT, ~50KB uncompressed for the v1 starter file; ~150KB if all 3091 PT parishes are populated). Gzipped fits well under 50KB on the wire.
 
 ### Fail-open semantics
 
@@ -482,10 +493,12 @@ Each criterion phrases an **externally observable** behavior — passing it mean
 
 ## Open questions
 
-- **LLM model choice.** ADR §7 placeholders `SEARCH_LLM_MODEL=gpt-...`. `gpt-4o-mini` is the cheap default; `gpt-5-mini` (when available) might be better for PT query understanding. Decision deferred to implementation; pin in `.env.example` with a comment about cost.
-- **`/locations` shape — flat vs hierarchical.** The spec proposes hierarchical (district → municipality → parish). If the FE wants a flat searchable selector instead, we can return `[{district, municipality, parish}, ...]` triples. Both shapes derive from the same underlying SELECT DISTINCT; pick at implementation based on FE preference.
+_(none — all resolved below)_
 
 ### Resolved (decisions captured for the record)
+
+- **~~LLM model choice~~** → `gpt-4o-mini` for v1. Cheap default, supports structured output, well-tuned for short PT inputs. Pinned in `.env.example` with a comment. Bump to `gpt-5-mini` (or similar) once available + retrieval quality demands it.
+- **~~`/locations` shape — flat vs hierarchical~~** → **hierarchical** (district → municipality → parish), matching the spec body's JSON example and `LocationTreeResponse` schema name. If FE feedback flips this later it's a one-method change in `ListLocations`.
 
 - **~~Required-location scope~~** → required only when `q` is set; empty `q` preserves the existing browse-without-location behavior.
 - **~~Pagination over vector results~~** → `limit`/`offset` apply over the ranked list. `top_k = min(VECTOR_INDEX_TOP_K, limit + offset)`. Sufficient for paging within the top-k window; cursor pagination beyond `VECTOR_INDEX_TOP_K` (default 50) punted to a follow-up if usage warrants it.

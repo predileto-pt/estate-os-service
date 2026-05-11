@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from identity.domain.models.user import User
 from listings.adapters.api.schemas import (
+    CountryNode,
     DistrictNode,
     ListedPropertyResponse,
     LocationTreeResponse,
@@ -229,15 +230,22 @@ async def list_locations(request: Request) -> LocationTreeResponse:
     container = request.app.state.listing_container
     tree = await container.list_locations.execute()
     return LocationTreeResponse(
-        districts=[
-            DistrictNode(
-                name=d.name,
-                municipalities=[
-                    MunicipalityNode(name=m.name, parishes=m.parishes)
-                    for m in d.municipalities
+        countries=[
+            CountryNode(
+                code=c.code,
+                name=c.name,
+                districts=[
+                    DistrictNode(
+                        name=d.name,
+                        municipalities=[
+                            MunicipalityNode(name=m.name, parishes=m.parishes)
+                            for m in d.municipalities
+                        ],
+                    )
+                    for d in c.districts
                 ],
             )
-            for d in tree.districts
+            for c in tree.countries
         ]
     )
 

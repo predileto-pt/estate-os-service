@@ -1138,7 +1138,7 @@ ADR-013 phase 2, spec `2026-05-listing-semantic-search-read-path`. Phase 1 (abov
 | Endpoint | Behavior |
 |---|---|
 | `GET /api/v1/listings/properties?q=<text>&parish=<…>` | When `q` is set, runs the semantic pipeline (rewrite → embed → ANN → hydrate). **At least one of `parish` / `municipality` / `district` is required** (422 with `detail.code = "location_required_for_search"` otherwise). When `q` is empty/absent, the existing structured-filter path runs — no behavior change. |
-| `GET /api/v1/listings/locations` | Hierarchical tree of populated locations (district → municipality → parish) for the FE selector. Regions with zero published listings are excluded. TTL-cached process-locally (default 5 min). |
+| `GET /api/v1/listings/locations` | Country → district → municipality → parish tree for the FE selector. Served from a bundled JSON catalog (`src/listings/static_data/locations.json`) — full PT geography from day one, no DB dependency. Replace with the canonical INE dataset before scaling beyond PT. |
 
 **Required-location semantics**: the location filter is supplied **structurally** by the user via the FE selector (driven by `/locations`), never extracted from the query text by an LLM. We trade a sometimes-wrong soft signal for a guaranteed-correct hard signal — no `LocationExtractor` in the read path.
 
@@ -1163,9 +1163,6 @@ LISTINGS_SEARCH_ENABLED=false
 SEARCH_LLM_MODEL=gpt-4o-mini
 SEARCH_LLM_TIMEOUT_SECONDS=4.0
 SEARCH_LLM_MAX_OUTPUT_TOKENS=200
-
-# In-memory TTL cache for /locations.
-LISTINGS_LOCATIONS_CACHE_TTL_SECONDS=300
 
 # Cap on Pinecone `top_k`. The use case takes `min(VECTOR_INDEX_TOP_K,
 # limit + offset)` — pagination beyond this is a follow-up (cursor pagination).

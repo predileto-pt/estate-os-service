@@ -269,7 +269,7 @@ Spec: `2026-05-listing-semantic-search-read-path`. Phase 1 (above) embedded ever
 | `GET /properties?q=…` (no location)                 | **422** with `detail.code = "location_required_for_search"`.                                         | FE selector should never let the user submit this — defense in depth.                              |
 | `GET /properties?q=…&parish=…` (gate off)           | Falls through to the structured-filter path. `q` silently ignored.                                  | Ship-safe default — `LISTINGS_SEARCH_ENABLED=false` works on prod from day one.                    |
 | `GET /properties?q=…&parish=…` (gate on)            | `SearchListings` pipeline: rewrite → embed → ANN → hydrate.                                          | Vector-ranked results, scored top-k, paginated over the ranked list.                               |
-| `GET /locations`                                    | `ListLocations` — hierarchical tree from populated rows, TTL-cached process-locally.                | Empty DB → 200 with `{"districts": []}`.                                                           |
+| `GET /locations`                                    | `ListLocations` — country → district → municipality → parish tree, served from a bundled JSON catalog. | No DB dependency; full PT geography from day one. See `src/listings/static_data/locations.json`. |
 
 ### Search pipeline
 
@@ -306,7 +306,6 @@ The `_relational_fallback` calls `PropertyListingRepository.list_active` with th
 | `SEARCH_LLM_MODEL`                          | `QueryUnderstandingService` LLM. Cheap PT-capable default.                                   | `gpt-4o-mini` |
 | `SEARCH_LLM_TIMEOUT_SECONDS`                | Per-call timeout for the rewriter. On timeout, embed the raw query (fail-open).              | `4.0`         |
 | `SEARCH_LLM_MAX_OUTPUT_TOKENS`              | Hard cap on rewriter output.                                                                 | `200`         |
-| `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`      | In-memory TTL cache for `/locations`.                                                        | `300`         |
 | `VECTOR_INDEX_TOP_K`                        | Cap on Pinecone `top_k`. Use case takes `min(top_k, limit+offset)`. Beyond this = follow-up. | `50`          |
 
 ### Pagination semantics
@@ -324,5 +323,6 @@ The `_relational_fallback` calls `PropertyListingRepository.list_active` with th
 - `QueryUnderstandingService` port: `src/listings/application/ports/query_understanding.py`
 - LLM adapter: `src/listings/adapters/ai/langchain_query_understanding.py`
 - Identity adapter (tests + flag-off): `src/listings/adapters/inmemory/inmemory_query_understanding.py`
-- `LocationFilter` / `LocationTriple` value objects: `src/listings/domain/location_filter.py`, `src/listings/domain/location_triple.py`
+- `LocationFilter` value object: `src/listings/domain/location_filter.py`
+- Static location catalog: `src/listings/static_data/locations.json`
 - Integration test: `tests/integration/test_search_endpoint.py`

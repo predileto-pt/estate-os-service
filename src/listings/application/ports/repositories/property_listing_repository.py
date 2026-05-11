@@ -30,7 +30,6 @@ from datetime import datetime
 from uuid import UUID
 
 from listings.application.ports.address_searcher import ParsedAddress
-from listings.domain.location_triple import LocationTriple
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import PropertyListing
 
@@ -63,7 +62,7 @@ class PropertyListingRepository(ABC):
         self, organization_id: UUID, filters: PropertyFilters
     ) -> int: ...
 
-    # ──────────── Search read path (hydrate + /locations) ────────────
+    # ──────────── Search read path (hydrate) ────────────
 
     @abstractmethod
     async def list_by_ids(self, ids: list[UUID]) -> list[PropertyListing]:
@@ -83,19 +82,13 @@ class PropertyListingRepository(ABC):
         Empty `ids` returns an empty list (no SQL round-trip).
         """
 
-    @abstractmethod
-    async def list_locations(self) -> list[LocationTriple]:
-        """Distinct (parish, municipality, district) triples across all
-        active rows, for the `/api/v1/listings/locations` endpoint.
-
-        Triples may contain Nones — the address-enrichment handler can
-        populate any subset of the three columns over time. The
-        consuming use case (`ListLocations`) groups whatever's
-        populated into the hierarchical tree.
-
-        Implementations filter to `status='active'` so the dropdown
-        only surfaces locations the user could actually browse to.
-        """
+    # NOTE: `list_locations` (DISTINCT parish/municipality/district
+    # over active rows) was REMOVED 2026-05-11. The
+    # `/api/v1/listings/locations` endpoint now reads from a bundled
+    # JSON catalog (src/listings/static_data/locations.json) so the
+    # FE renders the full geography from day one — even before any
+    # listings are indexed in a region. See spec
+    # `2026-05-listing-semantic-search-read-path` amendment.
 
     # ──────────── Write side (listings worker handlers) ───────────────
 

@@ -32,7 +32,6 @@ from listings.application.ports.address_searcher import ParsedAddress
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
-from listings.domain.location_triple import LocationTriple
 from listings.domain.models import ListingType, PropertyStatus, Typology
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import (
@@ -199,7 +198,7 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             result = await session.execute(count_query)
             return result.scalar_one()
 
-    # ──────────── Search read path (hydrate + /locations) ────────────
+    # ──────────── Search read path (hydrate) ────────────
 
     async def list_by_ids(self, ids: list[UUID]) -> list[PropertyListing]:
         """Bulk-fetch active rows by id. Order unspecified — caller
@@ -214,30 +213,8 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             result = await session.execute(query)
             return [self._to_domain(row) for row in result.scalars().all()]
 
-    async def list_locations(self) -> list[LocationTriple]:
-        """Distinct (parish, municipality, district) triples across all
-        ACTIVE rows. Triples with all-three-NULL are excluded so the
-        FE selector doesn't show empty regions."""
-        async with self._session_factory() as session:
-            query = (
-                select(
-                    PropertyListingModel.parish,
-                    PropertyListingModel.municipality,
-                    PropertyListingModel.district,
-                )
-                .where(PropertyListingModel.status == PropertyStatus.ACTIVE)
-                .where(
-                    (PropertyListingModel.parish.isnot(None))
-                    | (PropertyListingModel.municipality.isnot(None))
-                    | (PropertyListingModel.district.isnot(None))
-                )
-                .distinct()
-            )
-            result = await session.execute(query)
-            return [
-                LocationTriple(parish=p, municipality=m, district=d)
-                for (p, m, d) in result.all()
-            ]
+    # NOTE: `list_locations` was removed 2026-05-11 — /locations
+    # now reads from a static JSON catalog. See port docstring.
 
     # ──────────── Write side (listings worker handlers) ───────────────
 

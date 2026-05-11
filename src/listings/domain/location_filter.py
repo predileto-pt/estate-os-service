@@ -7,9 +7,8 @@ search route's 422 guard exists to make sure we never even construct
 this without a level set, but `__post_init__` is the last-line
 defense).
 
-Distinct from `LocationTriple` (DB-row triple, no invariant). See
-spec `2026-05-listing-semantic-search-read-path` §"Components to
-build" 4 / 4a.
+Spec `2026-05-listing-semantic-search-read-path` §"Components to
+build" #4.
 """
 
 from __future__ import annotations

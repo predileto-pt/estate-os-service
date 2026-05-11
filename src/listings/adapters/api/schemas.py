@@ -87,10 +87,19 @@ class DistrictNode(BaseModel):
     municipalities: list[MunicipalityNode]
 
 
+class CountryNode(BaseModel):
+    code: str
+    name: str
+    districts: list[DistrictNode]
+
+
 class LocationTreeResponse(BaseModel):
     """Response schema for `GET /api/v1/listings/locations`. Drives
-    the FE selector (district → municipality → parish). Derived
-    from populated rows in `property_listings` — regions with zero
-    active listings are excluded."""
+    the FE selector (country → district → municipality → parish).
 
-    districts: list[DistrictNode]
+    Served from a bundled JSON catalog
+    (`src/listings/static_data/locations.json`), NOT derived from
+    `property_listings`. The full geography renders from day one;
+    empty regions are still surfaced. Spec amended 2026-05-11."""
+
+    countries: list[CountryNode]
