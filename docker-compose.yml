@@ -1,3 +1,6 @@
+volumes:
+  localstack_data:
+
 services:
   localstack:
     image: localstack/localstack:latest
@@ -8,3 +11,4 @@ services:
       - DEFAULT_REGION=eu-west-1
     volumes:
       - "./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh"
+      - "localstack_data:/var/lib/localstack"
