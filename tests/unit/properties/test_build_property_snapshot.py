@@ -128,8 +128,16 @@ def test_snapshot_omits_pois_key_when_not_provided():
 
 def test_snapshot_includes_pois_lean_shape_when_provided():
     """When the caller passes POIs, the snapshot serializes them in the
-    lean shape `{category, name, distance_meters}` consumed by the
-    listings canonical-text composer."""
+    rich shape `{category, name, distance_meters, address,
+    image_urls, reviews}` consumed by the listings projection.
+
+    Rich fields (ADR-014 §13) — `address`, `image_urls`, `reviews` —
+    fall through from `PropertyPoi`. They surface as None/[] when
+    the POI's domain instance doesn't carry them. The lean fields
+    (the original three) remain in their original positions for
+    back-compat with any consumer that doesn't yet read the new keys.
+    See `tests/unit/properties/test_property_event_payload.py` for
+    the contract."""
     prop = _base_property()
     prop.bump_version()
     now = datetime.now(timezone.utc)
@@ -159,8 +167,22 @@ def test_snapshot_includes_pois_lean_shape_when_provided():
     ]
     payload = build_property_snapshot(prop, pois=pois)
     assert payload["pois"] == [
-        {"category": "school", "name": "Escola Internacional", "distance_meters": 234.0},
-        {"category": "grocery", "name": "Pingo Doce", "distance_meters": 412.5},
+        {
+            "category": "school",
+            "name": "Escola Internacional",
+            "distance_meters": 234.0,
+            "address": None,
+            "image_urls": [],
+            "reviews": None,
+        },
+        {
+            "category": "grocery",
+            "name": "Pingo Doce",
+            "distance_meters": 412.5,
+            "address": None,
+            "image_urls": [],
+            "reviews": None,
+        },
     ]
 
 

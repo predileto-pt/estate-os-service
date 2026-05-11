@@ -109,11 +109,21 @@ def build_property_snapshot(prop: Property, pois: list[PropertyPoi] | None = Non
         ],
     }
     if pois is not None:
+        # Rich POI fields (`address`, `image_urls`, `reviews`) added for
+        # the listings search read path (ADR-014 §13). The listings
+        # projector widens `ListingPoi` to absorb them; the matched-POI
+        # response surfaces the rich data on q-set search results. The
+        # three lean fields (category/name/distance_meters) remain the
+        # same — back-compat for any consumer that doesn't read the
+        # new keys.
         payload["pois"] = [
             {
                 "category": poi.category.value,
                 "name": poi.name,
                 "distance_meters": poi.distance_meters,
+                "address": poi.address,
+                "image_urls": list(poi.image_urls or []),
+                "reviews": poi.reviews,
             }
             for poi in pois
         ]
