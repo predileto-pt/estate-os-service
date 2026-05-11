@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-11
 **Status:** Draft
-**Relates to:** Refines ADR-013 before the search read path goes to production. ADR-013 phase 2 shipped behind a gate (`LISTINGS_SEARCH_ENABLED=false`); no production traffic. We're iterating on the search architecture in-place rather than running a parallel-namespace rollout, because there's no live system to keep callable. Replaces `QueryUnderstandingService` with `QueryExtractor`; bumps the vector-index metadata schema (`LISTING_INDEX_METADATA_V1` → `V2`); bumps the canonical-text version (`v2` → `v3`); expands the `VectorIndex` port surface with `exists` and `or`.
+**Relates to:** Refines ADR-013 before the search read path goes to production. ADR-013 phase 2 shipped behind a gate (`LISTINGS_SEARCH_ENABLED=false`); no production traffic. We're iterating on the search architecture in-place rather than running a parallel-namespace rollout, because there's no live system to keep callable. Replaces `QueryUnderstandingService` with `QueryExtractor`; introduces a **SQL pre-filter** that narrows the candidate set on `property_listings` before the vector query (replacing what would otherwise be a metadata-schema bump); bumps the canonical-text version (`v2` → `v3`). The `VectorIndex` port surface is unchanged.
 
 ## Context
 
@@ -42,69 +42,106 @@ The LLM extracts **only what the user explicitly mentioned**. Missing fields sta
 
 **Why not stay on text→text and let the embedder figure it out?** Three reasons. (a) Structured output is testable — a unit test asserts that "T3" extracts to `min_bedrooms=3` deterministically; "the rewriter produced a vibe-correct paraphrase" isn't. (b) Hard filters are cheap. (c) The LLM is more reliable at a constrained JSON output than at an open-ended canonicalization — the rewrite-v1 prompt has 8 lines of "don't do X" precisely because the model wanted to wander.
 
-### 2. Hybrid retrieval — soft-hard filters for deterministic facets, soft signal for the rest
+### 2. Hybrid retrieval — SQL pre-filter on `property_listings`, then vector search
 
-The vector query filter becomes the AND of three blocks:
+Rather than push deterministic-facet filtering down to Pinecone metadata (which would require duplicating the structural columns onto every vector and maintaining their consistency via the embedding handler's `update_metadata` path), the architecture **filters at the database first** and passes the resulting candidate IDs to Pinecone as a vector-ID filter.
+
+The flow:
 
 ```
-filter = AND(
-    # ADR-013 phase 2 filters (preserved as-is)
-    status = "active",
-    location filter (parish/municipality/district from the FE selector),
-    structured filters from the route params (listing_type, typology, price),
-
-    # NEW: ParsedQuery filters — emitted ONLY when the field is non-None.
-    # These are "soft-hard": rows missing the column entirely (NULL on
-    # the projection because the agent didn't record it) are INCLUDED
-    # and ranked at the bottom of the result page. Rows that have data
-    # but fail the criterion are excluded outright.
-    typology IN (parsed.typology, NULL)              // see §"NULL handling"
-    OR(num_of_bedrooms >= parsed.min_bedrooms, !exists(num_of_bedrooms))
-    OR(num_of_bathrooms >= parsed.min_bathrooms, !exists(num_of_bathrooms))
-    OR(area_in_m2 >= parsed.min_area_m2, !exists(area_in_m2))
-    OR(area_in_m2 <= parsed.max_area_m2, !exists(area_in_m2))
-    OR(price_eur >= parsed.min_price, !exists(price_eur))
-    OR(price_eur <= parsed.max_price, !exists(price_eur))
-    OR(has_pool = true, !exists(has_pool))           // when parsed.has_pool is True
-    OR(has_garden = true, !exists(has_garden))       // when parsed.has_garden is True
-    OR(has_elevator = true, !exists(has_elevator))   // when parsed.has_elevator is True
-    OR(has_parking = true, !exists(has_parking))     // when parsed.has_parking is True
-)
+GET /api/v1/listings/properties?q=…&parish=…
+   │
+   ▼
+ normalize_query  →  validate_location_for_search  →  QueryExtractor.extract  ⇒ parsed
+   │
+   ▼
+ ┌──────────────────────────────────────────┐
+ │  Run these two stages IN PARALLEL via    │
+ │  asyncio.gather:                         │
+ │                                          │
+ │  (a) SQL pre-filter on property_listings │
+ │      WHERE status='active'               │
+ │        AND <location clauses>            │
+ │        AND <route-param hard filters>    │
+ │        AND <ParsedQuery soft-hard        │
+ │             clauses, NULL-OR-IS-NULL>    │
+ │      LIMIT MAX_PRE_FILTER_CANDIDATES     │
+ │      (1000)                              │
+ │                                          │
+ │      → list[UUID] of candidate IDs       │
+ │                                          │
+ │  (b) embed(_render_query_for_embed(parsed))│
+ │      → list[float]                       │
+ └──────────────────────────────────────────┘
+   │
+   ▼
+ cardinality guard:
+   if len(candidates) <= MAX_VECTOR_ID_FILTER (1000):
+       matches = pinecone.query(
+           vector,
+           filter={"id": {"in": candidate_ids}, "status": {"eq": "active"}},
+           top_k=top_k,
+       )
+   elif len(candidates) > MAX_PRE_FILTER_CANDIDATES:
+       # Pre-filter hit the LIMIT — too broad to push the ID list
+       # down. Run Pinecone over the namespace and intersect after.
+       matches = pinecone.query(
+           vector,
+           filter={"status": {"eq": "active"}},
+           top_k=top_k * 4,   # overshoot to survive intersection
+       )
+       matches = [m for m in matches if m.id in set(candidates)][:top_k]
+   else:
+       # Same fall-through as the "too broad" arm for cardinalities
+       # in the gap. Logged at INFO for tuning.
+       …
+   │
+   ▼
+ list_by_ids hydrate (filters to status='active' at SQL — defense in depth)
+   │
+   ▼
+ _partition_and_rank: matched rows (every ParsedQuery criterion evaluable)
+                      first, partial-data rows (≥1 criterion NULL) second
+   │
+   ▼
+ paginate over the concatenation, compose response
 ```
 
-POI categories are **not** added as metadata filters — the `pois` list on `property_listings` is a JSONB list of `{category, name, distance_meters, address, image_urls, reviews}`, and turning that into N booleans on the vector metadata explodes the metadata size and the per-category cardinality. Instead, **POIs become a soft signal in the embedded query text** (see §3 — canonical text v3 NEARBY: line) AND drive a per-result match/unmatch enrichment of the response payload (see §8 — POI matching response shape).
+**Key implications:**
+
+- **Pinecone metadata stays at the ADR-013 v1 schema.** Only `status` (and `organization_id`, future-proofing for cross-org guards) is actually filterable on. Listing-type, typology, location, price, structural facets all live on `property_listings` instead. Net: ~7 fewer fields per vector, no `update_metadata` consistency window to manage.
+- **The `VectorIndex` port surface is unchanged** — no `or`, no `exists`. The filter sent to Pinecone is the simple AND of `status` + (optionally) `id.$in`. Adapters keep their existing operator set.
+- **POI categories are not filterable** — same as before. They drive the soft signal via the embedded query's `NEARBY:` line (see §3) and the matched/unmatched bucket on the response (see §8).
+- **The SQL pre-filter and the embedding call are independent** — `asyncio.gather` hides the SQL latency entirely on the happy path. Pinecone fires once the embed and the candidate list are both ready.
+
+POI categories are **not** added as filters anywhere — the `pois` list on `property_listings` is a JSONB list of `{category, name, distance_meters, address, image_urls, reviews}`. Filtering JSONB containment on every search adds DB cost for negligible recall benefit (the POI signal is fundamentally soft — "perto de escola" is a preference, not a hard exclusion). POIs drive the soft signal via canonical text v3 (§3) and the per-result match/unmatch enrichment of the response payload (§8).
 
 **Conflict resolution between route params and `ParsedQuery`:** the user's structured filters (FE form) take precedence over LLM-extracted ones for the same field, *except* when the route param is `None` and `ParsedQuery` has a value. Concrete rule: if a route param is set (e.g. `?typology=apartment`) and `ParsedQuery.typology` is also set (e.g. extracted "casa" from the query text), the route param wins. If the route param is None (e.g. the FE has no free-text price input), the `ParsedQuery` value applies. Rationale: form input is an explicit hard intent; extracted text is an inferred intent — and the user shouldn't have to fight their own form, but should benefit from the extractor when the form doesn't cover the dimension.
 
-### 2a. NULL handling — soft-hard filters via `OR(criterion, !exists(field))`
+### 2a. NULL handling — native SQL `IS NULL OR …`
 
-This is the architecturally load-bearing nuance. The structural fields on `property_listings` are *nullable* — agents may publish a listing without filling in `num_of_bedrooms` if they didn't bother. A strict `gte` filter excludes those rows. We want them **included at the bottom of the result page** so the user still sees them — they might be the right match, the data is just missing — but listings that confirmed they satisfy the criterion rank above listings whose match status is unknown.
+The structural fields on `property_listings` are *nullable* — agents may publish a listing without filling in `num_of_bedrooms`. A strict `gte` filter excludes those rows. We want them **included at the bottom of the result page** so the user still sees them — they might be the right match, the data is just missing — but listings that confirmed they satisfy the criterion rank above listings whose match status is unknown.
 
-Two-layer implementation:
+Because filtering happens in SQL, NULL handling is native and trivial. Each `ParsedQuery` clause is `(col IS NULL OR col >= value)`:
 
-1. **At the vector index**: each `gte`/`lte`/`eq` clause from `ParsedQuery` is wrapped in `OR(criterion, !exists(field))`. This requires expanding the `VectorIndex` port surface to include `or` composition + an `exists` operator. Pinecone supports both natively (`$or`, `$exists`); the in-memory adapter gains the same. The port doc updates accordingly.
+```sql
+WHERE status = 'active'
+  AND parish = $1                                  -- always-applied route filter
+  AND (num_of_bedrooms IS NULL OR num_of_bedrooms >= $2)   -- soft-hard
+  AND (has_pool IS NULL OR has_pool = true)
+  AND (price_eur IS NULL OR price_eur <= $3)
+  ...
+LIMIT MAX_PRE_FILTER_CANDIDATES
+```
 
-2. **At the use case post-hydrate**: `SearchListings._reorder_by_score` becomes `_reorder_by_match_then_score`. Rows are partitioned into two buckets:
-   - **Matched bucket** — every `ParsedQuery` criterion the row was tested against either passed or didn't apply (the criterion wasn't set). These rows rank by cosine, top first.
-   - **Partial-data bucket** — at least one `ParsedQuery` criterion couldn't be evaluated against the row because the underlying column was NULL. These rank by cosine *after* every matched row.
+No port-surface expansion, no `$or` / `$exists` translation in adapters, no metadata-schema bump — Postgres' query planner already handles this cleanly against the existing b-tree indexes on each filterable column.
 
-The partition key is computed at hydrate time by looking at the row's columns against the non-None fields on `ParsedQuery`. No second Pinecone query, no extra metadata-key dance — the data we need is already on the hydrated `PropertyListing`.
+**Application-side partition-and-rank** still happens after hydrate. The SQL pre-filter admits NULL-data rows into the candidate set; the use case sorts them to the bottom of the response page so they appear below confirmed matches:
 
-Pagination applies over the concatenation: matched rows first, partial-data rows second. `total` = `len(matched) + len(partial)` (mirroring v1's "Pinecone count survived ACTIVE hydrate" semantic).
+- **Matched bucket** — every `ParsedQuery` criterion the row was tested against either passed (non-NULL and satisfies) or didn't apply (the criterion wasn't set). These rank by cosine, top first.
+- **Partial-data bucket** — at least one `ParsedQuery` criterion couldn't be evaluated against the row because the underlying column was NULL. These rank by cosine *after* every matched row.
 
-This requires expanding the vector-index metadata schema to **`LISTING_INDEX_METADATA_V2`** (`embedding_handler._index_metadata`), adding the seven fields below to whatever v1 already carries (`listing_id`, `organization_id`, `parish`, `municipality`, `district`, `listing_type`, `typology`, `status`, `price_eur`):
-
-| New field | Source on `PropertyListing` | Filter operator(s) |
-|---|---|---|
-| `num_of_bedrooms` int | `num_of_bedrooms` | `gte` |
-| `num_of_bathrooms` int | `num_of_bathrooms` | `gte` |
-| `area_in_m2` int | `area_in_m2` | `gte` / `lte` |
-| `has_pool` bool | `has_pool` | `eq` |
-| `has_garden` bool | `has_garden` | `eq` |
-| `has_elevator` bool | `has_elevator` | `eq` |
-| `has_parking` bool | `parking_spaces is not None and parking_spaces > 0` | `eq` |
-
-Pinecone's metadata 40KB-per-vector cap is not a concern at this fanout — the schema stays well under 200 bytes per vector.
+Pagination applies over the concatenation: matched rows first, partial-data rows second. `total = len(matched) + len(partial)` (mirroring ADR-013 v1's "Pinecone count survived ACTIVE hydrate" semantic, but driven by the SQL+intersection result instead).
 
 ### 3. Canonical text v3 — sectional structure aligned with the extraction schema
 
@@ -148,28 +185,29 @@ Surface-form normalization happens **at extraction time** (the LLM is prompted w
 
 ### 6. Re-indexing strategy
 
-The canonical-text bump (`v2` → `v3`) invalidates every cached `embedding_text_hash` — the existing hash-dedup mechanism (ADR-013 §3) treats hashes as `(text_version, text)` tuples. The metadata schema bump (`V1` → `V2`) invalidates every indexed metadata payload — Pinecone's `update_metadata` would patch in place, but a fresh re-upsert is simpler and the embedding handler's hash mismatch triggers a full upsert anyway.
+The canonical-text bump (`v2` → `v3`) invalidates every cached `embedding_text_hash` — the existing hash-dedup mechanism (ADR-013 §3) treats hashes as `(text_version, text)` tuples. The vector-index metadata schema **does NOT bump** — it stays at ADR-013's V1 (`status`, `listing_id`, `organization_id`, …) and the structural facets stay where they always lived: on `property_listings`. That removes the consistency surface entirely; there's no `update_metadata` window during which Pinecone could disagree with SQL.
 
 **Because the search isn't in production, there's no parallel-namespace dance.** The plan is:
 
 1. Wipe the existing dev/staging vector namespace (nothing depends on it — search is gated off).
-2. Bump `LISTING_CANONICAL_TEXT_VERSION` to `v3` and `LISTING_INDEX_METADATA_VERSION` to `V2` in code. Same release.
-3. Run the existing `listings-canonical-text-backfill` spec mechanism: enqueue `PROPERTY_LISTING_UPDATED.v1` for every active listing. The handler re-renders v3, re-computes the hash, re-embeds, upserts into the (same) namespace with the new metadata schema.
+2. Bump `LISTING_CANONICAL_TEXT_VERSION` to `v3` in code. Same release as the SQL pre-filter + `QueryExtractor` wiring.
+3. Run the existing `listings-canonical-text-backfill` spec mechanism: enqueue `PROPERTY_LISTING_UPDATED.v1` for every active listing. The handler re-renders v3, re-computes the hash, re-embeds, upserts into the (same) namespace. Metadata payload is unchanged from ADR-013 V1 — the handler doesn't need to touch `_index_metadata`.
 4. Flip `LISTINGS_SEARCH_ENABLED=true` once the backfill drains and a manual query corpus passes.
 
-If we go to production *with* the search dark, then later decide to bump the schemas again, we'll need ADR-013's parallel-namespace pattern. For now, the system is malleable enough to refactor in place.
+If we go to production *with* the search dark, then later decide to bump the canonical text again, we'll need ADR-013's parallel-namespace pattern. For now, the system is malleable enough to refactor in place.
 
 ### 7. Latency budget
 
 | Stage | ADR-013 budget | This ADR's budget |
 |---|---|---|
 | Query understanding (LLM) | 300ms p95 (free-text rewrite) | 400ms p95 (structured output adds ~100ms) |
+| SQL pre-filter on `property_listings` | n/a | 30-50ms p95 (b-tree index lookups, parallel with embed) |
 | EmbeddingProvider.embed | 150ms p95 | 150ms p95 (unchanged) |
-| VectorIndex.query | 100ms p95 | 100ms p95 (richer filter but Pinecone's metadata filter is O(1) per clause) |
+| VectorIndex.query | 100ms p95 | 100ms p95 (smaller candidate set when ID filter applies, broader scan + post-intersection when it doesn't) |
 | DB hydrate | 50ms p95 | 50ms p95 |
 | **Total p95** | **600ms** | **700ms** |
 
-Still under the 800ms end-to-end target. The structured-output penalty is small because `gpt-4o-mini` constrained generation against a Pydantic schema is fast — the model writes JSON it already knew the shape of.
+Still under the 800ms end-to-end target. The structured-output penalty is small (gpt-4o-mini constrained generation against a Pydantic schema is fast — the model writes JSON it already knew the shape of), and the SQL pre-filter runs **in parallel with the embedding call** via `asyncio.gather`, so it doesn't add to the critical path on the happy path. The total grows by 100ms over ADR-013, all of it in the LLM layer.
 
 ### 8. Response shape — matched + unmatched POIs per result
 
@@ -207,30 +245,34 @@ Implications:
 
 ### 9. Iteration plan
 
-- **This ADR** — `QueryExtractor` + `LISTING_INDEX_METADATA_V2` + `LISTING_CANONICAL_TEXT_V3` + hybrid retrieval + matched/unmatched POI response.
+- **This ADR** — `QueryExtractor` + SQL pre-filter on `property_listings` + `LISTING_CANONICAL_TEXT_V3` + matched/unmatched POI response.
 - **Next (deferred)** — Cross-encoder re-ranker on top-50 → top-10 against the raw query (ADR-013 §6.7). Reach for this only when retrieval-quality data shows hybrid alone is insufficient.
 - **Later (deferred)** — Personalization (saved searches, history feedback into ranking), multi-signal scoring (recency, popularity), faceted result counts ("X listings in Cascais, Y in Estoril, …").
 
 ## Consequences
 
 **Positive:**
-- Deterministic facets are evaluated deterministically. A query mentioning "T3" excludes T1s instead of down-ranking them. Concretely: if a user says "casa T3 com piscina perto de escola", the result set is `WHERE typology='casa' AND num_of_bedrooms >= 3 AND has_pool = true`, then ANN-ranked by the soft "perto de escola" signal. No more T2-with-a-great-description outranking a less-described T3.
-- Sectional alignment between query and listing should lift top-k quality without paying for a re-ranker.
+- Deterministic facets are evaluated deterministically at the database. A query mentioning "T3" pre-filters `WHERE typology='casa' AND (num_of_bedrooms IS NULL OR num_of_bedrooms >= 3) AND (has_pool IS NULL OR has_pool = true)` before the vector query runs. The Pinecone ANN then ranks the (much smaller) candidate set on the soft "perto de escola" signal. No more T2-with-a-great-description outranking a less-described T3.
+- Single source of truth for structural filtering. The columns live on `property_listings`; we don't duplicate them onto every vector. Removes the consistency window (Pinecone metadata vs. SQL).
+- `VectorIndex` port surface unchanged. No `or`/`exists` to add; existing in-memory + Pinecone + (future) turbopuffer/Qdrant/Weaviate adapters portable as-is.
+- NULL semantics are SQL-native — one `IS NULL OR …` clause per soft-hard field, no orchestration cost.
+- Sectional alignment between query and listing (via canonical text v3) should lift top-k quality without paying for a re-ranker.
 - POI surface-form noise collapses onto a closed vocabulary.
 - Structured extraction is unit-testable in a way text-rewriting never was. "T3" → `min_bedrooms=3` is a falsifiable assertion against worked examples.
 - The route handler stays simple — the heavy lifting moves into a single replaceable use case (`SearchListings`, rewritten in place) behind a port.
 
 **Negative:**
-- Re-indexing every staged listing once. Free in dev; minor cost in staging. Mitigated by the backfill spec mechanism the canonical-text-backfill spec established.
+- Re-indexing every staged listing once (canonical-text v3 only). Free in dev; minor cost in staging. Mitigated by the backfill spec mechanism the canonical-text-backfill spec established.
 - Adds an LLM call surface that must be reliable enough to extract correctly under load. Mitigated by the same fail-open envelope ADR-013 established — extractor errors degrade to "empty `ParsedQuery`, embed the raw query as DESCRIPTION:".
-- The vector metadata size grows by ~7 fields per vector. Still well under Pinecone's 40KB cap.
-- Expanding the `VectorIndex` port surface with `or` + `exists` is more surface to keep adapter-portable. The in-memory adapter is trivial; future adapters (turbopuffer/Qdrant/Weaviate) MUST also support both operators. Documented as part of the port contract.
+- One extra DB round-trip per search request (the SQL pre-filter). Mitigated by running it in parallel with the embedding call via `asyncio.gather` — net latency impact ~0 on the happy path.
 - Widening `ListingPoi` from 3 fields to 6 grows the projection payload. Mitigated by the fact that the rich fields are already on the upstream snapshot (no new upstream work).
+- The cardinality guard (§2) is a real piece of orchestration logic with two arms. Each arm needs test coverage; the "broad mode + intersect" path overshoots Pinecone's `top_k` by a configurable factor to survive intersection.
 
 **Risks:**
 - Over-extraction. The LLM might pull `has_pool=true` from a query mentioning a pool *negatively* ("não preciso de piscina"). Mitigated by prompt design ("treat negation conservatively — return null, not false") + a regression test on a negation corpus.
 - Under-extraction. The LLM might miss "T3" and route the bedroom intent through cosine. Mitigated by extractor unit tests with worked examples; failures here degrade ranking but don't break correctness.
 - Soft-hard filters can confuse users. A T2 with NULL `num_of_bedrooms` will appear (at the bottom) in a "T3" search — surprising if the user expected strict exclusion. Acceptable trade-off because the alternative (excluding NULL outright) is worse: missing-data listings would never surface in any structured search until an agent backfilled the column.
+- The SQL pre-filter cardinality cliff at scale. If a popular area returns >`MAX_PRE_FILTER_CANDIDATES` matching IDs, the cardinality guard falls back to broad-mode (search whole namespace, intersect after). At very large catalog scales this could degrade — but at our v1 fanout (~thousands of listings) we expect candidate sets in the dozens-to-hundreds. Tunable via the constant.
 
 ## Sources
 
