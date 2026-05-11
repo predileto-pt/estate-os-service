@@ -1,6 +1,6 @@
 # Listing search — structured query extraction + hybrid retrieval (ADR-014)
 
-**Status:** draft (review pending)
+**Status:** in-progress (review-1 cleared 2026-05-11; ready to implement)
 **Owner:** Peter
 **Created:** 2026-05-11
 **ADR:** [014-structured-query-extraction-and-hybrid-retrieval](../../docs/adr/014-structured-query-extraction-and-hybrid-retrieval.md)
@@ -13,7 +13,7 @@ Concretely: a query *"casa T3 com piscina perto de escola"* today gets embedded 
 
 1. Extracts to `ParsedQuery(typology=HOUSE, min_bedrooms=3, has_pool=True, nearby_pois=(SCHOOL,))`.
 2. In parallel: (a) SQL pre-filter on `property_listings` returns matching IDs (`WHERE typology='house' AND (num_of_bedrooms IS NULL OR num_of_bedrooms >= 3) AND (has_pool IS NULL OR has_pool = true) AND parish='Cascais' AND status='active' LIMIT 1000`); (b) the residue is embedded as a sectional canonical-text-v3-shaped string.
-3. Pinecone ANN runs with `filter={"id": {"in": candidate_ids}, "status": "active"}` — cosine-ranks only the candidates. Cardinality guard handles the rare "pre-filter too broad" case (see Approach).
+3. Pinecone ANN runs with `filter=AND(status="active", listing_id IN candidate_ids)` — cosine-ranks only the candidates. (Pinecone's `id` field isn't metadata-filterable, but the embedding handler already writes `listing_id` into the metadata payload — we filter on that instead.) Cardinality guard handles the rare "pre-filter too broad" case (see Approach).
 4. Hydrate via `list_by_ids`. Partition matched/partial-data rows. Sort by score within each, concatenate.
 5. Return matched POIs (the listing's `school` POI with full data — name, distance, address, image_urls, reviews) and unmatched POIs (categories the user asked for that this listing doesn't have nearby).
 
@@ -23,9 +23,9 @@ Concretely: a query *"casa T3 com piscina perto de escola"* today gets embedded 
 
 1. **Extract**: LLM parses the query into `ParsedQuery`. Fail-open on extractor error → `ParsedQuery(free_text_remainder=query)`.
 2. **Parallel** (`asyncio.gather`):
-   - **SQL pre-filter** on `property_listings`: AND of always-applied filters (`status='active'` + location), route-param hard filters (listing_type, typology, price), and `ParsedQuery` soft-hard filters (each as `(col IS NULL OR col <op> value)`). Returns up to `MAX_PRE_FILTER_CANDIDATES` (default 1000) matching IDs.
+   - **SQL pre-filter** on `property_listings`: AND of always-applied filters (`status='active'` + location), route-param hard filters (listing_type, typology, price), and `ParsedQuery` soft-hard filters (each as `(col IS NULL OR col <op> value)`). Returns up to `SEARCH_MAX_PRE_FILTER_CANDIDATES` (default 1000) matching IDs.
    - **Embed** the canonical-text-v3-shaped render of `ParsedQuery`.
-3. **Cardinality guard + ANN**: when `|candidates| ≤ MAX_VECTOR_ID_FILTER` (default 1000), Pinecone query with `filter={"id": {"in": candidates}, "status": "active"}`. When `|candidates|` saturated the SQL LIMIT (pre-filter was too broad), Pinecone query with `filter={"status": "active"}, top_k=top_k * 4` then post-intersect with the candidate set.
+3. **Cardinality guard + ANN**: when `|candidates| < SEARCH_MAX_PRE_FILTER_CANDIDATES` (i.e. the SQL `LIMIT` didn't saturate), Pinecone query with `filter={"and": [{"status": {"eq": "active"}}, {"listing_id": {"in": candidates}}]}`. When the LIMIT saturated (pre-filter was too broad), Pinecone query with `filter={"status": {"eq": "active"}}, top_k=top_k * SEARCH_BROAD_MODE_OVERSHOOT` then post-intersect with the candidate set.
 4. **Hydrate**: `list_by_ids` (unchanged). Partition rows into matched / partial-data buckets. Sort by score within each. Concatenate.
 5. **Respond**: `ListedPropertyResponse` gains `matched_pois: list[POIResponse]` and `unmatched_pois: list[str]` (categories) — only when `q` was set.
 
@@ -192,16 +192,38 @@ Internals:
 
 1. **Extract.** Fail-open: `ParsedQuery(free_text_remainder=query)` on exception.
 2. **Render** `ParsedQuery` as the canonical-text-v3-shaped embed string via `_render_query_for_embed`.
-3. **Parallel stage** (`asyncio.gather`):
-   - **SQL pre-filter** via `PropertyListingRepository.list_ids_for_search(parsed, location, route_filters, limit=MAX_PRE_FILTER_CANDIDATES)`. Returns up to 1000 candidate IDs. Each soft-hard clause is `(col IS NULL OR col <op> value)`; route-param hard filters are exact-match. Fail-open on SQL error → empty candidate list (the cardinality guard's broad-mode branch covers this).
-   - **Embed** the render. Fail-open to `_relational_fallback` on embedder error.
-4. **Cardinality guard + ANN** (§8 below). One Pinecone call.
+3. **Parallel stage** — `asyncio.gather(..., return_exceptions=True)`. **The `return_exceptions=True` is load-bearing**: default `gather` re-raises the first exception, which would defeat the per-stage fail-open envelope.
+
+   ```python
+   candidates_or_err, vector_or_err = await asyncio.gather(
+       self._repo.list_ids_for_search(
+           location=location,
+           route_filters=filters,
+           parsed=parsed,
+           limit=self._max_pre_filter_candidates,
+       ),
+       self._embedding_provider.embed(embed_text),
+       return_exceptions=True,
+   )
+   if isinstance(candidates_or_err, Exception):
+       log.exception("search_listings.sql_prefilter_failed", query=query)
+       candidates, saturated = [], True   # broad-mode falls through
+   else:
+       candidates = candidates_or_err
+       saturated = len(candidates) >= self._max_pre_filter_candidates
+   if isinstance(vector_or_err, Exception):
+       log.exception("search_listings.embed_failed", query=query)
+       return await self._relational_fallback(location, filters)
+   vector = vector_or_err
+   ```
+
+4. **Cardinality guard + ANN** (§8 below). One Pinecone call. Fail-open: vector-index exceptions trigger `_relational_fallback` (same as ADR-013 v1).
 5. **Hydrate** via `list_by_ids` (filters `status='active'` at SQL — defense in depth).
 6. **`_partition_and_rank`** (replaces `_reorder_by_score`): rows where every set `ParsedQuery` criterion was evaluable against non-NULL columns → matched bucket. Rows where ≥1 criterion couldn't be evaluated (NULL on the column) → partial bucket. Each bucket ranked by cosine. Concatenate.
 7. Paginate over the concatenation.
 8. Return `(rows, total, parsed)`.
 
-The route handler (§13) updates its call site to unpack the new 3-tuple.
+The route handler (§12) updates its call site to unpack the new 3-tuple.
 
 #### 7. `_render_query_for_embed` helper
 
@@ -262,13 +284,17 @@ async def list_ids_for_search(
 
     Applies status='active' + location + route-param hard filters
     + ParsedQuery soft-hard filters (each as `col IS NULL OR
-    col <op> value`) and returns up to `limit` matching IDs. The
-    caller's cardinality guard interprets a saturated result
-    (`len == limit`) as "too broad to push down" and falls back
-    to a broad-mode Pinecone query.
+    col <op> value`) and returns up to `limit` matching IDs.
 
-    Order is unspecified — the caller re-ranks by vector score
-    and partition (matched vs partial-data).
+    **Saturation contract**: a result with `len == limit` is the
+    caller's signal that the SQL filter was too broad to push down
+    to the vector index. The caller's cardinality guard reads this
+    as "fall back to a broad-mode Pinecone query + post-intersect"
+    rather than passing the (large) ID list as a Pinecone filter
+    argument.
+
+    Order is unspecified — the caller re-ranks by vector score and
+    partition (matched vs partial-data).
     """
 ```
 
@@ -288,15 +314,24 @@ async def list_ids_for_search(self, *, location, route_filters, parsed, limit):
         if location.district:
             q = q.where(PropertyListingModel.district == location.district)
 
-        # Route-param HARD filters (FE form) — conflict resolution: route wins.
-        eff_typology = route_filters.typology or parsed.typology
+        # Route-param HARD filters (FE form) — conflict resolution: route
+        # wins WHEN SET. Use `is not None` to avoid falsy-trap on Decimal('0')
+        # or int(0) — `route_filters.min_price or parsed.min_price` collapses
+        # an explicit ?min_price=0 to the extractor's value.
+        eff_typology = (
+            route_filters.typology if route_filters.typology is not None else parsed.typology
+        )
         if eff_typology is not None:
             q = q.where(PropertyListingModel.typology == eff_typology.value)
         if route_filters.listing_type is not None:
             q = q.where(PropertyListingModel.listing_type == route_filters.listing_type.value)
 
-        eff_min_price = route_filters.min_price or parsed.min_price
-        eff_max_price = route_filters.max_price or parsed.max_price
+        eff_min_price = (
+            route_filters.min_price if route_filters.min_price is not None else parsed.min_price
+        )
+        eff_max_price = (
+            route_filters.max_price if route_filters.max_price is not None else parsed.max_price
+        )
         if eff_min_price is not None:
             q = q.where(
                 or_(
@@ -349,26 +384,31 @@ async def _run_vector_query(
     cardinality_saturated: bool,
 ) -> list[VectorMatch]:
     if cardinality_saturated:
-        # SQL pre-filter hit the LIMIT (1000). Don't bother filtering
-        # at Pinecone — over-broad ID lists hurt more than they help.
-        # Run broad over the namespace, intersect after.
+        # SQL pre-filter hit the LIMIT (SEARCH_MAX_PRE_FILTER_CANDIDATES).
+        # Don't bother filtering at Pinecone — over-broad ID lists hurt
+        # more than they help. Run broad over the namespace, intersect
+        # after.
         log.info("search.broad_mode", reason="prefilter_saturated")
         matches = await self._vector_index.query(
             vector=vector,
             filter={"status": {"eq": PropertyStatus.ACTIVE.value}},
-            top_k=self._top_k * BROAD_MODE_OVERSHOOT,  # default 4×
+            top_k=self._top_k * self._broad_mode_overshoot,
             namespace=self._namespace,
         )
         candidate_set = set(str(c) for c in candidates)
         return [m for m in matches if m.id in candidate_set][: self._top_k]
     elif candidates:
         # Normal mode: push the candidate IDs into the Pinecone filter.
+        # NB: filter on `listing_id` (a metadata field the embedding
+        # handler writes — see embedding_handler._index_metadata), NOT
+        # on `id` — Pinecone's vector ID is first-class and not
+        # filterable through `filter=`.
         return await self._vector_index.query(
             vector=vector,
             filter={
                 "and": [
                     {"status": {"eq": PropertyStatus.ACTIVE.value}},
-                    {"id": {"in": [str(c) for c in candidates]}},
+                    {"listing_id": {"in": [str(c) for c in candidates]}},
                 ]
             },
             top_k=self._top_k,
@@ -380,9 +420,9 @@ async def _run_vector_query(
         return []
 ```
 
-Note: Pinecone supports `$in` on the `id` field as part of the metadata filter. The `VectorIndex` port surface ALREADY supports `in` from ADR-013 (`{"municipality": {"in": [...]}}` is a documented example). No port-surface expansion needed.
+The `VectorIndex` port surface ALREADY supports `in` from ADR-013 (`{"municipality": {"in": [...]}}` is a documented example in `src/listings/domain/vector.py`). The metadata field name `listing_id` is set by phase 1's embedding handler (verified at `src/listings/adapters/workers/embedding_handler.py:139` — `"listing_id": str(row.id)`).
 
-`MAX_PRE_FILTER_CANDIDATES` and `BROAD_MODE_OVERSHOOT` are settings (`SEARCH_MAX_PRE_FILTER_CANDIDATES=1000`, `SEARCH_BROAD_MODE_OVERSHOOT=4`).
+Settings: `SEARCH_MAX_PRE_FILTER_CANDIDATES=1000`, `SEARCH_BROAD_MODE_OVERSHOOT=4`.
 
 #### 9. Canonical text v3 composer
 
@@ -400,19 +440,15 @@ PRICE: <min_price> EUR
 
 Sections are absent when the underlying data is. NEARBY: uses **the closed `PoiCategory` value strings**, NOT the PT surface form. Distance rounded to the nearest 100m (stability — avoids hash churn on minor POI distance updates).
 
-Drop `render_v2` and the `LISTING_CANONICAL_TEXT_VERSION="v2"` setting once v3 is wired. No parallel versions in code — we re-index dev/staging once and v2 is gone.
+`render_v2` is deleted in the same change — no parallel versions in code. We re-index dev/staging once and v2 is gone. The handler unconditionally calls `render_v3`. The `LISTING_CANONICAL_TEXT_VERSION` constant lives in code (a module-level `"v3"` string) and is embedded into the hash tuple (ADR-013 §3) so a future v3→v4 bump can still distinguish old/new hashes.
 
 #### 10. Embedding-handler metadata — unchanged
 
 `embedding_handler._index_metadata` stays at ADR-013's V1 schema (`listing_id`, `organization_id`, `parish`, `municipality`, `district`, `listing_type`, `typology`, `status`, `price_eur`). No new fields. The structural facets (`num_of_bedrooms`, `has_pool`, etc.) live on `property_listings` and are filtered there via SQL pre-filter, not duplicated onto Pinecone metadata.
 
-The handler-side change in this spec is **canonical-text v3 routing only** (see §11).
+The handler-side change in this spec is **switching the composer call from `render_v2` to `render_v3`**. One line.
 
-#### 11. Embedding handler — canonical-text-version routing
-
-The handler reads `settings.canonical_text_version` and calls the matching composer. Single line change; the existing handler structure is preserved.
-
-#### 12. `_partition_and_rank` — replaces `_reorder_by_score`
+#### 11. `_partition_and_rank` — replaces `_reorder_by_score`
 
 ```python
 @staticmethod
@@ -464,7 +500,7 @@ def _has_unevaluable_criterion(row: PropertyListing, parsed: ParsedQuery) -> boo
     return False
 ```
 
-#### 13. Route handler — matched/unmatched POI composition
+#### 12. Route handler — matched/unmatched POI composition
 
 `src/listings/adapters/api/routes/listings.py` updates the `list_properties` handler. After `search_listings.execute(...)` returns `(rows, total, parsed)`:
 
@@ -514,7 +550,7 @@ def _to_response_with_pois(
 
 The structured-filter (q-empty) path keeps using the existing `_to_response` (no POI fields on the response — they're absent / null, see schema below).
 
-#### 14. Widen `ListingPoi` + projection
+#### 13. Widen `ListingPoi` + projection
 
 Current shape: `{category, name, distance_meters}`. New shape mirrors the rich `PropertyPoi` fields:
 
@@ -531,9 +567,9 @@ class ListingPoi:
 
 The projector (`_event_to_row` in `inmemory_property_listing_repo.py` and `property_listing_repository.py`) reads the new fields from the upstream POI snapshot payload — properties already carries them since the `2026-05-poi-rich-metadata` spec. No upstream change required.
 
-Migration: a single Alembic migration to widen `property_listings.pois` (it's already a JSONB column — no schema migration needed at the column level; the projector starts writing the new fields and existing rows get refreshed on the next `PROPERTY_UPDATED.v1`).
+**No Alembic migration.** `property_listings.pois` is already a JSONB column and absorbs the new fields without DDL. Existing rows refresh on the next `PROPERTY_UPDATED.v1`. The canonical-text v3 backfill (§Rollout) will also touch every active row and write the new POI shape as a side effect.
 
-#### 15. Response schemas
+#### 14. Response schemas
 
 `src/listings/adapters/api/schemas.py` adds:
 
@@ -553,9 +589,20 @@ class ListedPropertyResponse(BaseModel):
     unmatched_pois: list[str] | None = None
 ```
 
-Both fields default to `None` (omitted from JSON via `model_dump(exclude_none=True)`). When `q` is empty, neither field is set; when `q` is set, both are present (possibly as empty lists if the listing has no POIs in the requested categories and the user requested no categories).
+Both fields default to `None`. To get the "absent from JSON when `q` is empty" behavior, the route decorator MUST set `response_model_exclude_none=True`:
 
-#### 16. Container wiring
+```python
+@router.get(
+    "/properties",
+    response_model=PaginatedListingResponse,
+    response_model_exclude_none=True,   # ← new
+    ...
+)
+```
+
+Without this flag FastAPI serializes the fields as `null` in JSON. With it, the keys are omitted entirely when the value is `None`. When `q` is set, the route handler populates both fields (possibly as empty lists if the listing has no POIs in the requested categories) and they appear in the response.
+
+#### 15. Container wiring
 
 Container ctor signature changes:
 - `query_understanding_service` → `query_extractor: QueryExtractor | None = None`.
@@ -563,7 +610,7 @@ Container ctor signature changes:
 
 The conftest `listing_container` fixture and the bootstrap function update accordingly.
 
-#### 17. Bootstrap
+#### 16. Bootstrap
 
 `src/shared/entrypoints/bootstrap.py`:
 
@@ -676,8 +723,8 @@ Each criterion phrases an **externally observable** behavior.
 - [ ] "perto de escola" soft-signal: ranks `NEARBY: school@…` listings above silent ones but doesn't exclude (POIs aren't in the pre-filter).
 - [ ] Conflict resolution: `?typology=apartment` + extracted "casa" → SQL pre-filter uses `typology='apartment'`. Asserted at the unit level by inspecting the SQLAlchemy stmt or the in-memory filter call.
 - [ ] `parsed.min_price` applies when route param `min_price` is None.
-- [ ] Cardinality guard: when SQL returns `>= MAX_PRE_FILTER_CANDIDATES`, the use case runs Pinecone in broad mode and intersects with the candidate set. Integration test seeds 1100 low-selectivity rows and asserts the response still returns the top-k correctly.
-- [ ] SQL pre-filter + embed run in parallel via `asyncio.gather`. Unit test asserts the two awaitables are awaited concurrently (e.g., via a slow stub that records call timing).
+- [ ] Cardinality guard: when SQL returns `>= SEARCH_MAX_PRE_FILTER_CANDIDATES`, the use case runs Pinecone in broad mode and intersects with the candidate set. Integration test seeds 1100 low-selectivity rows and asserts the response still returns the top-k correctly.
+- [ ] SQL pre-filter + embed run in parallel via `asyncio.gather`. Unit test pins this deterministically (no timing math): the embed stub `await`s an `asyncio.Event` that's set by the SQL stub before the SQL stub returns. If `gather` runs the two coroutines sequentially, embed deadlocks; the test wraps `execute()` in `asyncio.wait_for(..., timeout=1.0)` so non-parallel implementations fail loudly with `TimeoutError`.
 
 ### Canonical text v3
 - [ ] Composer renders a representative listing as the sectional layout in §"Canonical text v3 composer".
@@ -686,8 +733,9 @@ Each criterion phrases an **externally observable** behavior.
 ### Response shape
 - [ ] `q` set + listing has `school` POI → response includes `matched_pois=[{category: "school", name, distance_meters, address, image_urls, reviews}]` and `unmatched_pois=[]`.
 - [ ] `q` set + user asked for `gym` + listing has no gym POI → response includes `unmatched_pois=["gym"]`.
-- [ ] `q` empty → response has neither `matched_pois` nor `unmatched_pois` (omitted by `exclude_none`).
+- [ ] `q` empty → response has neither `matched_pois` nor `unmatched_pois` (omitted via `response_model_exclude_none=True` on the route decorator).
 - [ ] `ListedPropertyResponse` backwards-compatible with the v1 contract for q-empty calls — all existing ADR-013 phase 2 integration tests pass.
+- [ ] Multiple matches per category: when a listing has 3 schools in `prop.pois` and the user asks for `SCHOOL`, all 3 surface in `matched_pois` (no dedup to nearest). Order is ascending by `distance_meters`, matching the order the canonical-text composer renders POIs in `NEARBY:`. Asserted by seeding a listing with 3 schools at 200m / 800m / 1500m and checking `[p.distance_meters for p in response.matched_pois] == [200, 800, 1500]`.
 
 ### Hygiene
 - [ ] `ruff check` clean, full suite green.
