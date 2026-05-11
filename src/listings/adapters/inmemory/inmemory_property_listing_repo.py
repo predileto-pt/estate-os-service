@@ -18,6 +18,7 @@ from listings.application.ports.repositories.property_listing_repository import 
 )
 from listings.domain.location_filter import LocationFilter
 from listings.domain.models import ListingType, PropertyStatus, Typology
+from listings.domain.pagination import ListCursor
 from listings.domain.parsed_query import ParsedQuery
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import (
@@ -74,6 +75,25 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
 
     async def count_active(self, filters: PropertyFilters) -> int:
         return len(self._matched_rows(filters))
+
+    async def list_active_keyset(
+        self,
+        *,
+        filters: PropertyFilters,
+        cursor: ListCursor | None,
+        limit: int,
+    ) -> tuple[list[PropertyListing], bool]:
+        rows = self._matched_rows(filters)
+        if cursor is not None:
+            # Mirror the SQL: strictly past the cursor position in
+            # (created_at DESC, id DESC) order.
+            rows = [
+                r for r in rows
+                if (r.created_at, str(r.id)) < (cursor.created_at, str(cursor.id))
+            ]
+        page = rows[: limit + 1]
+        has_more = len(page) > limit
+        return page[:limit], has_more
 
     async def list_active_for_organization(
         self, organization_id: UUID, filters: PropertyFilters

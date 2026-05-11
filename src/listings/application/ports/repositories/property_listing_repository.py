@@ -31,6 +31,7 @@ from uuid import UUID
 
 from listings.application.ports.address_searcher import ParsedAddress
 from listings.domain.location_filter import LocationFilter
+from listings.domain.pagination import ListCursor
 from listings.domain.parsed_query import ParsedQuery
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import PropertyListing
@@ -51,6 +52,30 @@ class PropertyListingRepository(ABC):
     @abstractmethod
     async def count_active(self, filters: PropertyFilters) -> int:
         """Count of `list_active` matches before limit/offset."""
+
+    @abstractmethod
+    async def list_active_keyset(
+        self,
+        *,
+        filters: PropertyFilters,
+        cursor: ListCursor | None,
+        limit: int,
+    ) -> tuple[list[PropertyListing], bool]:
+        """Cursor-paginated variant of `list_active` for the public
+        listings endpoint.
+
+        Returns up to `limit` rows ordered by `created_at DESC, id
+        DESC`, plus a `has_more` flag the caller uses to mint the
+        next cursor. When `cursor` is None the head page is returned;
+        otherwise rows strictly after the cursor position are
+        returned. `filters.limit` / `filters.offset` are **ignored**
+        on this path — pagination uses the keyset comparison only.
+
+        Implementation note: fetches `limit + 1` rows internally and
+        keeps `limit`; the extra row's presence is what sets
+        `has_more = True`. The use case owns next-cursor construction
+        because it owns `fp` (the repo doesn't see the fingerprint).
+        """
 
     @abstractmethod
     async def list_active_for_organization(

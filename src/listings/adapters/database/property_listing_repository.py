@@ -24,7 +24,7 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from listings.adapters.database.property_listing_model import PropertyListingModel
@@ -34,6 +34,7 @@ from listings.application.ports.repositories.property_listing_repository import 
 )
 from listings.domain.location_filter import LocationFilter
 from listings.domain.models import ListingType, PropertyStatus, Typology
+from listings.domain.pagination import ListCursor
 from listings.domain.parsed_query import ParsedQuery
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import (
@@ -170,6 +171,46 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             )
             result = await session.execute(query)
             return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def list_active_keyset(
+        self,
+        *,
+        filters: PropertyFilters,
+        cursor: ListCursor | None,
+        limit: int,
+    ) -> tuple[list[PropertyListing], bool]:
+        async with self._session_factory() as session:
+            query = self._build_active_query(filters)
+            if cursor is not None:
+                # Row-value tuple comparison expressed via OR-expansion
+                # rather than sqlalchemy.tuple_ — `tuple_(...) <
+                # tuple_(...)` has historically been flaky over asyncpg.
+                # The optimizer recognizes this form against the
+                # existing `(status, created_at, id)` composite index
+                # just as well.
+                query = query.where(
+                    or_(
+                        PropertyListingModel.created_at < cursor.created_at,
+                        and_(
+                            PropertyListingModel.created_at == cursor.created_at,
+                            PropertyListingModel.id < str(cursor.id),
+                        ),
+                    )
+                )
+            query = (
+                query
+                .order_by(
+                    PropertyListingModel.created_at.desc(),
+                    PropertyListingModel.id.desc(),
+                )
+                .limit(limit + 1)
+            )
+            result = await session.execute(query)
+            rows = list(result.scalars().all())
+
+        has_more = len(rows) > limit
+        items = [self._to_domain(row) for row in rows[:limit]]
+        return items, has_more
 
     async def count_active(self, filters: PropertyFilters) -> int:
         async with self._session_factory() as session:
