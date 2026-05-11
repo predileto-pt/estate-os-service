@@ -242,3 +242,114 @@ async def test_get_by_id_returns_none_for_unknown(repo):
     from uuid import UUID
 
     assert await repo.get_by_id(UUID(str(uuid4()))) is None
+
+
+# ──────────── Search read path (hydrate + /locations) ────────────
+
+
+async def _seed(repo, *, pid: str, status: str = "active", **kw):
+    """Seed a row, then optionally enrich its location."""
+    parish = kw.pop("parish", None)
+    municipality = kw.pop("municipality", None)
+    district = kw.pop("district", None)
+    await repo.upsert_from_event(
+        event_data=_event(id_=pid, status=status, **kw),
+        source_occurred_at=datetime.now(timezone.utc),
+    )
+    if any(v is not None for v in (parish, municipality, district)):
+        from listings.application.ports.address_searcher import ParsedAddress
+        from uuid import UUID as _UUID
+
+        await repo.update_location(
+            property_id=_UUID(pid),
+            parsed=ParsedAddress(
+                country="Portugal",
+                parish=parish,
+                municipality=municipality,
+                district=district,
+            ),
+        )
+
+
+class TestListByIds:
+    async def test_returns_active_rows_matching_ids(self, repo):
+        from uuid import UUID
+
+        a, b, c = str(uuid4()), str(uuid4()), str(uuid4())
+        await _seed(repo, pid=a)
+        await _seed(repo, pid=b)
+        await _seed(repo, pid=c)
+        rows = await repo.list_by_ids([UUID(a), UUID(c)])
+        assert {str(r.id) for r in rows} == {a, c}
+
+    async def test_excludes_non_active_rows(self, repo):
+        from uuid import UUID
+
+        active_id = str(uuid4())
+        draft_id = str(uuid4())
+        await _seed(repo, pid=active_id, status="active")
+        await _seed(repo, pid=draft_id, status="draft")
+        rows = await repo.list_by_ids([UUID(active_id), UUID(draft_id)])
+        assert {str(r.id) for r in rows} == {active_id}
+
+    async def test_empty_ids_short_circuits(self, repo):
+        assert await repo.list_by_ids([]) == []
+
+    async def test_unknown_ids_return_empty(self, repo):
+        from uuid import UUID
+
+        assert await repo.list_by_ids([UUID(str(uuid4()))]) == []
+
+
+class TestListLocations:
+    async def test_distinct_triples_from_enriched_rows(self, repo):
+        for parish, municipality, district in [
+            ("Cascais", "Cascais", "Lisboa"),
+            ("Cascais", "Cascais", "Lisboa"),  # duplicate
+            ("Estoril", "Cascais", "Lisboa"),
+            ("Belém", "Lisboa", "Lisboa"),
+        ]:
+            await _seed(
+                repo,
+                pid=str(uuid4()),
+                parish=parish,
+                municipality=municipality,
+                district=district,
+            )
+        triples = await repo.list_locations()
+        # Three distinct triples; ordering is unspecified.
+        as_tuples = {(t.parish, t.municipality, t.district) for t in triples}
+        assert as_tuples == {
+            ("Cascais", "Cascais", "Lisboa"),
+            ("Estoril", "Cascais", "Lisboa"),
+            ("Belém", "Lisboa", "Lisboa"),
+        }
+
+    async def test_excludes_rows_with_no_location_columns(self, repo):
+        # No enrichment → all three columns are None → excluded.
+        await _seed(repo, pid=str(uuid4()))
+        await _seed(
+            repo,
+            pid=str(uuid4()),
+            parish="Cascais",
+            municipality="Cascais",
+            district="Lisboa",
+        )
+        triples = await repo.list_locations()
+        assert {(t.parish, t.municipality, t.district) for t in triples} == {
+            ("Cascais", "Cascais", "Lisboa")
+        }
+
+    async def test_excludes_non_active_rows(self, repo):
+        await _seed(
+            repo,
+            pid=str(uuid4()),
+            status="draft",
+            parish="Cascais",
+            municipality="Cascais",
+            district="Lisboa",
+        )
+        assert await repo.list_locations() == []
+
+    async def test_empty_repo_returns_empty(self, repo):
+        assert await repo.list_locations() == []

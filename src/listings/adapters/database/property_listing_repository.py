@@ -32,6 +32,7 @@ from listings.application.ports.address_searcher import ParsedAddress
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
+from listings.domain.location_triple import LocationTriple
 from listings.domain.models import ListingType, PropertyStatus, Typology
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import (
@@ -197,6 +198,46 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             count_query = select(func.count()).select_from(query.subquery())
             result = await session.execute(count_query)
             return result.scalar_one()
+
+    # ──────────── Search read path (hydrate + /locations) ────────────
+
+    async def list_by_ids(self, ids: list[UUID]) -> list[PropertyListing]:
+        """Bulk-fetch active rows by id. Order unspecified — caller
+        re-sorts by vector score. Empty `ids` short-circuits."""
+        if not ids:
+            return []
+        async with self._session_factory() as session:
+            query = select(PropertyListingModel).where(
+                PropertyListingModel.id.in_([str(i) for i in ids]),
+                PropertyListingModel.status == PropertyStatus.ACTIVE,
+            )
+            result = await session.execute(query)
+            return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def list_locations(self) -> list[LocationTriple]:
+        """Distinct (parish, municipality, district) triples across all
+        ACTIVE rows. Triples with all-three-NULL are excluded so the
+        FE selector doesn't show empty regions."""
+        async with self._session_factory() as session:
+            query = (
+                select(
+                    PropertyListingModel.parish,
+                    PropertyListingModel.municipality,
+                    PropertyListingModel.district,
+                )
+                .where(PropertyListingModel.status == PropertyStatus.ACTIVE)
+                .where(
+                    (PropertyListingModel.parish.isnot(None))
+                    | (PropertyListingModel.municipality.isnot(None))
+                    | (PropertyListingModel.district.isnot(None))
+                )
+                .distinct()
+            )
+            result = await session.execute(query)
+            return [
+                LocationTriple(parish=p, municipality=m, district=d)
+                for (p, m, d) in result.all()
+            ]
 
     # ──────────── Write side (listings worker handlers) ───────────────
 

@@ -30,6 +30,7 @@ from datetime import datetime
 from uuid import UUID
 
 from listings.application.ports.address_searcher import ParsedAddress
+from listings.domain.location_triple import LocationTriple
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import PropertyListing
 
@@ -61,6 +62,40 @@ class PropertyListingRepository(ABC):
     async def count_active_for_organization(
         self, organization_id: UUID, filters: PropertyFilters
     ) -> int: ...
+
+    # ──────────── Search read path (hydrate + /locations) ────────────
+
+    @abstractmethod
+    async def list_by_ids(self, ids: list[UUID]) -> list[PropertyListing]:
+        """Bulk-fetch active rows by id, for the search hydrate step.
+
+        **Order is unspecified** — both adapters return rows in
+        storage order (Postgres' `WHERE id = ANY(:ids)` does NOT
+        preserve input-array order). The calling use case
+        (`SearchListings`) re-sorts by vector-index score; never
+        rely on input-id order being preserved.
+
+        **Filters to `status='active'` at the SQL level** — defense in
+        depth on top of the vector-index `status` metadata filter, so
+        a stale Pinecone vector for a now-WITHDRAWN listing doesn't
+        leak into the public response.
+
+        Empty `ids` returns an empty list (no SQL round-trip).
+        """
+
+    @abstractmethod
+    async def list_locations(self) -> list[LocationTriple]:
+        """Distinct (parish, municipality, district) triples across all
+        active rows, for the `/api/v1/listings/locations` endpoint.
+
+        Triples may contain Nones — the address-enrichment handler can
+        populate any subset of the three columns over time. The
+        consuming use case (`ListLocations`) groups whatever's
+        populated into the hierarchical tree.
+
+        Implementations filter to `status='active'` so the dropdown
+        only surfaces locations the user could actually browse to.
+        """
 
     # ──────────── Write side (listings worker handlers) ───────────────
 
