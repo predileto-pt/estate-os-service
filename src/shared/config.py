@@ -49,6 +49,27 @@ class Settings(BaseSettings):
     pinecone_cloud: str = "aws"
     pinecone_region: str = "us-east-1"
 
+    # Listings semantic-search read path (spec
+    # `2026-05-listing-semantic-search-read-path`, ADR-013 phase 2).
+    # Off by default. When off, the public `?q=…` query param is
+    # silently ignored — the route falls through to the existing
+    # structured-filter path. When on, the route runs the
+    # SearchListings pipeline (rewrite → embed → ANN → hydrate).
+    listings_search_enabled: bool = False
+    # LLM model for QueryUnderstandingService. `gpt-4o-mini` is the
+    # cheap PT-capable default. Bump to a stronger model only after
+    # retrieval quality data justifies it.
+    search_llm_model: str = "gpt-4o-mini"
+    search_llm_timeout_seconds: float = 4.0
+    search_llm_max_output_tokens: int = 200
+    # TTL for the in-memory `/api/v1/listings/locations` cache.
+    # Locations don't churn fast; 5 minutes is plenty.
+    listings_locations_cache_ttl_seconds: float = 300.0
+    # Cap on Pinecone `top_k`. The use case takes
+    # `min(top_k, limit+offset)` so pagination beyond this is out
+    # of scope for v1 (cursor pagination is a follow-up).
+    vector_index_top_k: int = 50
+
     # AWS / LocalStack
     aws_region: str = "eu-west-1"
     aws_endpoint_url: str | None = None

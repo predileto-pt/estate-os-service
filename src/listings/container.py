@@ -1,12 +1,15 @@
 from listings.application.ports.address_searcher import AddressSearcher
 from listings.application.ports.embedding_provider import EmbeddingProvider
+from listings.application.ports.query_understanding import QueryUnderstandingService
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
 from listings.application.ports.vector_index import VectorIndex
 from listings.application.use_cases.get_property import GetProperty
+from listings.application.use_cases.list_locations import ListLocations
 from listings.application.use_cases.list_org_active_listings import ListOrgActiveListings
 from listings.application.use_cases.list_properties import ListProperties
+from listings.application.use_cases.search_listings import SearchListings
 
 
 class Container:
@@ -18,6 +21,9 @@ class Container:
         vector_index: VectorIndex | None = None,
         vector_index_namespace: str = "openai-text-embedding-3-small-v1",
         embedding_model_version: str = "text-embedding-3-small",
+        query_understanding_service: QueryUnderstandingService | None = None,
+        listings_locations_cache_ttl_seconds: float = 300.0,
+        vector_index_top_k: int = 50,
     ) -> None:
         # Single read-model: the carried-state `property_listings`
         # projection. The legacy `ListingRepository` (read mapping over
@@ -47,3 +53,38 @@ class Container:
         self.vector_index = vector_index
         self.vector_index_namespace = vector_index_namespace
         self.embedding_model_version = embedding_model_version
+
+        # Search read path (spec
+        # `2026-05-listing-semantic-search-read-path`, ADR-013 phase 2).
+        # `query_understanding_service` is non-None at runtime regardless
+        # of the gate — bootstrap wires the LLM adapter when the gate
+        # is on, the identity adapter otherwise. That keeps the route
+        # branching simple: it only checks `search_listings` presence.
+        self.query_understanding_service = query_understanding_service
+
+        # Wire SearchListings only when ALL three ports are present.
+        # Missing any one (e.g. LISTINGS_SEARCH_ENABLED=false leaves
+        # embedding/vector unwired) → the route falls through to the
+        # structured-filter path.
+        self.search_listings: SearchListings | None = None
+        if (
+            query_understanding_service is not None
+            and embedding_provider is not None
+            and vector_index is not None
+        ):
+            self.search_listings = SearchListings(
+                query_understanding=query_understanding_service,
+                embedding_provider=embedding_provider,
+                vector_index=vector_index,
+                property_listing_repo=property_listing_repo,
+                namespace=vector_index_namespace,
+                top_k=vector_index_top_k,
+            )
+
+        # /locations use case is always wired — it's a thin wrapper
+        # over property_listing_repo and doesn't need the LLM/vector
+        # stack. The FE selector should work even with search disabled.
+        self.list_locations = ListLocations(
+            property_listing_repo=property_listing_repo,
+            ttl_seconds=listings_locations_cache_ttl_seconds,
+        )

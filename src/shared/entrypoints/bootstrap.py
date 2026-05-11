@@ -341,6 +341,29 @@ async def get_listing_container() -> ListingContainer:
             index_name=settings.pinecone_index or None,
         )
 
+    # Search read path (spec
+    # `2026-05-listing-semantic-search-read-path`, ADR-013 phase 2).
+    # Always wire a QueryUnderstandingService — when the gate is off
+    # we use the identity adapter so the container never has None
+    # there and the route never branches on adapter presence.
+    if settings.listings_search_enabled:
+        from listings.adapters.ai.langchain_query_understanding import (
+            LangChainQueryUnderstandingService,
+        )
+
+        query_understanding_service = LangChainQueryUnderstandingService(
+            model=settings.search_llm_model,
+            openai_api_key=settings.openai_api_key,
+            timeout_seconds=settings.search_llm_timeout_seconds,
+            max_output_tokens=settings.search_llm_max_output_tokens,
+        )
+    else:
+        from listings.adapters.inmemory.inmemory_query_understanding import (
+            IdentityQueryUnderstandingService,
+        )
+
+        query_understanding_service = IdentityQueryUnderstandingService()
+
     _listing_container = ListingContainer(
         property_listing_repo=SqlAlchemyPropertyListingRepository(session_factory),
         portugal_address_searcher=portugal_address_searcher,
@@ -348,6 +371,9 @@ async def get_listing_container() -> ListingContainer:
         vector_index=vector_index,
         vector_index_namespace=settings.vector_index_namespace,
         embedding_model_version=settings.embedding_model,
+        query_understanding_service=query_understanding_service,
+        listings_locations_cache_ttl_seconds=settings.listings_locations_cache_ttl_seconds,
+        vector_index_top_k=settings.vector_index_top_k,
     )
     return _listing_container
 
