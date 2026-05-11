@@ -92,6 +92,7 @@ _listing_container: ListingContainer | None = None
 _booking_container: BookingContainer | None = None
 _contract_intelligence_container: ContractIntelligenceContainer | None = None
 _jobs_container: SharedJobsContainer | None = None
+_sessions_container: object | None = None
 
 
 async def get_jobs_container() -> SharedJobsContainer:
@@ -531,3 +532,53 @@ async def get_contract_intelligence_container() -> ContractIntelligenceContainer
         heartbeat_extension=settings.contract_heartbeat_extension,
     )
     return _contract_intelligence_container
+
+
+async def get_sessions_container():
+    """Sessions context container (portal Supabase + portal DB).
+
+    Spec: 2026-05-portal-session-backend §9.4. Builds a portal-scoped async
+    engine + session maker, the HMAC cookie signer (versioned keys from env),
+    and the portal-Supabase JWT validator. Independent from the admin DB
+    engine — no shared MetaData, no FKs across DBs.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from sessions.adapters.auth.supabase_portal_token_validator import (
+        SupabasePortalTokenValidator,
+    )
+    from sessions.adapters.signing.hmac_cookie_signer import HmacCookieSigner
+    from sessions.container import SessionsContainer
+    from shared.database.engine import build_async_engine
+
+    global _sessions_container
+    if _sessions_container is not None:
+        return _sessions_container
+
+    s = Settings()
+    portal_engine = build_async_engine(s.portal_database_url)
+    portal_session_maker = async_sessionmaker(portal_engine, expire_on_commit=False)
+
+    cookie_signer = HmacCookieSigner.from_env(
+        signing_keys=s.session_signing_keys,
+        active_key=s.session_signing_active_key,
+    )
+    portal_token_validator = SupabasePortalTokenValidator(
+        supabase_url=s.supabase_portal_url,
+        jwt_secret=s.supabase_portal_jwt_secret,
+        audience=s.supabase_portal_audience,
+    )
+
+    _sessions_container = SessionsContainer(
+        session_maker=portal_session_maker,
+        cookie_signer=cookie_signer,
+        portal_token_validator=portal_token_validator,
+        favorites_cap=s.session_favorites_max,
+        prefs_max_bytes=s.session_prefs_max_bytes,
+        last_seen_debounce_seconds=s.session_last_seen_debounce_seconds,
+        anonymous_ttl_days=s.session_anonymous_ttl_days,
+        cookie_domain=s.session_cookie_domain,
+        cookie_secure=s.session_cookie_secure,
+        cookie_max_age_seconds=s.session_cookie_max_age_seconds,
+    )
+    return _sessions_container
