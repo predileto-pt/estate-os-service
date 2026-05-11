@@ -75,3 +75,22 @@ class PaginatedListingResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class MunicipalityNode(BaseModel):
+    name: str
+    parishes: list[str]
+
+
+class DistrictNode(BaseModel):
+    name: str
+    municipalities: list[MunicipalityNode]
+
+
+class LocationTreeResponse(BaseModel):
+    """Response schema for `GET /api/v1/listings/locations`. Drives
+    the FE selector (district → municipality → parish). Derived
+    from populated rows in `property_listings` — regions with zero
+    active listings are excluded."""
+
+    districts: list[DistrictNode]

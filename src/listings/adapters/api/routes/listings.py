@@ -6,13 +6,21 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from identity.domain.models.user import User
 from listings.adapters.api.schemas import (
+    DistrictNode,
     ListedPropertyResponse,
+    LocationTreeResponse,
+    MunicipalityNode,
     PaginatedListingResponse,
     PropertyCharacteristicsResponse,
     PropertyImageResponse,
     PropertyPriceResponse,
 )
+from listings.adapters.api.search_validation import (
+    normalize_query,
+    validate_location_for_search,
+)
 from listings.domain.exceptions import PropertyNotFoundError
+from listings.domain.location_filter import LocationFilter
 from listings.domain.models import ListingType, Typology
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import PropertyListing
@@ -95,10 +103,22 @@ def _to_response(prop: PropertyListing, image_urls: dict[str, str]) -> ListedPro
 @router.get(
     "/properties",
     response_model=PaginatedListingResponse,
-    summary="List active properties with filters",
+    summary="List active properties with filters (q = semantic search)",
+    responses={
+        200: {"description": "Listing results — vector-ranked when `q` is set, otherwise structured-filter order."},
+        422: {"description": "`q` was provided without any location filter."},
+    },
 )
 async def list_properties(
     request: Request,
+    q: str | None = Query(
+        None,
+        max_length=2000,
+        description=(
+            "Free-text semantic query. When provided, at least one of "
+            "`parish`/`municipality`/`district` is required (422 otherwise)."
+        ),
+    ),
     listing_type: ListingType | None = Query(
         None, description="Filter by listing type (sale/purchase)"
     ),
@@ -107,24 +127,64 @@ async def list_properties(
     ),
     min_price: Decimal | None = Query(None, ge=0, description="Minimum price filter"),
     max_price: Decimal | None = Query(None, ge=0, description="Maximum price filter"),
+    parish: str | None = Query(
+        None, description="Exact-match filter on the structured `parish` column."
+    ),
+    municipality: str | None = Query(
+        None, description="Exact-match filter on the structured `municipality` column."
+    ),
     district: str | None = Query(
-        None, description="Filter by district/location (partial match on address)"
+        None, description="Exact-match filter on the structured `district` column."
     ),
     limit: int = Query(20, ge=1, le=100, description="Number of results per page"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
 ) -> PaginatedListingResponse:
     container = request.app.state.listing_container
+
+    normalized_q = normalize_query(q)
+    validate_location_for_search(
+        normalized_q=normalized_q,
+        parish=parish,
+        municipality=municipality,
+        district=district,
+    )
+
     filters = PropertyFilters(
         listing_type=listing_type,
         typology=typology,
         min_price=min_price,
         max_price=max_price,
+        parish=parish,
+        municipality=municipality,
         district=district,
         limit=limit,
         offset=offset,
     )
 
-    properties, total = await container.list_properties.execute(filters)
+    if normalized_q is None or not getattr(container, "search_listings", None):
+        # Either `q` was empty/absent OR the search container is not
+        # wired (LISTINGS_SEARCH_ENABLED=false). Fall through to the
+        # existing structured-filter path so `?q=…` is harmless while
+        # the flag is off.
+        properties, total = await container.list_properties.execute(filters)
+    else:
+        # `q` is set and search is wired — run the semantic pipeline.
+        # The PropertyFilters carries no location (LocationFilter is the
+        # single source of truth for location in the search path).
+        location = LocationFilter(parish=parish, municipality=municipality, district=district)
+        search_filters = PropertyFilters(
+            listing_type=listing_type,
+            typology=typology,
+            min_price=min_price,
+            max_price=max_price,
+            limit=limit,
+            offset=offset,
+        )
+        properties, total = await container.search_listings.execute(
+            query=normalized_q,
+            location=location,
+            filters=search_filters,
+        )
 
     items = []
     for prop in properties:
@@ -174,8 +234,14 @@ async def list_org_active_listings(
     ),
     min_price: Decimal | None = Query(None, ge=0, description="Minimum price filter"),
     max_price: Decimal | None = Query(None, ge=0, description="Maximum price filter"),
+    parish: str | None = Query(
+        None, description="Exact-match filter on the structured `parish` column."
+    ),
+    municipality: str | None = Query(
+        None, description="Exact-match filter on the structured `municipality` column."
+    ),
     district: str | None = Query(
-        None, description="Filter by district/location (partial match on address)"
+        None, description="Exact-match filter on the structured `district` column."
     ),
     limit: int = Query(20, ge=1, le=100, description="Number of results per page"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
@@ -187,6 +253,8 @@ async def list_org_active_listings(
         typology=typology,
         min_price=min_price,
         max_price=max_price,
+        parish=parish,
+        municipality=municipality,
         district=district,
         limit=limit,
         offset=offset,
