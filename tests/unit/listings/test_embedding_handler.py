@@ -141,7 +141,7 @@ async def test_first_index_embeds_and_upserts(repo, embedding_provider, vector_i
     row = await repo.get_by_id(UUID(pid))
     assert row.embedding_status == "INDEXED"
     assert row.embedding_text_hash is not None
-    assert row.canonical_text_version == "v2"
+    assert row.canonical_text_version == "v3"
     assert row.embedding_model_version == MODEL_VERSION
     assert row.embedded_at is not None
     matches = await vector_index.query(
