@@ -95,10 +95,26 @@ class ListedPropertyResponse(BaseModel):
 
 
 class PaginatedListingResponse(BaseModel):
+    """Offset/limit response shape — used by the admin endpoint
+    `GET /api/v1/admin/listings/properties`. The public endpoint
+    switched to `CursorPageResponse` in ADR-016."""
+
     items: list[ListedPropertyResponse]
     total: int
     limit: int
     offset: int
+
+
+class CursorPageResponse(BaseModel):
+    """Cursor-paginated response shape — used by the public endpoint
+    `GET /api/v1/listings/properties`. `next_cursor` is an opaque
+    token from `listings.domain.pagination.encode`; pass it back
+    verbatim as `?cursor=` on the next request to fetch the next
+    page. `null` means end of results."""
+
+    items: list[ListedPropertyResponse]
+    next_cursor: str | None
+    limit: int
 
 
 class MunicipalityNode(BaseModel):

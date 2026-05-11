@@ -103,6 +103,12 @@ def create_app(
                 app.state.property_container, "document_storage", None
             )
         yield
+        # Shutdown — drain the listings cache's redis pool if it was wired.
+        listing_container = getattr(app.state, "listing_container", None)
+        if listing_container is not None:
+            close = getattr(listing_container, "close", None)
+            if close is not None:
+                await close()
 
     app = FastAPI(
         title="Predileto Core API",

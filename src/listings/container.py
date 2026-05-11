@@ -1,9 +1,19 @@
+from __future__ import annotations
+
+import redis.asyncio as aioredis
+
+from listings.adapters.cache.null_page_cache import NullListingsPageCache
+from listings.adapters.cache.null_search_result_cache import NullSearchResultCache
+from listings.adapters.cache.redis_page_cache import RedisListingsPageCache
+from listings.adapters.cache.redis_search_result_cache import RedisSearchResultCache
 from listings.application.ports.address_searcher import AddressSearcher
 from listings.application.ports.embedding_provider import EmbeddingProvider
+from listings.application.ports.listings_page_cache import ListingsPageCache
 from listings.application.ports.query_extractor import QueryExtractor
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
+from listings.application.ports.search_result_cache import SearchResultCache
 from listings.application.ports.vector_index import VectorIndex
 from listings.application.use_cases.get_property import GetProperty
 from listings.application.use_cases.list_locations import ListLocations
@@ -22,18 +32,42 @@ class Container:
         vector_index_namespace: str = "openai-text-embedding-3-small-v1",
         embedding_model_version: str = "text-embedding-3-small",
         query_extractor: QueryExtractor | None = None,
-        vector_index_top_k: int = 50,
+        listings_search_ranked_list_size: int = 200,
         max_pre_filter_candidates: int = 1000,
         broad_mode_overshoot: int = 4,
+        page_cache_enabled: bool = False,
+        page_cache_ttl_seconds: int = 90,
+        redis_url: str = "redis://localhost:6379/0",
+        # Override hooks for tests — when supplied, skip the
+        # Redis-vs-Null branch below and use these directly.
+        page_cache: ListingsPageCache | None = None,
+        search_cache: SearchResultCache | None = None,
     ) -> None:
-        # Single read-model: the carried-state `property_listings`
-        # projection. The legacy `ListingRepository` (read mapping over
-        # the live `properties` table) was collapsed into this port —
-        # its read methods were absorbed and the legacy port deleted.
         self.property_listing_repo = property_listing_repo
 
+        # Cache wiring. When `page_cache_enabled=False` (default) we
+        # wire Null adapters so use cases' get/set calls stay
+        # structurally identical to the Redis path. Tests can also
+        # inject their own caches via the override kwargs.
+        self._redis: aioredis.Redis | None = None
+        if page_cache is not None and search_cache is not None:
+            self.page_cache: ListingsPageCache = page_cache
+            self.search_cache: SearchResultCache = search_cache
+        elif page_cache_enabled:
+            # decode_responses=False — values are msgpack bytes, not utf-8 strings.
+            self._redis = aioredis.from_url(redis_url, decode_responses=False)
+            self.page_cache = RedisListingsPageCache(self._redis)
+            self.search_cache = RedisSearchResultCache(self._redis)
+        else:
+            self.page_cache = NullListingsPageCache()
+            self.search_cache = NullSearchResultCache()
+
         # Public + admin route use cases.
-        self.list_properties = ListProperties(property_listing_repo=property_listing_repo)
+        self.list_properties = ListProperties(
+            property_listing_repo=property_listing_repo,
+            cache=self.page_cache,
+            ttl_seconds=page_cache_ttl_seconds,
+        )
         self.get_property = GetProperty(property_listing_repo=property_listing_repo)
         self.list_org_active_listings = ListOrgActiveListings(
             property_listing_repo=property_listing_repo
@@ -46,27 +80,17 @@ class Container:
         self.portugal_address_searcher = portugal_address_searcher
 
         # Embedding pipeline (spec `2026-05-listing-semantic-search`).
-        # Both ports are optional; when either is None the embedding
-        # handler is a no-op (the gate). This is how
-        # LISTINGS_EMBEDDING_ENABLED=false is wired — bootstrap simply
-        # doesn't construct the adapters.
         self.embedding_provider = embedding_provider
         self.vector_index = vector_index
         self.vector_index_namespace = vector_index_namespace
         self.embedding_model_version = embedding_model_version
 
-        # Search read path (ADR-014 — structured query extraction +
-        # hybrid retrieval). `query_extractor` is non-None at runtime
-        # regardless of the gate — bootstrap wires the LLM adapter
-        # when LISTINGS_SEARCH_ENABLED=true, the identity adapter
-        # otherwise. That keeps the route branching simple: it only
-        # checks `search_listings` presence.
+        # Search read path (ADR-014 + ADR-016). The cache layer means
+        # a hit on `(q, filters)` skips both the LLM call and the
+        # Pinecone call — pages slice from the cached ranked list.
         self.query_extractor = query_extractor
 
         # Wire SearchListings only when ALL three ports are present.
-        # Missing any one (e.g. LISTINGS_SEARCH_ENABLED=false leaves
-        # embedding/vector unwired) → the route falls through to the
-        # structured-filter path.
         self.search_listings: SearchListings | None = None
         if (
             query_extractor is not None
@@ -79,15 +103,17 @@ class Container:
                 vector_index=vector_index,
                 property_listing_repo=property_listing_repo,
                 namespace=vector_index_namespace,
-                top_k=vector_index_top_k,
+                top_k=listings_search_ranked_list_size,
                 max_pre_filter_candidates=max_pre_filter_candidates,
                 broad_mode_overshoot=broad_mode_overshoot,
+                search_cache=self.search_cache,
+                ttl_seconds=page_cache_ttl_seconds,
             )
 
-        # /locations use case is always wired. As of 2026-05-11 it
-        # reads from a bundled JSON catalog
-        # (src/listings/static_data/locations.json) rather than from
-        # the property_listings projection — the FE selector renders
-        # the full geography from day one. The use case loads the
-        # file once at construction; no repo, no TTL cache.
         self.list_locations = ListLocations()
+
+    async def close(self) -> None:
+        """Called by the FastAPI lifespan handler on app shutdown.
+        Drains the redis connection pool when the cache is enabled."""
+        if self._redis is not None:
+            await self._redis.aclose()

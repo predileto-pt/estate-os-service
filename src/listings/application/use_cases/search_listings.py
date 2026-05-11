@@ -1,7 +1,8 @@
-"""`SearchListings` — ADR-014 read-path orchestrator.
+"""`SearchListings` — ADR-014 read-path orchestrator + ADR-016 cache.
 
 The if-q-then-this block: when `GET /api/v1/listings/properties`
-receives a non-empty `q`, this use case runs. Five stages:
+receives a non-empty `q`, this use case runs. Five-stage pipeline
+behind a single-value search-result cache:
 
 1. Extract: LLM parses query → ParsedQuery (closed-vocab POIs,
    structural facets, free_text_remainder).
@@ -15,17 +16,24 @@ receives a non-empty `q`, this use case runs. Five stages:
    defense in depth on top of the vector-index metadata filter).
 5. Partition rows into matched / partial-data buckets (NULL-data
    rows go to the bottom of the page), sort by cosine within
-   each, concatenate, paginate.
+   each, concatenate.
+
+Then: cache the resulting `(parsed, ranked_ids)` tuple atomically.
+The cursor (`SearchCursor(fp, offset)`) is just a position into
+that cached ranked list — subsequent pages of the same `(q,
+filters)` skip the entire pipeline (no LLM call, no Pinecone call)
+and just `list_by_ids` the slice.
 
 Fail-open envelope at every external call. Extractor errors →
 empty ParsedQuery. SQL errors → broad mode. Embed errors →
 _relational_fallback. Vector errors → _relational_fallback.
 
-Returns a 3-tuple `(rows, total, parsed)` — the route handler
-needs `parsed.nearby_pois` to compose the matched/unmatched POI
-lists on the response.
+Returns a 2-tuple `(CachedPage, parsed)` — the route handler needs
+`parsed.nearby_pois` to compose the matched/unmatched POI lists on
+the response. The cache hit path returns the same `parsed` so the
+response stays stable across cache hits and misses.
 
-Spec: 2026-05-listing-search-structured-extraction §6/§8/§11.
+Spec: `2026-05-listings-cursor-pagination-and-page-cache.md`.
 """
 
 from __future__ import annotations
@@ -37,13 +45,23 @@ from uuid import UUID
 import structlog
 
 from listings.application.ports.embedding_provider import EmbeddingProvider
+from listings.application.ports.listings_page_cache import CachedPage
 from listings.application.ports.query_extractor import QueryExtractor
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
+from listings.application.ports.search_result_cache import (
+    CachedSearchResult,
+    SearchResultCache,
+)
 from listings.application.ports.vector_index import VectorIndex
 from listings.domain.location_filter import LocationFilter
 from listings.domain.models import PropertyStatus
+from listings.domain.pagination import (
+    SearchCursor,
+    build_search_cache_key,
+    encode,
+)
 from listings.domain.parsed_query import ParsedQuery
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import PropertyListing
@@ -64,6 +82,8 @@ class SearchListings:
         top_k: int,
         max_pre_filter_candidates: int = 1000,
         broad_mode_overshoot: int = 4,
+        search_cache: SearchResultCache,
+        ttl_seconds: int,
     ) -> None:
         self._query_extractor = query_extractor
         self._embedding_provider = embedding_provider
@@ -73,14 +93,89 @@ class SearchListings:
         self._top_k = top_k
         self._max_pre_filter_candidates = max_pre_filter_candidates
         self._broad_mode_overshoot = broad_mode_overshoot
+        self._search_cache = search_cache
+        self._ttl = ttl_seconds
 
     async def execute(
         self,
         *,
+        fp: str,
+        q: str,
+        location: LocationFilter,
+        filters: PropertyFilters,
+        cursor: SearchCursor | None,
+        limit: int,
+    ) -> tuple[CachedPage, ParsedQuery]:
+        key = build_search_cache_key(fp=fp)
+        offset = cursor.offset if cursor else 0
+
+        hit = await self._search_cache.get(key)
+        if hit is not None:
+            log.info("search_result_cache.hit", key_fp=key[-16:])
+            return await self._page_from_cache(hit, fp=fp, offset=offset, limit=limit)
+
+        # Cache miss — run the full pipeline. `_compute_ranked` hydrates
+        # the full top-k row set (needed for partition_and_rank); we
+        # store only the ID order so cache values stay small.
+        parsed, ordered_rows = await self._compute_ranked(q, location, filters)
+        ranked_ids = [r.id for r in ordered_rows]
+
+        await self._search_cache.set(
+            key,
+            CachedSearchResult(parsed=parsed, ranked_ids=ranked_ids),
+            self._ttl,
+        )
+        log.info(
+            "search_result_cache.miss",
+            key_fp=key[-16:],
+            ranked_count=len(ranked_ids),
+        )
+
+        # We already hydrated the rows — slice from them directly
+        # instead of re-fetching for this first response.
+        page_rows = ordered_rows[offset : offset + limit]
+        has_more = offset + limit < len(ranked_ids)
+        next_cursor = (
+            encode(SearchCursor(fp=fp, offset=offset + limit)) if has_more else None
+        )
+        return CachedPage(items=page_rows, next_cursor=next_cursor), parsed
+
+    # ──────────── Cache hit slice + hydrate ────────────
+
+    async def _page_from_cache(
+        self,
+        hit: CachedSearchResult,
+        *,
+        fp: str,
+        offset: int,
+        limit: int,
+    ) -> tuple[CachedPage, ParsedQuery]:
+        page_ids = hit.ranked_ids[offset : offset + limit]
+        if not page_ids:
+            # Offset is past the cached ranked list — bounded depth
+            # ceiling (spec acceptance criterion).
+            return CachedPage(items=[], next_cursor=None), hit.parsed
+
+        rows = await self._property_listing_repo.list_by_ids(page_ids)
+        # list_by_ids order is unspecified — restore the rank-order
+        # using the cached ID list as the truth.
+        order = {pid: i for i, pid in enumerate(page_ids)}
+        rows.sort(key=lambda r: order[r.id])
+
+        has_more = offset + limit < len(hit.ranked_ids)
+        next_cursor = (
+            encode(SearchCursor(fp=fp, offset=offset + limit)) if has_more else None
+        )
+        return CachedPage(items=rows, next_cursor=next_cursor), hit.parsed
+
+    # ──────────── Full pipeline (cache miss) ────────────
+
+    async def _compute_ranked(
+        self,
         query: str,
         location: LocationFilter,
         filters: PropertyFilters,
-    ) -> tuple[list[PropertyListing], int, ParsedQuery]:
+    ) -> tuple[ParsedQuery, list[PropertyListing]]:
         # 1. Extract. Fail-open: ParsedQuery(free_text_remainder=query).
         try:
             parsed = await self._query_extractor.extract(query)
@@ -91,14 +186,9 @@ class SearchListings:
         # 2. Render the canonical-text-v3-shaped embed string.
         embed_text = _render_query_for_embed(parsed)
         if not embed_text.strip():
-            # Defensive: extractor produced an empty ParsedQuery (e.g.
-            # LLM returned `{}`). Fall back to the raw query as a
-            # DESCRIPTION: block so the embedder has SOMETHING to encode.
             embed_text = f"DESCRIPTION: {query}"
 
         # 3. Parallel stage — return_exceptions=True is load-bearing.
-        # Default asyncio.gather re-raises the first exception, which
-        # would defeat the per-stage fail-open envelope.
         candidates_or_err, vector_or_err = await asyncio.gather(
             self._property_listing_repo.list_ids_for_search(
                 location=location,
@@ -111,24 +201,21 @@ class SearchListings:
         )
 
         if isinstance(candidates_or_err, BaseException):
-            log.exception(
-                "search_listings.sql_prefilter_failed", query=query
-            )
+            log.exception("search_listings.sql_prefilter_failed", query=query)
             candidates: list[UUID] = []
-            saturated = True  # falls through to broad-mode
+            saturated = True
         else:
             candidates = candidates_or_err
             saturated = len(candidates) >= self._max_pre_filter_candidates
 
         if isinstance(vector_or_err, BaseException):
             log.exception("search_listings.embed_failed", query=query)
-            return await self._relational_fallback(
-                candidates=candidates, parsed=parsed, filters=filters
+            return parsed, await self._relational_fallback(
+                candidates=candidates, parsed=parsed,
             )
         vector: list[float] = vector_or_err
 
-        # 4. Cardinality-guarded ANN. Fail-open: vector exceptions
-        # trigger the same _relational_fallback.
+        # 4. Cardinality-guarded ANN.
         try:
             matches = await self._run_vector_query(
                 vector=vector,
@@ -137,24 +224,21 @@ class SearchListings:
             )
         except Exception:
             log.exception("search_listings.vector_query_failed", query=query)
-            return await self._relational_fallback(
-                candidates=candidates, parsed=parsed, filters=filters
+            return parsed, await self._relational_fallback(
+                candidates=candidates, parsed=parsed,
             )
 
         if not matches:
-            return [], 0, parsed
+            return parsed, []
 
-        # 5. Hydrate. list_by_ids filters status='active' at the SQL
-        # level (defense in depth on top of the vector metadata filter).
+        # 5. Hydrate (status='active' enforced at the SQL level).
         rows = await self._property_listing_repo.list_by_ids(
             [UUID(m.id) for m in matches]
         )
         ordered = self._partition_and_rank(rows, matches, parsed)
-        total = len(ordered)
-        page = ordered[filters.offset : filters.offset + filters.limit]
-        return page, total, parsed
+        return parsed, ordered
 
-    # ──────────── Helpers ────────────
+    # ──────────── Helpers (unchanged from pre-cache implementation) ────────────
 
     async def _run_vector_query(
         self,
@@ -164,9 +248,6 @@ class SearchListings:
         cardinality_saturated: bool,
     ) -> list[VectorMatch]:
         if cardinality_saturated:
-            # SQL pre-filter hit the LIMIT. Don't bother filtering at
-            # Pinecone — over-broad ID lists hurt more than they help.
-            # Run broad, intersect after.
             log.info("search_listings.broad_mode", reason="prefilter_saturated")
             matches = await self._vector_index.query(
                 vector=vector,
@@ -177,16 +258,8 @@ class SearchListings:
             if candidates:
                 candidate_set = {str(c) for c in candidates}
                 return [m for m in matches if m.id in candidate_set][: self._top_k]
-            # No candidates AND saturated — SQL pre-filter failed
-            # entirely. Return the broad matches without intersection.
             return matches[: self._top_k]
         elif candidates:
-            # Normal mode: push the candidate IDs into the Pinecone
-            # filter. NB: we filter on `listing_id` (a metadata field
-            # the embedding handler writes — see
-            # embedding_handler._index_metadata), NOT on `id` —
-            # Pinecone's vector ID is first-class and not filterable
-            # through `filter=`.
             return await self._vector_index.query(
                 vector=vector,
                 filter={
@@ -199,8 +272,6 @@ class SearchListings:
                 namespace=self._namespace,
             )
         else:
-            # SQL pre-filter returned 0. No listings match the
-            # structural criteria — don't bother calling Pinecone.
             return []
 
     @staticmethod
@@ -209,21 +280,12 @@ class SearchListings:
         matches: list[VectorMatch],
         parsed: ParsedQuery,
     ) -> list[PropertyListing]:
-        """Score-order with NULL-data rows pushed to the bottom of the
-        page. A row goes into the partial bucket when at least one
-        ParsedQuery criterion that was SET can't be evaluated against
-        the row because the corresponding column is None. Otherwise
-        it's in the matched bucket. Each bucket is internally ordered
-        by vector cosine score."""
         by_id = {str(r.id): r for r in rows}
         matched: list[PropertyListing] = []
         partial: list[PropertyListing] = []
         for m in matches:
             row = by_id.get(m.id)
             if row is None:
-                # Stale vector — Pinecone returned an id that's no
-                # longer ACTIVE on `property_listings` (the SQL hydrate
-                # filter dropped it). Defense in depth working.
                 continue
             if _has_unevaluable_criterion(row, parsed):
                 partial.append(row)
@@ -236,38 +298,23 @@ class SearchListings:
         *,
         candidates: list[UUID],
         parsed: ParsedQuery,
-        filters: PropertyFilters,
-    ) -> tuple[list[PropertyListing], int, ParsedQuery]:
+    ) -> list[PropertyListing]:
         """Vector path failed. Reuse the SQL pre-filter candidates and
         skip the ANN ranking. Apply partition-and-rank so NULL-data
-        rows still go to the bottom of the page (deterministic order
-        within each bucket: created_at desc, id desc — no cosine
-        available). Pagination applies just like the happy path."""
+        rows still go to the bottom of the page."""
         if not candidates:
-            return [], 0, parsed
-        # Cap to top_k before hydrate — same bound the happy path uses
-        # so the response shape stays predictable.
+            return []
         rows = await self._property_listing_repo.list_by_ids(
             candidates[: self._top_k]
         )
         matched, partial = _split_buckets(rows, parsed)
         matched.sort(key=lambda r: (r.created_at, str(r.id)), reverse=True)
         partial.sort(key=lambda r: (r.created_at, str(r.id)), reverse=True)
-        ordered = matched + partial
-        total = len(ordered)
-        page = ordered[filters.offset : filters.offset + filters.limit]
-        return page, total, parsed
+        return matched + partial
 
 
 def _render_query_for_embed(parsed: ParsedQuery) -> str:
-    """Render ParsedQuery as a canonical-text-v3-shaped string. Same
-    sectional layout as the listing-side composer
-    (`src/listings/application/services/canonical_text.py`) — cosine
-    compares like-with-like.
-
-    Pure function. Returns "" when ParsedQuery is empty; the caller
-    is responsible for the fallback (DESCRIPTION: raw_query).
-    """
+    """Render ParsedQuery as a canonical-text-v3-shaped string."""
     sections: list[str] = []
     if parsed.typology:
         sections.append(f"TYPOLOGY: {parsed.typology.value}")
@@ -324,17 +371,6 @@ def _split_buckets(
 
 
 def _has_unevaluable_criterion(row: PropertyListing, parsed: ParsedQuery) -> bool:
-    """True if at least one ParsedQuery criterion that was SET can't
-    be evaluated against this row because the corresponding column
-    is None. The SQL pre-filter admits these rows; the use case
-    pushes them to the bottom of the result page via
-    `_partition_and_rank`.
-
-    Note: only `has_*=True` triggers the partial bucket. Future
-    polarity-parsing (`has_pool=False` etc.) would need symmetric
-    handling here — landed under "Out of scope follow-ups" in the
-    spec.
-    """
     if parsed.min_bedrooms is not None and row.num_of_bedrooms is None:
         return True
     if parsed.min_bathrooms is not None and row.num_of_bathrooms is None:

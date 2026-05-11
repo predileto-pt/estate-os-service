@@ -28,5 +28,10 @@ class PropertyFilters:
     parish: str | None = None
     municipality: str | None = None
     district: str | None = None
-    limit: int = 50
-    offset: int = 0
+    # `limit` / `offset` are admin-path only — the cursor path
+    # (public /listings/properties) passes `limit` to the use case
+    # directly and uses keyset positioning instead of offset. Admin
+    # callers MUST set both; the repos dereference them in
+    # `list_active` / `list_active_for_organization`.
+    limit: int | None = 50
+    offset: int | None = 0

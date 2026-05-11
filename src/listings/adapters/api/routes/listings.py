@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from identity.domain.models.user import User
 from listings.adapters.api.schemas import (
     CountryNode,
+    CursorPageResponse,
     DistrictNode,
     ListedPropertyResponse,
     LocationTreeResponse,
@@ -24,6 +25,16 @@ from listings.adapters.api.search_validation import (
 from listings.domain.exceptions import PropertyNotFoundError
 from listings.domain.location_filter import LocationFilter
 from listings.domain.models import ListingType, Typology
+from listings.domain.pagination import (
+    CursorDecodeError,
+    CursorFilterMismatchError,
+    CursorVersionError,
+    ListCursor,
+    SearchCursor,
+    decode_token,
+    filter_fingerprint,
+    validate_fp,
+)
 from listings.domain.poi_category import PoiCategory
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import PropertyListing
@@ -105,11 +116,25 @@ def _to_response(prop: PropertyListing, image_urls: dict[str, str]) -> ListedPro
 
 @router.get(
     "/properties",
-    response_model=PaginatedListingResponse,
+    response_model=CursorPageResponse,
     summary="List active properties with filters (q = semantic search)",
     responses={
         200: {
-            "description": "Listing results — vector-ranked when `q` is set, otherwise structured-filter order."
+            "description": (
+                "Listing results — vector-ranked when `q` is set, otherwise structured-filter "
+                "order. `next_cursor` is an opaque token; pass it back as `?cursor=` for the "
+                "next page. `null` means end of results."
+            ),
+        },
+        400: {
+            "description": (
+                "Cursor problem. `detail` is one of: "
+                "`cursor_unsupported_version` (drop cursor + refetch from head — schema bump), "
+                "`cursor_invalid` (drop cursor + refetch from head — corrupt token), "
+                "`cursor_kind_mismatch` (drop cursor + refetch from head — search was toggled "
+                "or filters changed mode), "
+                "`cursor_filter_mismatch` (drop cursor + refetch from head — user changed filters)."
+            ),
         },
         422: {"description": "`q` was provided without any location filter."},
     },
@@ -141,9 +166,17 @@ async def list_properties(
     district: str | None = Query(
         None, description="Exact-match filter on the structured `district` column."
     ),
-    limit: int = Query(20, ge=1, le=100, description="Number of results per page"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-) -> PaginatedListingResponse:
+    cursor: str | None = Query(
+        None,
+        description="Opaque token from a prior response's `next_cursor`. Omit for the head page.",
+    ),
+    limit: int = Query(
+        20,
+        ge=1,
+        le=20,
+        description="Results per page (1–20). Cap matches the infinite-scroll tick size.",
+    ),
+) -> CursorPageResponse:
     container = request.app.state.listing_container
 
     normalized_q = normalize_query(q)
@@ -154,51 +187,83 @@ async def list_properties(
         district=district,
     )
 
+    is_search_mode = (
+        normalized_q is not None
+        and getattr(container, "search_listings", None) is not None
+    )
+    # Each mode owns location in exactly one place: `filters` for list,
+    # `LocationFilter` for search. Building `filters` mode-aware avoids
+    # double-counting parish/municipality/district in the fingerprint.
     filters = PropertyFilters(
         listing_type=listing_type,
         typology=typology,
         min_price=min_price,
         max_price=max_price,
-        parish=parish,
-        municipality=municipality,
-        district=district,
-        limit=limit,
-        offset=offset,
+        parish=parish if not is_search_mode else None,
+        municipality=municipality if not is_search_mode else None,
+        district=district if not is_search_mode else None,
+        limit=None,
+        offset=None,
+    )
+    location = (
+        LocationFilter(parish=parish, municipality=municipality, district=district)
+        if is_search_mode
+        else None
+    )
+    fp = filter_fingerprint(
+        q=normalized_q if is_search_mode else None,
+        filters=filters,
+        location=location,
     )
 
+    # Two-step decode: decode_token → kind check → validate_fp. Error
+    # precedence is version > invalid > kind > filter so the FE sees a
+    # `cursor_kind_mismatch` when search was toggled between requests,
+    # not a misleading `cursor_filter_mismatch`.
+    decoded_cursor: ListCursor | SearchCursor | None = None
+    if cursor is not None:
+        try:
+            decoded_cursor = decode_token(cursor)
+        except CursorVersionError:
+            raise HTTPException(status_code=400, detail="cursor_unsupported_version")
+        except CursorDecodeError:
+            raise HTTPException(status_code=400, detail="cursor_invalid")
+
+        expected_kind = SearchCursor if is_search_mode else ListCursor
+        if not isinstance(decoded_cursor, expected_kind):
+            raise HTTPException(status_code=400, detail="cursor_kind_mismatch")
+
+        try:
+            validate_fp(decoded_cursor, expected_fp=fp)
+        except CursorFilterMismatchError:
+            raise HTTPException(status_code=400, detail="cursor_filter_mismatch")
+
     requested_pois: tuple[PoiCategory, ...] = ()
-    if normalized_q is None or not getattr(container, "search_listings", None):
-        # Either `q` was empty/absent OR the search container is not
-        # wired (LISTINGS_SEARCH_ENABLED=false). Fall through to the
-        # existing structured-filter path so `?q=…` is harmless while
-        # the flag is off.
-        properties, total = await container.list_properties.execute(filters)
-    else:
-        # `q` is set and search is wired — run the semantic pipeline.
-        # The PropertyFilters carries no location (LocationFilter is the
-        # single source of truth for location in the search path).
-        location = LocationFilter(parish=parish, municipality=municipality, district=district)
-        search_filters = PropertyFilters(
-            listing_type=listing_type,
-            typology=typology,
-            min_price=min_price,
-            max_price=max_price,
+    if not is_search_mode:
+        page = await container.list_properties.execute(
+            fp=fp,
+            filters=filters,
+            cursor=decoded_cursor,  # type: ignore[arg-type]
             limit=limit,
-            offset=offset,
         )
-        properties, total, parsed = await container.search_listings.execute(
-            query=normalized_q,
+    else:
+        assert location is not None  # is_search_mode guarantees this
+        page, parsed = await container.search_listings.execute(
+            fp=fp,
+            q=normalized_q,
             location=location,
-            filters=search_filters,
+            filters=filters,
+            cursor=decoded_cursor,  # type: ignore[arg-type]
+            limit=limit,
         )
         requested_pois = parsed.nearby_pois
 
-    items = []
-    for prop in properties:
+    items: list[ListedPropertyResponse] = []
+    for prop in page.items:
         image_urls = await _generate_image_urls(request, prop)
         items.append(_to_response_with_pois(prop, image_urls, requested_pois))
 
-    return PaginatedListingResponse(items=items, total=total, limit=limit, offset=offset)
+    return CursorPageResponse(items=items, next_cursor=page.next_cursor, limit=limit)
 
 
 def _to_response_with_pois(

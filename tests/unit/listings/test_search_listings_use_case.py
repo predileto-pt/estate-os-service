@@ -28,6 +28,9 @@ import pytest
 from listings.adapters.inmemory.inmemory_property_listing_repo import (
     InMemoryPropertyListingRepository,
 )
+from listings.adapters.inmemory.inmemory_search_result_cache import (
+    InMemorySearchResultCache,
+)
 from listings.application.ports.address_searcher import ParsedAddress
 from listings.application.use_cases.search_listings import (
     SearchListings,
@@ -36,6 +39,7 @@ from listings.application.use_cases.search_listings import (
 )
 from listings.domain.location_filter import LocationFilter
 from listings.domain.models import PropertyStatus, Typology
+from listings.domain.pagination import SearchCursor, build_search_cache_key
 from listings.domain.parsed_query import ParsedQuery
 from listings.domain.poi_category import PoiCategory
 from listings.domain.property_filters import PropertyFilters
@@ -159,6 +163,7 @@ def _make_uc(
     top_k: int = TOP_K,
     max_candidates: int = MAX_CANDIDATES,
     broad_mode_overshoot: int = 4,
+    search_cache: InMemorySearchResultCache | None = None,
 ) -> SearchListings:
     return SearchListings(
         query_extractor=extractor or _StubExtractor(),
@@ -169,7 +174,38 @@ def _make_uc(
         top_k=top_k,
         max_pre_filter_candidates=max_candidates,
         broad_mode_overshoot=broad_mode_overshoot,
+        search_cache=search_cache or InMemorySearchResultCache(),
+        ttl_seconds=60,
     )
+
+
+# Legacy-shape adapter: maps the old (rows, total, parsed) return that
+# this test file was built around to the new (CachedPage, parsed)
+# signature, so existing assertions about `rows` and `total` keep
+# working. `total` is read out of the cache the use case just
+# populated — `len(CachedSearchResult.ranked_ids)`.
+async def _execute(
+    uc: SearchListings,
+    *,
+    query: str,
+    location: LocationFilter,
+    filters: PropertyFilters,
+    fp: str = "testfp00",
+):
+    limit = filters.limit if filters.limit is not None else 50
+    offset = filters.offset if filters.offset is not None else 0
+    cursor = SearchCursor(fp=fp, offset=offset) if offset > 0 else None
+    page, parsed = await uc.execute(
+        fp=fp,
+        q=query,
+        location=location,
+        filters=filters,
+        cursor=cursor,
+        limit=limit,
+    )
+    hit = await uc._search_cache.get(build_search_cache_key(fp=fp))  # noqa: SLF001
+    total = len(hit.ranked_ids) if hit is not None else 0
+    return page.items, total, parsed
 
 
 # ──────────── Happy path ────────────
@@ -184,7 +220,7 @@ class TestHappyPath:
             extractor=_StubExtractor(returns=ParsedQuery(free_text_remainder="x")),
             vector_index=vi,
         )
-        rows, total, parsed = await uc.execute(
+        rows, total, parsed = await _execute(uc,
             query="x",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=10, offset=0),
@@ -211,7 +247,7 @@ class TestHappyPath:
                 )
             ),
         )
-        rows, total, parsed = await uc.execute(
+        rows, total, parsed = await _execute(uc,
             query="x",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=10, offset=0),
@@ -230,7 +266,7 @@ class TestHappyPath:
             repo=repo,
             vector_index=_StubVectorIndex(returns=matches),
         )
-        page1, total1, _ = await uc.execute(
+        page1, total1, _ = await _execute(uc,
             query="x",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=2, offset=0),
@@ -238,7 +274,7 @@ class TestHappyPath:
         assert [str(r.id) for r in page1] == [ids[0], ids[1]]
         assert total1 == 5
 
-        page2, total2, _ = await uc.execute(
+        page2, total2, _ = await _execute(uc,
             query="x",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=2, offset=2),
@@ -249,7 +285,7 @@ class TestHappyPath:
     async def test_empty_matches_returns_empty(self, repo):
         await _seed(repo)
         uc = _make_uc(repo=repo, vector_index=_StubVectorIndex(returns=[]))
-        rows, total, _ = await uc.execute(
+        rows, total, _ = await _execute(uc,
             query="x",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=10, offset=0),
@@ -264,7 +300,7 @@ class TestHappyPath:
         await _seed(repo, parish="Lisboa")  # different parish
         vi = _StubVectorIndex(returns=[VectorMatch(id="x", score=1.0, metadata={})])
         uc = _make_uc(repo=repo, vector_index=vi)
-        rows, total, _ = await uc.execute(
+        rows, total, _ = await _execute(uc,
             query="x",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=10, offset=0),
@@ -285,7 +321,7 @@ class TestHappyPath:
             VectorMatch(id=a, score=0.7, metadata={}),
         ]
         uc = _make_uc(repo=repo, vector_index=_StubVectorIndex(returns=matches))
-        rows, total, _ = await uc.execute(
+        rows, total, _ = await _execute(uc,
             query="x",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=10, offset=0),
@@ -308,7 +344,7 @@ class TestCardinalityGuard:
         matches = [VectorMatch(id=ids[0], score=0.9, metadata={})]
         vi = _StubVectorIndex(returns=matches)
         uc = _make_uc(repo=repo, vector_index=vi, max_candidates=3)
-        rows, total, _ = await uc.execute(
+        rows, total, _ = await _execute(uc,
             query="x",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=10, offset=0),
@@ -332,7 +368,7 @@ class TestFailOpen:
             extractor=_StubExtractor(raises=RuntimeError("LLM timeout")),
             embed=embed,
         )
-        await uc.execute(
+        await _execute(uc,
             query="raw user query",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=10, offset=0),
@@ -356,7 +392,7 @@ class TestFailOpen:
 
         vi = _StubVectorIndex(returns=[])
         uc = _make_uc(repo=repo, vector_index=vi)
-        rows, total, _ = await uc.execute(
+        rows, total, _ = await _execute(uc,
             query="x",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=10, offset=0),
@@ -372,7 +408,7 @@ class TestFailOpen:
             repo=repo,
             embed=_StubEmbed(raises=RuntimeError("embed boom")),
         )
-        rows, total, _ = await uc.execute(
+        rows, total, _ = await _execute(uc,
             query="x",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=10, offset=0),
@@ -387,7 +423,7 @@ class TestFailOpen:
             repo=repo,
             vector_index=_StubVectorIndex(raises=RuntimeError("pinecone down")),
         )
-        rows, total, _ = await uc.execute(
+        rows, total, _ = await _execute(uc,
             query="x",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=10, offset=0),
@@ -449,7 +485,7 @@ class TestPartitionAndRank:
             extractor=_StubExtractor(returns=ParsedQuery(min_bedrooms=3)),
             vector_index=_StubVectorIndex(returns=matches),
         )
-        rows, _, _ = await uc.execute(
+        rows, _, _ = await _execute(uc,
             query="T3",
             location=LocationFilter(parish="Cascais"),
             filters=PropertyFilters(limit=10, offset=0),
@@ -550,7 +586,8 @@ class TestParallelExecution:
         # parallel, both run concurrently; SQL sets the event, embed
         # unblocks, gather completes.
         await asyncio.wait_for(
-            uc.execute(
+            _execute(
+                uc,
                 query="x",
                 location=LocationFilter(parish="Cascais"),
                 filters=PropertyFilters(limit=10, offset=0),

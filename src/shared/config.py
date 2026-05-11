@@ -62,13 +62,19 @@ class Settings(BaseSettings):
     search_llm_model: str = "gpt-4o-mini"
     search_llm_timeout_seconds: float = 4.0
     search_llm_max_output_tokens: int = 200
-    # Cap on Pinecone `top_k` for the search read path. Renamed from
-    # `vector_index_top_k` when the search-result cache (ADR-016
-    # spec §8) was wired — value stays 50 for now and gets bumped
-    # to 200 alongside the use-case rewrite that caches the full
-    # ranked list once per (q, filters) and paginates from the
-    # cached slice.
-    listings_search_ranked_list_size: int = 50
+    # Cap on Pinecone `top_k` for the search read path. With the
+    # search-result cache (ADR-016 §8), the use case fetches this
+    # many ranked IDs ONCE per (q, filters) and slices subsequent
+    # pages from the cached list — so the per-page Pinecone fetch
+    # goes away. 200 caps search depth at ~10 infinite-scroll pages
+    # of 20, which matches observed user behavior ("users only go
+    # to page 5" per the spec brainstorm).
+    listings_search_ranked_list_size: int = 200
+
+    # Listings page cache (ADR-016).
+    redis_url: str = "redis://localhost:6379/0"
+    listings_page_cache_enabled: bool = False
+    listings_page_cache_ttl_seconds: int = 90
     # ADR-014 hybrid retrieval — SQL pre-filter knobs.
     # `SEARCH_MAX_PRE_FILTER_CANDIDATES`: cap on the SQL pre-filter
     # result. When the result equals this cap, the cardinality guard
