@@ -323,7 +323,22 @@ async def get_property(property_id: UUID, request: Request) -> ListedPropertyRes
         raise HTTPException(status_code=404, detail="Property not found")
 
     image_urls = await _generate_image_urls(request, prop)
-    return _to_response(prop, image_urls)
+    base = _to_response(prop, image_urls)
+    pois = [
+        POIResponse(
+            category=poi.category,
+            name=poi.name,
+            distance_meters=poi.distance_meters,
+            address=poi.address,
+            image_urls=list(poi.image_urls),
+            reviews=poi.reviews,
+        )
+        for poi in prop.pois
+    ]
+    # `prop.pois` is in discovery order from the projection; sort
+    # ascending by distance so the closest POIs render first.
+    pois.sort(key=lambda p: p.distance_meters)
+    return base.model_copy(update={"pois": pois})
 
 
 @router.get(

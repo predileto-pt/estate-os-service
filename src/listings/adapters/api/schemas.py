@@ -91,6 +91,11 @@ class ListedPropertyResponse(BaseModel):
     updated_at: datetime
     prices: list[PropertyPriceResponse]
     images: list[PropertyImageResponse] = []
+    # Populated on the public detail endpoint (`GET /properties/{id}`)
+    # with the listing's full POI set, sorted ascending by distance.
+    # The list endpoints leave it `[]` — they expose POI signal only
+    # through `matched_pois`/`unmatched_pois` on the q-set search path.
+    pois: list[POIResponse] = []
     matched_pois: list[POIResponse] = []
     unmatched_pois: list[str] = []
 

@@ -219,3 +219,78 @@ class TestAdminOrgActiveListings:
         ):
             assert key in item
         assert "address" not in item
+
+
+class TestPublicPropertyDetailPois:
+    """`GET /api/v1/listings/properties/{id}` returns the listing's full
+    POI set, sorted ascending by distance. Empty list when the listing
+    has no POIs. The autouse `_auto_seed_member` fixture above is
+    harmless here — the public detail route doesn't require auth."""
+
+    async def test_detail_response_includes_full_poi_list_sorted_by_distance(
+        self, client, property_listing_repo
+    ):
+        pid = str(uuid4())
+        await property_listing_repo.upsert_from_event(
+            event_data={
+                "id": pid,
+                "organization_id": TEST_ORGANIZATION_ID,
+                "aggregate_version": 1,
+                "address": "Rua A, Lisboa",
+                "listing_type": "sale",
+                "typology": "apartment",
+                "status": "active",
+                "description": "with pois",
+                "latitude": None,
+                "longitude": None,
+                "characteristics": None,
+                "prices": [],
+                "images": [],
+                # Out of order on distance — projector preserves discovery
+                # order; the route handler sorts on the way out.
+                "pois": [
+                    {
+                        "category": "gym",
+                        "name": "Holmes Place",
+                        "distance_meters": 850.0,
+                        "address": "Av. da Liberdade 200",
+                        "image_urls": ["https://cdn/gym.jpg"],
+                        "reviews": None,
+                    },
+                    {
+                        "category": "school",
+                        "name": "Escola Básica",
+                        "distance_meters": 240.0,
+                        "address": "Rua das Flores 12",
+                        "image_urls": [],
+                        "reviews": [{"author": "A", "rating": 5}],
+                    },
+                ],
+            },
+            source_occurred_at=datetime.now(timezone.utc),
+        )
+
+        response = await client.get(f"/api/v1/listings/properties/{pid}")
+        assert response.status_code == 200
+        body = response.json()
+        assert [p["category"] for p in body["pois"]] == ["school", "gym"]
+        assert body["pois"][0]["distance_meters"] == 240.0
+        assert body["pois"][0]["address"] == "Rua das Flores 12"
+        assert body["pois"][0]["reviews"] == [{"author": "A", "rating": 5}]
+        assert body["pois"][1]["image_urls"] == ["https://cdn/gym.jpg"]
+        # Detail endpoint doesn't populate matched/unmatched buckets —
+        # those are search-mode-only signals.
+        assert body["matched_pois"] == []
+        assert body["unmatched_pois"] == []
+
+    async def test_detail_response_pois_empty_when_listing_has_no_pois(
+        self, client, property_listing_repo
+    ):
+        await _seed_listing(property_listing_repo, description="no pois")
+        # _seed_listing uses a random uuid — fetch it back via the admin
+        # list to discover the id, then call the public detail route.
+        pid = list(property_listing_repo._rows.keys())[0]  # type: ignore[attr-defined]
+
+        response = await client.get(f"/api/v1/listings/properties/{pid}")
+        assert response.status_code == 200
+        assert response.json()["pois"] == []
