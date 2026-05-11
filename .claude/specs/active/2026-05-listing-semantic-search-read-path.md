@@ -1,6 +1,6 @@
 # Listing semantic search — read path (ADR-013 phase 2)
 
-**Status:** in-progress (review-3 cleared 2026-05-10; ready to implement)
+**Status:** in-progress (review-4 cleared 2026-05-11; ready to implement)
 **Owner:** Peter
 **Created:** 2026-05-09
 
@@ -46,7 +46,7 @@ These are enforced via timeout configs at the adapter layer, not via test assert
 - **Search analytics / logging queries to a warehouse.** Privacy + storage decisions out of scope; query strings stay in app logs only at debug level.
 - **Cursor pagination over deep results** — the search path supports `limit`/`offset` paging over the top-k results (`top_k = min(VECTOR_INDEX_TOP_K, limit + offset)`). Paging beyond `VECTOR_INDEX_TOP_K` (default 50) is out of scope; cursor pagination over the score-ordered list lands as a follow-up if usage warrants.
 - **Spell correction / fuzzy matching** beyond what the LLM rewriter does naturally.
-- **Read-path caching** beyond the optional in-memory query cache from ADR §7 (SEARCH_QUERY_CACHE_TTL_SECONDS, default 300).
+- **Read-path query caching.** No per-query result/embedding cache in v1. ADR §7 sketched an optional `SEARCH_QUERY_CACHE_TTL_SECONDS` knob; deferred because popularity-based caching is premature without traffic data, and the LLM rewrite + embed steps already have fail-open paths if the upstream throttles. The only cache in v1 is on `/locations` (`LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`).
 
 ## Approach
 
@@ -269,12 +269,17 @@ The route handler validates before reaching `SearchListings`:
 if q and not (parish or municipality or district):
     raise HTTPException(
         status_code=422,
-        detail="When 'q' is provided, at least one of "
-               "'parish', 'municipality', 'district' is required.",
+        detail={
+            "code": "location_required_for_search",
+            "message": (
+                "When 'q' is provided, at least one of "
+                "'parish', 'municipality', 'district' is required."
+            ),
+        },
     )
 ```
 
-Returns a 422 with a machine-readable error code so the FE can render a nudge.
+The structured `detail={"code": ..., "message": ...}` shape matches the existing convention in `properties/adapters/api/routes/properties.py` (e.g. `detail={"message": ..., "reasons": ...}` on publish/unpublish errors) — extended here with a `code` field so the FE can branch on it without parsing the message.
 
 ### `GET /api/v1/listings/locations` — hierarchical tree for the FE selector
 
@@ -333,6 +338,7 @@ All failures log a structured event at WARN/ERROR level. Search keeps working; u
 2. **LLM adapter** at `src/listings/adapters/ai/langchain_query_understanding.py` — structured-output prompt, 4s timeout.
 3. **Identity adapter** at `src/listings/adapters/inmemory/inmemory_query_understanding.py` — returns input unchanged. Used in tests and as the wired adapter whenever `LISTINGS_SEARCH_ENABLED=false` (so the container's `query_understanding_service` is never `None` and the route doesn't branch on adapter presence). The production LLM-failure path is handled by the use case via `try/except`, not by swapping the adapter at runtime.
 4. **`LocationFilter` value object** at `src/listings/domain/location_filter.py` — frozen dataclass with `parish: str | None`, `municipality: str | None`, `district: str | None` and a `__post_init__` that raises a domain error when all three are `None`. Mirrors the existing `PropertyFilters` / `ListingPoi` / `ListingImage` / `ListingPrice` shape (frozen dataclass, no Pydantic at the domain layer).
+4a. **`LocationTriple` value object** at `src/listings/domain/location_triple.py` — frozen dataclass with the same three fields (`parish`, `municipality`, `district`, each `str | None`) but **no invariant** (DB rows can legitimately have any subset populated during enrichment). Returned by `PropertyListingRepository.list_locations()`; consumed by `ListLocations` to build the hierarchical tree. Distinct from `LocationFilter` (which is a request-side value with a non-empty invariant); keeping them separate avoids overloading one type for two semantics.
 5. **`SearchListings` use case** at `src/listings/application/use_cases/search_listings.py`. Orchestrates rewrite → embed → ANN → hydrate with fail-open at each step. Reuses existing `PropertyFilters` (no separate `SearchParams` type) — the route hands `LocationFilter` and `PropertyFilters` (with location fields blank) as separate args, single source of truth for location is the value object.
 6. **`ListLocations` use case** at `src/listings/application/use_cases/list_locations.py` — hierarchical tree, TTL-cached.
 7. **Two new methods on `PropertyListingRepository`**:
@@ -394,12 +400,14 @@ def _build_filter(
 
 ### Test strategy
 
-- **Unit** — `tests/unit/listings/application/use_cases/test_search_listings.py` covers every fail-open branch with stubs for `QueryUnderstandingService`, `EmbeddingProvider`, `VectorIndex`, and an `InMemoryPropertyListingRepository` for hydrate.
+All unit test files live flat under `tests/unit/listings/` (matching the existing convention — `test_embedding_handler.py`, `test_inmemory_property_listing_repo.py`, `test_list_org_active_listings_use_case.py` all sit at the flat root, not in `application/use_cases/` or `domain/` subdirs). No new sub-trees.
+
+- **Unit** — `tests/unit/listings/test_search_listings_use_case.py` covers every fail-open branch with stubs for `QueryUnderstandingService`, `EmbeddingProvider`, `VectorIndex`, and an `InMemoryPropertyListingRepository` for hydrate.
 - **Unit** — same file (or a sibling) covers `_build_filter` translation of `LocationFilter` + `PropertyFilters` → `VectorFilter`. Bare cases: parish-only, municipality-only, district-only, narrow-further (multiple levels), with-and-without structured params.
-- **Unit** — `tests/unit/listings/domain/test_location_filter.py` pins the at-least-one-level invariant.
-- **Unit** — extract the route-side guard as `validate_location_for_search(q: str | None, location: LocationFilter | None) -> None` (raises `HTTPException(422, ...)`) and unit-test it directly in `tests/unit/listings/adapters/api/test_search_validation.py`. The integration suite still covers the route-level 422, but pinning the helper at the unit level pre-empts a refactor that quietly bypasses route-layer validation.
+- **Unit** — `tests/unit/listings/test_location_filter.py` pins the at-least-one-level invariant.
+- **Unit** — extract the route-side guard as `validate_location_for_search(q: str | None, location: LocationFilter | None) -> None` (raises `HTTPException(422, ...)`) and unit-test it directly in `tests/unit/listings/test_search_validation.py`. The integration suite still covers the route-level 422, but pinning the helper at the unit level pre-empts a refactor that quietly bypasses route-layer validation.
 - **Unit** — golden tests for the `IdentityQueryUnderstandingService` (identity returns input unchanged) and the `LangChainQueryUnderstandingService` prompt against ~10 worked PT examples (deterministic when the LLM call is mocked with `langchain.fake.FakeListLLM` or similar).
-- **Unit** — `tests/unit/listings/application/use_cases/test_list_locations.py` against the in-memory repo. Assert hierarchical tree shape, alphabetical ordering at each level, empty-DB returns `{"districts": []}`, TTL cache returns the same response twice without a second repo call.
+- **Unit** — `tests/unit/listings/test_list_locations_use_case.py` against the in-memory repo. Assert hierarchical tree shape, alphabetical ordering at each level, empty-DB returns `{"districts": []}`, TTL cache returns the same response twice without a second repo call.
 - **Integration** — `tests/integration/listings/test_search_endpoint.py` against the in-memory adapters (seeded with ~20 listings), hits the real route handler:
     - Empty `q` → falls through to the existing structured-filter path.
     - `q` set without location → 422.
@@ -416,12 +424,13 @@ def _build_filter(
 - `src/listings/adapters/ai/langchain_query_understanding.py` — LLM adapter with structured-output prompt.
 - `src/listings/adapters/inmemory/inmemory_query_understanding.py` — identity rewriter (returns input unchanged); doubles as production LLM-failure fallback.
 - `src/listings/domain/location_filter.py` — `LocationFilter` value object, enforces at-least-one-level invariant at construction.
+- `src/listings/domain/location_triple.py` — `LocationTriple` value object returned by `PropertyListingRepository.list_locations()` (no invariant; mirrors DB-row optionality).
 - `src/listings/application/use_cases/search_listings.py` — orchestration class.
 - `src/listings/application/use_cases/list_locations.py` — hierarchical tree for the FE selector.
-- `tests/unit/listings/application/use_cases/test_search_listings.py` — covers every fail-open branch.
-- `tests/unit/listings/application/use_cases/test_list_locations.py`
-- `tests/unit/listings/domain/test_location_filter.py` — invariant enforcement.
-- `tests/unit/listings/adapters/api/test_search_validation.py` — pins `validate_location_for_search` (the route-side guard that returns 422 when `q` is set without a location).
+- `tests/unit/listings/test_search_listings_use_case.py` — covers every fail-open branch.
+- `tests/unit/listings/test_list_locations_use_case.py`
+- `tests/unit/listings/test_location_filter.py` — invariant enforcement.
+- `tests/unit/listings/test_search_validation.py` — pins `validate_location_for_search` (the route-side guard that returns 422 when `q` is set without a location).
 - `tests/integration/listings/test_search_endpoint.py` — end-to-end against in-memory adapters; asserts score order, location prefilter, fallbacks, 422 when q without location.
 
 ### Modified
@@ -490,7 +499,7 @@ Each criterion phrases an **externally observable** behavior — passing it mean
 
 - **`LocationExtractor` for secondary location signals.** ADR §5 sketched an LLM that extracts location from the free-text query. The mandatory location param eliminates the need at v1, but a query like "casa perto da Avenida da Liberdade" carries a sub-municipality signal the user can't pick from the dropdown. A future v3 LLM stage could extract these as re-ranking *hints* (not hard filters), strictly additive on top of the user's filter.
 - **Cross-encoder re-ranker** — ADR §6.7, §"Iteration plan v6". If retrieval quality of the cosine-ANN ranking falls short, we add a small re-scoring model on top-50 → top-10 against the raw query. New port, new LLM call site, new latency budget.
-- **Search-side caching beyond in-memory.** Redis-backed query cache for popular searches if hit rate justifies it.
+- **Per-query result/embedding cache.** ADR §7 sketched `SEARCH_QUERY_CACHE_TTL_SECONDS`. Add an in-memory cache (and later, Redis) if hit rate justifies it once we have traffic data.
 - **Cursor pagination over vector results.**
 - **Faceted result counts** — "X listings in Cascais, Y in Estoril, …" alongside the search results. Useful UX but adds another aggregation pass.
 - **Static PT location catalog** — instead of deriving locations from `property_listings` (only populated regions render), seed a complete PT geography catalog. Lets the FE always render the full tree even before any listings are indexed in a region. Trade-off: empty regions in the dropdown.
