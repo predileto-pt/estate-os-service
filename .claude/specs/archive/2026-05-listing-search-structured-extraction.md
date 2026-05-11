@@ -1,6 +1,6 @@
 # Listing search — structured query extraction + hybrid retrieval (ADR-014)
 
-**Status:** in-progress (review-3 cleared 2026-05-11; implementation started 2026-05-11)
+**Status:** shipped 2026-05-11 (all acceptance criteria covered by tests; 830 passing; pushed to origin/main)
 **Owner:** Peter
 **Created:** 2026-05-11
 **ADR:** [014-structured-query-extraction-and-hybrid-retrieval](../../docs/adr/014-structured-query-extraction-and-hybrid-retrieval.md)
