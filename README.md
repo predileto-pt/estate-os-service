@@ -1131,49 +1131,68 @@ Out of scope for this section but worth flagging the playbook:
 
 ### 8. Search read path (`?q=…` + `/locations`)
 
-ADR-013 phase 2, spec `2026-05-listing-semantic-search-read-path`. Phase 1 (above) only embedded; phase 2 queries the index from `GET /api/v1/listings/properties?q=<free-text>`.
+ADR-013 phase 2 shipped the read path behind `LISTINGS_SEARCH_ENABLED=false`. ADR-014 (spec `2026-05-listing-search-structured-extraction`) refactors it in place to hybrid retrieval: extract structural facets from the query, narrow at the database via SQL pre-filter, then ANN-rank only the candidates. Same gate, same response API (with two new fields on q-set responses).
 
 **Two endpoints**:
 
 | Endpoint | Behavior |
 |---|---|
-| `GET /api/v1/listings/properties?q=<text>&parish=<…>` | When `q` is set, runs the semantic pipeline (rewrite → embed → ANN → hydrate). **At least one of `parish` / `municipality` / `district` is required** (422 with `detail.code = "location_required_for_search"` otherwise). When `q` is empty/absent, the existing structured-filter path runs — no behavior change. |
-| `GET /api/v1/listings/locations` | Country → district → municipality → parish tree for the FE selector. Served from a bundled JSON catalog (`src/listings/static_data/locations.json`) — full PT geography from day one, no DB dependency. Replace with the canonical INE dataset before scaling beyond PT. |
+| `GET /api/v1/listings/properties?q=<text>&parish=<…>` | When `q` is set, runs the hybrid pipeline (extract → parallel(SQL pre-filter, embed) → ANN → hydrate → partition). **At least one of `parish` / `municipality` / `district` is required** (422 with `detail.code = "location_required_for_search"` otherwise). When `q` is empty/absent, the existing structured-filter path runs — no behavior change. |
+| `GET /api/v1/listings/locations` | Country → district → municipality → parish tree for the FE selector. Served from `src/listings/static_data/locations.json`. |
 
-**Required-location semantics**: the location filter is supplied **structurally** by the user via the FE selector (driven by `/locations`), never extracted from the query text by an LLM. We trade a sometimes-wrong soft signal for a guaranteed-correct hard signal — no `LocationExtractor` in the read path.
+**Hybrid pipeline** (ADR-014):
+
+1. **`QueryExtractor`** maps the raw query to a typed `ParsedQuery` carrying typology, T-number → min_bedrooms, area range, price range, boolean amenities (has_pool/garden/elevator/parking), POI categories from a closed enum mirroring `properties.domain.models.property_poi.PoiCategory`, and a `free_text_remainder` for everything left.
+2. **Parallel** via `asyncio.gather(return_exceptions=True)`:
+   - `PropertyListingRepository.list_ids_for_search` runs SQL with status='active' + location + route-param hard filters (typology / listing_type / price — route wins on conflict) + ParsedQuery soft-hard filters (each `col IS NULL OR col <op> value` so NULL-data rows are admitted).
+   - The embedder consumes the canonical-text-v3-shaped render of `ParsedQuery`.
+3. **Cardinality guard**: if SQL returned fewer than `SEARCH_MAX_PRE_FILTER_CANDIDATES` (default 1000), Pinecone runs with `listing_id IN candidates` filter. If SQL saturated (== cap), Pinecone runs broad with `top_k × SEARCH_BROAD_MODE_OVERSHOOT` and the use case intersects with candidates post-hoc.
+4. **Hydrate** via `list_by_ids` (filters status='active' at SQL — defense in depth).
+5. **`_partition_and_rank`** splits rows into matched (every set criterion evaluable on non-NULL columns) and partial-data (≥1 criterion NULL on the row). Matched first, partial last; cosine order within each bucket.
+6. **Response** gains `matched_pois` (full data — name, distance, address, image_urls, reviews — for POIs whose category was extracted from the query) and `unmatched_pois` (categories the user asked for that the listing doesn't have). Empty `[]` on q-empty responses.
+
+**Required-location semantics**: the location filter is supplied **structurally** by the user via the FE selector (driven by `/locations`), never extracted from the query text by an LLM. We trade a sometimes-wrong soft signal for a guaranteed-correct hard signal.
 
 **Fail-open at every external call**:
 
 | Failure | Behavior |
 |---|---|
-| `QueryUnderstandingService` (LLM) raises/times out | Embed the raw query verbatim. Search still runs, less smart. |
-| `EmbeddingProvider` raises | Fall back to relational `list_active` filtered by the user's location params. Unranked but location-correct. |
-| `VectorIndex.query` raises | Same relational fallback. |
-| Vector returns 0 matches | 200 with empty `items` (not a 404). |
+| `QueryExtractor` (LLM) raises/times out | `ParsedQuery(free_text_remainder=query)` — embed the raw query as `DESCRIPTION:`. Search still runs, less smart. |
+| SQL `list_ids_for_search` raises | Switch to broad-mode Pinecone (no candidate intersection). |
+| `EmbeddingProvider` raises | `_relational_fallback`: reuse SQL candidates → `list_by_ids` → partition + sort by `created_at desc`. Unranked but structurally-correct. |
+| `VectorIndex.query` raises | Same `_relational_fallback`. |
+| Pinecone returns 0 matches | 200 with empty `items`. |
 
-**Env vars** (already in `.env.example`):
+**Env vars** (in `.env.example`):
 
 ```bash
-# Master gate. Keep false until staging validates the search path end-to-end.
-# When false, the public `?q=…` param is silently ignored — route falls through
-# to the structured-filter path, so the gate is safe to ship dark on prod.
+# Master gate. Keep false until staging validates end-to-end.
 LISTINGS_SEARCH_ENABLED=false
 
-# QueryUnderstandingService LLM (reuses OPENAI_API_KEY).
+# QueryExtractor LLM (reuses OPENAI_API_KEY).
 SEARCH_LLM_MODEL=gpt-4o-mini
 SEARCH_LLM_TIMEOUT_SECONDS=4.0
 SEARCH_LLM_MAX_OUTPUT_TOKENS=200
 
-# Cap on Pinecone `top_k`. The use case takes `min(VECTOR_INDEX_TOP_K,
-# limit + offset)` — pagination beyond this is a follow-up (cursor pagination).
+# Cap on Pinecone `top_k`.
 VECTOR_INDEX_TOP_K=50
+
+# Hybrid retrieval — SQL pre-filter knobs (ADR-014 §16).
+# Result with len == cap → cardinality guard switches to broad mode.
+SEARCH_MAX_PRE_FILTER_CANDIDATES=1000
+# Multiplier on Pinecone top_k in broad mode (overshoot for the
+# post-intersection filter). Final response still capped to top_k.
+SEARCH_BROAD_MODE_OVERSHOOT=4
 ```
 
-**Rollout**:
+**Rollout** (ADR-014 §Rollout):
 
-1. Ship with `LISTINGS_SEARCH_ENABLED=false` (default). Route accepts `q` but ignores it. No external-API risk on prod.
-2. Flip to `true` in staging. Validate against a manual PT query corpus. Observe latency, fallback rates.
-3. Flip in production once staging is clean.
+1. Ship with `LISTINGS_SEARCH_ENABLED=false` (default). Route accepts `q` but falls through to the structured-filter path.
+2. Wipe the dev/staging vector namespace. Canonical-text v3 is incompatible with v2 hashes — every listing needs to re-embed.
+3. Run the canonical-text v3 backfill (existing spec mechanism — enqueue `PROPERTY_LISTING_UPDATED.v1` for every active listing). Metadata schema stays at ADR-013 V1 (no second namespace dance).
+4. Validate offline against a manual PT query corpus (~30 queries).
+5. Flip `LISTINGS_SEARCH_ENABLED=true` in staging. Watch the `search_listings.broad_mode` log line — should be rare.
+6. Flip in production.
 
 ## Contract Intelligence
 

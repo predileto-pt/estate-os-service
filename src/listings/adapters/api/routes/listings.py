@@ -24,7 +24,6 @@ from listings.adapters.api.search_validation import (
 from listings.domain.exceptions import PropertyNotFoundError
 from listings.domain.location_filter import LocationFilter
 from listings.domain.models import ListingType, Typology
-from listings.domain.parsed_query import ParsedQuery
 from listings.domain.poi_category import PoiCategory
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import PropertyListing

@@ -35,7 +35,7 @@ from listings.application.use_cases.search_listings import (
     _render_query_for_embed,
 )
 from listings.domain.location_filter import LocationFilter
-from listings.domain.models import ListingType, PropertyStatus, Typology
+from listings.domain.models import PropertyStatus, Typology
 from listings.domain.parsed_query import ParsedQuery
 from listings.domain.poi_category import PoiCategory
 from listings.domain.property_filters import PropertyFilters

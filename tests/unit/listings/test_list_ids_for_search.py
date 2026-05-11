@@ -29,7 +29,7 @@ from listings.adapters.inmemory.inmemory_property_listing_repo import (
 )
 from listings.application.ports.address_searcher import ParsedAddress
 from listings.domain.location_filter import LocationFilter
-from listings.domain.models import ListingType, PropertyStatus, Typology
+from listings.domain.models import ListingType, Typology
 from listings.domain.parsed_query import ParsedQuery
 from listings.domain.property_filters import PropertyFilters
 

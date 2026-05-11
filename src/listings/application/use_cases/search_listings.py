@@ -31,7 +31,6 @@ Spec: 2026-05-listing-search-structured-extraction §6/§8/§11.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
 from typing import Iterable
 from uuid import UUID
 

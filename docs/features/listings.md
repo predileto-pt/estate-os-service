@@ -257,21 +257,21 @@ A separate spec ships the backfill CLI under `src/listings/entrypoints/backfill_
 - OpenAI adapter: `src/listings/adapters/embedding/openai_provider.py`
 - In-memory test doubles: `src/listings/adapters/vector/inmemory_index.py`, `src/listings/adapters/embedding/stub_provider.py`
 
-## Search read path (ADR-013 phase 2)
+## Search read path (ADR-013 phase 2 → ADR-014 hybrid retrieval)
 
-Spec: `2026-05-listing-semantic-search-read-path`. Phase 1 (above) embedded every listing into Pinecone; phase 2 queries that index from the public listings route.
+ADR-013 phase 2 shipped the read path behind `LISTINGS_SEARCH_ENABLED=false`. ADR-014 (spec `2026-05-listing-search-structured-extraction`) refactors it in place to hybrid retrieval: structural facets extracted from the query become SQL filters; the residue rides cosine. Same gate, same response API plus two new fields on q-set responses (`matched_pois`, `unmatched_pois`).
 
 ### Endpoint behavior matrix
 
 | Request                                            | Path taken                                                                                          | Notes                                                                                              |
 | -------------------------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `GET /properties` (no `q`)                          | Existing structured-filter path (ADR-010), unchanged.                                                | Location filter optional. No regressions.                                                          |
+| `GET /properties` (no `q`)                          | Existing structured-filter path (ADR-010), unchanged.                                                | Location filter optional. No regressions. `matched_pois` / `unmatched_pois` serialize as `[]`.    |
 | `GET /properties?q=…` (no location)                 | **422** with `detail.code = "location_required_for_search"`.                                         | FE selector should never let the user submit this — defense in depth.                              |
 | `GET /properties?q=…&parish=…` (gate off)           | Falls through to the structured-filter path. `q` silently ignored.                                  | Ship-safe default — `LISTINGS_SEARCH_ENABLED=false` works on prod from day one.                    |
-| `GET /properties?q=…&parish=…` (gate on)            | `SearchListings` pipeline: rewrite → embed → ANN → hydrate.                                          | Vector-ranked results, scored top-k, paginated over the ranked list.                               |
+| `GET /properties?q=…&parish=…` (gate on)            | `SearchListings` hybrid pipeline (extract → parallel(SQL pre-filter, embed) → ANN → hydrate).        | Vector-ranked candidates, NULL-data rows at the bottom, matched/unmatched POIs on the response.   |
 | `GET /locations`                                    | `ListLocations` — country → district → municipality → parish tree, served from a bundled JSON catalog. | No DB dependency; full PT geography from day one. See `src/listings/static_data/locations.json`. |
 
-### Search pipeline
+### Search pipeline (ADR-014)
 
 ```
 GET /properties?q=…&parish=…
@@ -289,40 +289,105 @@ GET /properties?q=…&parish=…
          ▼
        SearchListings.execute(query, location, filters)
          │
-         ├── 1. QueryUnderstandingService.rewrite (try/except → raw query on failure)
-         ├── 2. EmbeddingProvider.embed       (try/except → _relational_fallback)
-         ├── 3. VectorIndex.query             (try/except → _relational_fallback)
-         ├── 4. PropertyListingRepository.list_by_ids (WHERE id = ANY(:ids) AND status='active')
-         └── 5. _reorder_by_score + paginate over the ranked list
+         ├── 1. QueryExtractor.extract → ParsedQuery
+         │       (try/except → ParsedQuery(free_text_remainder=query))
+         ├── 2. asyncio.gather(return_exceptions=True):
+         │       ├── list_ids_for_search → list[UUID] candidates (SQL)
+         │       └── EmbeddingProvider.embed(canonical-text-v3 render)
+         │       SQL fails → broad mode. Embed fails → _relational_fallback.
+         ├── 3. Cardinality guard:
+         │       ├── normal (|cands| < cap):  filter=AND(status, listing_id IN [cands])
+         │       └── broad  (|cands| == cap): filter=status, top_k × overshoot, intersect after
+         │       Vector fails → _relational_fallback.
+         ├── 4. list_by_ids hydrate (WHERE id = ANY(:ids) AND status='active')
+         └── 5. _partition_and_rank: matched rows first, partial-data
+                rows (≥1 criterion NULL on the row) last. Paginate.
+         │
+         ▼
+       returns (rows, total, parsed) — parsed.nearby_pois drives
+       the matched/unmatched POI composition in the route helper.
 ```
 
-The `_relational_fallback` calls `PropertyListingRepository.list_active` with the user's location merged in as exact-match column predicates. Unranked, but location-correct — better than 503'ing the page.
+`_relational_fallback` reuses the SQL candidates (the parallel stage's first result) and skips ANN ranking. Sort by `(created_at desc, id desc)` within matched/partial buckets so the order is deterministic when cosine isn't available.
+
+### `ParsedQuery` field map
+
+The `QueryExtractor` (`gpt-4o-mini` via LangChain structured output, internal `_ExtractorResult` Pydantic envelope) populates the following fields from the raw query:
+
+| Field | Source intent | Filter consumer |
+|---|---|---|
+| `typology` | "casa", "apartamento", "terreno", "ruína" | SQL hard filter on `typology` (route param wins on conflict) |
+| `min_bedrooms` | "T2"/"T3"/"3 quartos" | SQL soft-hard on `num_of_bedrooms` (NULL admitted) |
+| `min_bathrooms` | "2 wcs"/"2 casas de banho" | SQL soft-hard on `num_of_bathrooms` |
+| `min_area_m2` / `max_area_m2` | "pelo menos 100m²"/"até 200m²" | SQL soft-hard on `area_in_m2` |
+| `min_price` / `max_price` | "a partir de 250k"/"até 500k" | SQL soft-hard on `min_price` (route wins on conflict) |
+| `has_pool` / `has_garden` / `has_elevator` / `has_parking` | "piscina"/"jardim"/"elevador"/"garagem" (True only — negation conservatively ignored) | SQL soft-hard on the matching column |
+| `nearby_pois` | "escola"/"ginásio"/"supermercado"/etc. mapped to the closed `PoiCategory` enum | Embedded into `NEARBY:` line + drives matched/unmatched response |
+| `free_text_remainder` | Everything left after extraction (off-vocab POIs, qualifiers like "jeitoso", "varanda") | Embedded into `DESCRIPTION:` line — pure cosine signal |
+
+### Matched / unmatched POIs on the response
+
+When `q` is set the response gains two fields (ALWAYS present; `[]` when q is empty):
+
+```jsonc
+{
+  "id": "…",
+  "typology": "house",
+  "characteristics": { … },
+  "matched_pois": [
+    {
+      "category": "school",
+      "name": "Escola Básica de Cascais",
+      "distance_meters": 480,
+      "address": "Rua das Flores, 12, Cascais",
+      "image_urls": ["https://…/photo1.jpg", "https://…/photo2.jpg"],
+      "reviews": [ … ]
+    }
+  ],
+  "unmatched_pois": ["gym"],
+  …
+}
+```
+
+`matched_pois` is sorted ascending by `distance_meters` (the route helper sorts explicitly; the projection's `prop.pois` is in discovery order, not distance order). `unmatched_pois` carries the categories the user asked for that the listing doesn't have nearby — UX renders them as "you asked for: gym (not nearby)".
+
+The rich POI fields (`address`, `image_urls`, `reviews`) flow from `PropertyPoi` through the snapshot (`build_property_snapshot` in `properties/application/events/property_event.py`) into `ListingPoi` on the projection.
 
 ### Read path env vars
 
 | Variable                                    | Description                                                                                  | Default       |
 | ------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------- |
 | `LISTINGS_SEARCH_ENABLED`                   | Master gate. When `false`, `?q=…` is silently ignored and the structured-filter path runs.   | `false`       |
-| `SEARCH_LLM_MODEL`                          | `QueryUnderstandingService` LLM. Cheap PT-capable default.                                   | `gpt-4o-mini` |
-| `SEARCH_LLM_TIMEOUT_SECONDS`                | Per-call timeout for the rewriter. On timeout, embed the raw query (fail-open).              | `4.0`         |
-| `SEARCH_LLM_MAX_OUTPUT_TOKENS`              | Hard cap on rewriter output.                                                                 | `200`         |
-| `VECTOR_INDEX_TOP_K`                        | Cap on Pinecone `top_k`. Use case takes `min(top_k, limit+offset)`. Beyond this = follow-up. | `50`          |
+| `SEARCH_LLM_MODEL`                          | `QueryExtractor` LLM. Cheap PT-capable default.                                              | `gpt-4o-mini` |
+| `SEARCH_LLM_TIMEOUT_SECONDS`                | Per-call timeout for the extractor. On timeout, fall back to `ParsedQuery(free_text_remainder=query)`. | `4.0`  |
+| `SEARCH_LLM_MAX_OUTPUT_TOKENS`              | Hard cap on extractor output.                                                                | `200`         |
+| `VECTOR_INDEX_TOP_K`                        | Cap on Pinecone `top_k`.                                                                     | `50`          |
+| `SEARCH_MAX_PRE_FILTER_CANDIDATES`          | Cap on the SQL pre-filter result. `len == cap` → cardinality guard switches to broad-mode.   | `1000`        |
+| `SEARCH_BROAD_MODE_OVERSHOOT`               | Multiplier on Pinecone `top_k` in broad mode (overshoot, then post-intersect with candidates). Final response is still capped to top_k. | `4`           |
 
 ### Pagination semantics
 
-`limit` and `offset` apply over the ranked list. `top_k = min(VECTOR_INDEX_TOP_K, limit + offset)`. Paging beyond `VECTOR_INDEX_TOP_K` (default 50) returns whatever's left in the top-k window; cursor pagination over deeper results is a follow-up.
+`limit` and `offset` apply over the ranked list. Paging beyond `VECTOR_INDEX_TOP_K` (default 50) returns whatever's left in the top-k window; cursor pagination is a follow-up.
 
-`total` in the response = count of Pinecone candidates **that survived the SQL `status='active'` hydrate filter** (a stale vector for a now-WITHDRAWN listing is excluded from both `items` and `total`). NOT a global match count — there's no cheap way to know how many listings would have matched at lower similarity.
+`total` in the response = count of post-hydrate rows after partition (matched + partial). NOT a global match count.
+
+### Re-indexing on the v3 canonical-text bump
+
+Canonical-text v3 has a new sectional layout (TYPOLOGY/CHARACTERISTICS/FEATURES/NEARBY/DESCRIPTION/LOCATION/PRICE) aligned with `_render_query_for_embed` on the query side. Every listing's `embedding_text_hash` is invalidated by the version bump, so the next `PROPERTY_UPDATED.v1` event triggers a re-embed automatically. Stagnant listings (no further events) need the existing canonical-text backfill spec mechanism to enqueue a `PROPERTY_LISTING_UPDATED.v1` for each active row. Metadata schema stays at ADR-013 V1 — no parallel-namespace dance needed.
 
 ### Read path sources
 
-- Spec: `.claude/specs/active/2026-05-listing-semantic-search-read-path.md`
-- Use case: `src/listings/application/use_cases/search_listings.py`
+- ADR: [`docs/adr/014-structured-query-extraction-and-hybrid-retrieval.md`](../adr/014-structured-query-extraction-and-hybrid-retrieval.md)
+- Spec: `.claude/specs/active/2026-05-listing-search-structured-extraction.md`
+- Use case: `src/listings/application/use_cases/search_listings.py` (rewritten — extract → asyncio.gather → cardinality guard → hydrate → partition-and-rank)
 - `/locations` use case: `src/listings/application/use_cases/list_locations.py`
 - Route validation helper: `src/listings/adapters/api/search_validation.py`
-- `QueryUnderstandingService` port: `src/listings/application/ports/query_understanding.py`
-- LLM adapter: `src/listings/adapters/ai/langchain_query_understanding.py`
-- Identity adapter (tests + flag-off): `src/listings/adapters/inmemory/inmemory_query_understanding.py`
+- `QueryExtractor` port: `src/listings/application/ports/query_extractor.py`
+- LLM adapter: `src/listings/adapters/ai/langchain_query_extractor.py`
+- Identity adapter (tests + flag-off): `src/listings/adapters/inmemory/inmemory_query_extractor.py`
+- `ParsedQuery` value object: `src/listings/domain/parsed_query.py`
+- `PoiCategory` closed enum: `src/listings/domain/poi_category.py` (contract-tested against `properties.domain.models.property_poi.PoiCategory`)
 - `LocationFilter` value object: `src/listings/domain/location_filter.py`
+- `list_ids_for_search` on the repository: `src/listings/application/ports/repositories/property_listing_repository.py`
 - Static location catalog: `src/listings/static_data/locations.json`
 - Integration test: `tests/integration/test_search_endpoint.py`
