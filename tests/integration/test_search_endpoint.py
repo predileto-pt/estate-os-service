@@ -392,3 +392,228 @@ class TestLocationsEndpoint:
         pt = response.json()["countries"][0]
         # Even with an empty DB, all 20 top-level units are present.
         assert len(pt["districts"]) == 20
+
+
+# ──────────── Matched / unmatched POI response (ADR-014 §15) ────────────
+
+
+class _StubPOIExtractor:
+    """Stub `QueryExtractor` returning a fixed `ParsedQuery` so we
+    don't depend on LLM behavior in these tests. Drives the
+    matched/unmatched response composition deterministically."""
+
+    def __init__(self, *, nearby_pois):
+        from listings.domain.parsed_query import ParsedQuery
+        from listings.domain.poi_category import PoiCategory  # noqa: F401 — needed at call site
+
+        self._returns = ParsedQuery(nearby_pois=tuple(nearby_pois))
+
+    async def extract(self, query: str):
+        return self._returns
+
+
+async def _seed_listing_with_pois(
+    repo,
+    vector_index,
+    embed,
+    *,
+    description: str,
+    pois: list[dict],
+    parish: str = "Cascais",
+    municipality: str = "Cascais",
+    district: str = "Lisboa",
+) -> str:
+    """Like _seed_listing but carries an explicit POI list through the
+    snapshot, so the projection ends up with the rich POI data on
+    `ListingPoi`."""
+    from listings.application.ports.address_searcher import ParsedAddress
+
+    pid = str(uuid4())
+    await repo.upsert_from_event(
+        event_data={
+            "id": pid,
+            "organization_id": str(uuid4()),
+            "aggregate_version": 1,
+            "address": "x",
+            "listing_type": "sale",
+            "typology": "apartment",
+            "status": "active",
+            "description": description,
+            "latitude": None,
+            "longitude": None,
+            "characteristics": None,
+            "prices": [],
+            "images": [],
+            "pois": pois,
+        },
+        source_occurred_at=datetime.now(timezone.utc),
+    )
+    await repo.update_location(
+        property_id=UUID(pid),
+        parsed=ParsedAddress(
+            country="Portugal",
+            parish=parish,
+            municipality=municipality,
+            district=district,
+        ),
+    )
+    vector = await embed.embed(description)
+    await vector_index.upsert(
+        vector_id=pid,
+        vector=vector,
+        metadata={
+            "listing_id": pid,
+            "property_id": pid,
+            "parish": parish.lower().strip(),
+            "municipality": municipality.lower().strip(),
+            "district": district.lower().strip(),
+            "listing_type": "sale",
+            "typology": "apartment",
+            "status": "active",
+        },
+        namespace=NAMESPACE,
+    )
+    return pid
+
+
+class TestQEmptyResponseShape:
+    """Even when q is empty, matched_pois and unmatched_pois are
+    present in the JSON as empty lists. NOT absent — the schema
+    defaults render them every time, which keeps the response
+    contract regular and avoids the `response_model_exclude_none`
+    BWC trap."""
+
+    async def test_q_empty_has_empty_poi_lists(
+        self,
+        client,
+        search_property_listing_repo,
+        search_vector_index,
+        search_embedding_provider,
+    ):
+        await _seed_listing(
+            search_property_listing_repo,
+            search_vector_index,
+            search_embedding_provider,
+            description="any",
+        )
+        response = await client.get("/api/v1/listings/properties")
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert item["matched_pois"] == []
+        assert item["unmatched_pois"] == []
+
+
+class TestMatchedAndUnmatchedPois:
+    """The q-set path populates matched_pois (full POI data for
+    categories the user asked for AND the listing has) and
+    unmatched_pois (categories the user asked for that the listing
+    doesn't have nearby)."""
+
+    @pytest.fixture
+    def search_query_understanding(self):
+        # Stub extractor: parses any query into nearby_pois=(SCHOOL,GYM)
+        # so the matched/unmatched composition has signal to work
+        # against the seeded POI list.
+        from listings.domain.poi_category import PoiCategory
+
+        return _StubPOIExtractor(nearby_pois=[PoiCategory.SCHOOL, PoiCategory.GYM])
+
+    async def test_matched_pois_carry_rich_data(
+        self,
+        client,
+        search_property_listing_repo,
+        search_vector_index,
+        search_embedding_provider,
+    ):
+        """Listing has a SCHOOL POI with rich fields → response carries
+        it under matched_pois with name, distance, address,
+        image_urls, reviews."""
+        await _seed_listing_with_pois(
+            search_property_listing_repo,
+            search_vector_index,
+            search_embedding_provider,
+            description="casa",
+            pois=[
+                {
+                    "category": "school",
+                    "name": "Escola Básica de Cascais",
+                    "distance_meters": 480,
+                    "address": "Rua das Flores, 12, Cascais",
+                    "image_urls": ["https://x/1.jpg"],
+                    "reviews": [{"rating": 4, "text": "Boa"}],
+                }
+            ],
+        )
+        response = await client.get(
+            "/api/v1/listings/properties?q=anything&parish=Cascais"
+        )
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert len(item["matched_pois"]) == 1
+        m = item["matched_pois"][0]
+        assert m["category"] == "school"
+        assert m["name"] == "Escola Básica de Cascais"
+        assert m["distance_meters"] == 480
+        assert m["address"] == "Rua das Flores, 12, Cascais"
+        assert m["image_urls"] == ["https://x/1.jpg"]
+        assert m["reviews"] == [{"rating": 4, "text": "Boa"}]
+
+    async def test_unmatched_pois_lists_categories_not_nearby(
+        self,
+        client,
+        search_property_listing_repo,
+        search_vector_index,
+        search_embedding_provider,
+    ):
+        """Stub asks for SCHOOL + GYM. The listing has only a school
+        → unmatched_pois=["gym"]."""
+        await _seed_listing_with_pois(
+            search_property_listing_repo,
+            search_vector_index,
+            search_embedding_provider,
+            description="casa",
+            pois=[
+                {
+                    "category": "school",
+                    "name": "Escola",
+                    "distance_meters": 500,
+                }
+            ],
+        )
+        response = await client.get(
+            "/api/v1/listings/properties?q=anything&parish=Cascais"
+        )
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert item["unmatched_pois"] == ["gym"]
+
+    async def test_multiple_matches_per_category_sorted_by_distance(
+        self,
+        client,
+        search_property_listing_repo,
+        search_vector_index,
+        search_embedding_provider,
+    ):
+        """Spec acceptance criterion: 3 schools at 1500m / 200m / 800m
+        (insertion order — NOT sorted) all surface in `matched_pois`,
+        in ASCENDING distance order. The route helper sorts explicitly
+        because the JSONB projection preserves discovery order, not
+        the canonical-text composer's sort order."""
+        await _seed_listing_with_pois(
+            search_property_listing_repo,
+            search_vector_index,
+            search_embedding_provider,
+            description="casa",
+            pois=[
+                {"category": "school", "name": "Far", "distance_meters": 1500},
+                {"category": "school", "name": "Near", "distance_meters": 200},
+                {"category": "school", "name": "Mid", "distance_meters": 800},
+            ],
+        )
+        response = await client.get(
+            "/api/v1/listings/properties?q=anything&parish=Cascais"
+        )
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert [p["distance_meters"] for p in item["matched_pois"]] == [200, 800, 1500]
+        assert [p["name"] for p in item["matched_pois"]] == ["Near", "Mid", "Far"]
