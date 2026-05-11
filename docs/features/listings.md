@@ -256,3 +256,73 @@ A separate spec ships the backfill CLI under `src/listings/entrypoints/backfill_
 - Pinecone adapter: `src/listings/adapters/vector/pinecone_index.py`
 - OpenAI adapter: `src/listings/adapters/embedding/openai_provider.py`
 - In-memory test doubles: `src/listings/adapters/vector/inmemory_index.py`, `src/listings/adapters/embedding/stub_provider.py`
+
+## Search read path (ADR-013 phase 2)
+
+Spec: `2026-05-listing-semantic-search-read-path`. Phase 1 (above) embedded every listing into Pinecone; phase 2 queries that index from the public listings route.
+
+### Endpoint behavior matrix
+
+| Request                                            | Path taken                                                                                          | Notes                                                                                              |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `GET /properties` (no `q`)                          | Existing structured-filter path (ADR-010), unchanged.                                                | Location filter optional. No regressions.                                                          |
+| `GET /properties?q=…` (no location)                 | **422** with `detail.code = "location_required_for_search"`.                                         | FE selector should never let the user submit this — defense in depth.                              |
+| `GET /properties?q=…&parish=…` (gate off)           | Falls through to the structured-filter path. `q` silently ignored.                                  | Ship-safe default — `LISTINGS_SEARCH_ENABLED=false` works on prod from day one.                    |
+| `GET /properties?q=…&parish=…` (gate on)            | `SearchListings` pipeline: rewrite → embed → ANN → hydrate.                                          | Vector-ranked results, scored top-k, paginated over the ranked list.                               |
+| `GET /locations`                                    | `ListLocations` — hierarchical tree from populated rows, TTL-cached process-locally.                | Empty DB → 200 with `{"districts": []}`.                                                           |
+
+### Search pipeline
+
+```
+GET /properties?q=…&parish=…
+   │
+   ▼
+ normalize_query (.strip(), whitespace-only → None)
+   │
+   ├── q normalized to None → list_properties.execute() (structured)
+   │
+   └── q set
+         │
+         ▼
+       validate_location_for_search (422 if no parish/municipality/district)
+         │
+         ▼
+       SearchListings.execute(query, location, filters)
+         │
+         ├── 1. QueryUnderstandingService.rewrite (try/except → raw query on failure)
+         ├── 2. EmbeddingProvider.embed       (try/except → _relational_fallback)
+         ├── 3. VectorIndex.query             (try/except → _relational_fallback)
+         ├── 4. PropertyListingRepository.list_by_ids (WHERE id = ANY(:ids) AND status='active')
+         └── 5. _reorder_by_score + paginate over the ranked list
+```
+
+The `_relational_fallback` calls `PropertyListingRepository.list_active` with the user's location merged in as exact-match column predicates. Unranked, but location-correct — better than 503'ing the page.
+
+### Read path env vars
+
+| Variable                                    | Description                                                                                  | Default       |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------- |
+| `LISTINGS_SEARCH_ENABLED`                   | Master gate. When `false`, `?q=…` is silently ignored and the structured-filter path runs.   | `false`       |
+| `SEARCH_LLM_MODEL`                          | `QueryUnderstandingService` LLM. Cheap PT-capable default.                                   | `gpt-4o-mini` |
+| `SEARCH_LLM_TIMEOUT_SECONDS`                | Per-call timeout for the rewriter. On timeout, embed the raw query (fail-open).              | `4.0`         |
+| `SEARCH_LLM_MAX_OUTPUT_TOKENS`              | Hard cap on rewriter output.                                                                 | `200`         |
+| `LISTINGS_LOCATIONS_CACHE_TTL_SECONDS`      | In-memory TTL cache for `/locations`.                                                        | `300`         |
+| `VECTOR_INDEX_TOP_K`                        | Cap on Pinecone `top_k`. Use case takes `min(top_k, limit+offset)`. Beyond this = follow-up. | `50`          |
+
+### Pagination semantics
+
+`limit` and `offset` apply over the ranked list. `top_k = min(VECTOR_INDEX_TOP_K, limit + offset)`. Paging beyond `VECTOR_INDEX_TOP_K` (default 50) returns whatever's left in the top-k window; cursor pagination over deeper results is a follow-up.
+
+`total` in the response = count of Pinecone candidates **that survived the SQL `status='active'` hydrate filter** (a stale vector for a now-WITHDRAWN listing is excluded from both `items` and `total`). NOT a global match count — there's no cheap way to know how many listings would have matched at lower similarity.
+
+### Read path sources
+
+- Spec: `.claude/specs/active/2026-05-listing-semantic-search-read-path.md`
+- Use case: `src/listings/application/use_cases/search_listings.py`
+- `/locations` use case: `src/listings/application/use_cases/list_locations.py`
+- Route validation helper: `src/listings/adapters/api/search_validation.py`
+- `QueryUnderstandingService` port: `src/listings/application/ports/query_understanding.py`
+- LLM adapter: `src/listings/adapters/ai/langchain_query_understanding.py`
+- Identity adapter (tests + flag-off): `src/listings/adapters/inmemory/inmemory_query_understanding.py`
+- `LocationFilter` / `LocationTriple` value objects: `src/listings/domain/location_filter.py`, `src/listings/domain/location_triple.py`
+- Integration test: `tests/integration/test_search_endpoint.py`

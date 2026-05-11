@@ -1129,6 +1129,55 @@ Out of scope for this section but worth flagging the playbook:
 5. Validate retrieval quality on the new namespace (cross-encoder re-ranker possibly involved — ADR-013 v6).
 6. Delete the old namespace (or the old index if you provisioned a new one).
 
+### 8. Search read path (`?q=…` + `/locations`)
+
+ADR-013 phase 2, spec `2026-05-listing-semantic-search-read-path`. Phase 1 (above) only embedded; phase 2 queries the index from `GET /api/v1/listings/properties?q=<free-text>`.
+
+**Two endpoints**:
+
+| Endpoint | Behavior |
+|---|---|
+| `GET /api/v1/listings/properties?q=<text>&parish=<…>` | When `q` is set, runs the semantic pipeline (rewrite → embed → ANN → hydrate). **At least one of `parish` / `municipality` / `district` is required** (422 with `detail.code = "location_required_for_search"` otherwise). When `q` is empty/absent, the existing structured-filter path runs — no behavior change. |
+| `GET /api/v1/listings/locations` | Hierarchical tree of populated locations (district → municipality → parish) for the FE selector. Regions with zero published listings are excluded. TTL-cached process-locally (default 5 min). |
+
+**Required-location semantics**: the location filter is supplied **structurally** by the user via the FE selector (driven by `/locations`), never extracted from the query text by an LLM. We trade a sometimes-wrong soft signal for a guaranteed-correct hard signal — no `LocationExtractor` in the read path.
+
+**Fail-open at every external call**:
+
+| Failure | Behavior |
+|---|---|
+| `QueryUnderstandingService` (LLM) raises/times out | Embed the raw query verbatim. Search still runs, less smart. |
+| `EmbeddingProvider` raises | Fall back to relational `list_active` filtered by the user's location params. Unranked but location-correct. |
+| `VectorIndex.query` raises | Same relational fallback. |
+| Vector returns 0 matches | 200 with empty `items` (not a 404). |
+
+**Env vars** (already in `.env.example`):
+
+```bash
+# Master gate. Keep false until staging validates the search path end-to-end.
+# When false, the public `?q=…` param is silently ignored — route falls through
+# to the structured-filter path, so the gate is safe to ship dark on prod.
+LISTINGS_SEARCH_ENABLED=false
+
+# QueryUnderstandingService LLM (reuses OPENAI_API_KEY).
+SEARCH_LLM_MODEL=gpt-4o-mini
+SEARCH_LLM_TIMEOUT_SECONDS=4.0
+SEARCH_LLM_MAX_OUTPUT_TOKENS=200
+
+# In-memory TTL cache for /locations.
+LISTINGS_LOCATIONS_CACHE_TTL_SECONDS=300
+
+# Cap on Pinecone `top_k`. The use case takes `min(VECTOR_INDEX_TOP_K,
+# limit + offset)` — pagination beyond this is a follow-up (cursor pagination).
+VECTOR_INDEX_TOP_K=50
+```
+
+**Rollout**:
+
+1. Ship with `LISTINGS_SEARCH_ENABLED=false` (default). Route accepts `q` but ignores it. No external-API risk on prod.
+2. Flip to `true` in staging. Validate against a manual PT query corpus. Observe latency, fallback rates.
+3. Flip in production once staging is clean.
+
 ## Contract Intelligence
 
 Ingests existing lease and sale contracts, extracts their structure via Reducto OCR, classifies each section with an LLM, and produces versioned templates that can be filled from CRM records to generate new contracts.
