@@ -31,6 +31,8 @@ dependencies = [
     "tabulate>=0.10.0",
     "stripe>=11.0.0",
     "pinecone>=5.0.0",
+    "redis[hiredis]>=5.0",
+    "msgpack>=1.0",
 ]
 
 [project.optional-dependencies]
