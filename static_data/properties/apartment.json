@@ -1,0 +1,165 @@
+{
+  "typology": "apartment",
+  "properties": [
+    {
+      "key": "apartment-sale-1",
+      "listing_type": "sale",
+      "address": "Rua da Misericórdia 38, 4º Esq, 1200-272 Lisboa",
+      "description": "Apartamento T2 totalmente remodelado no Chiado. Pé direito alto, soalho original e varanda com vista de rua.",
+      "price": 495000,
+      "owner": {
+        "full_name": "Filipa Mendes Rocha",
+        "civil_status": "single",
+        "nif": "311345678",
+        "document_id": "10234567 8 ZZ1",
+        "issued_by": "IRN",
+        "issuing_district": "Lisboa",
+        "date_of_birth": "1988-06-21"
+      }
+    },
+    {
+      "key": "apartment-sale-2",
+      "listing_type": "sale",
+      "address": "Rua Sá da Bandeira 145, 3º Dto, 4000-427 Porto",
+      "description": "T3 amplo no centro do Porto, com lugar de garagem e arrecadação. Cozinha equipada e janelas de vidro duplo.",
+      "price": 365000,
+      "owner": {
+        "full_name": "Luís Manuel Faria",
+        "civil_status": "married",
+        "nif": "321456789",
+        "document_id": "11345678 9 ZZ2",
+        "issued_by": "IRN",
+        "issuing_district": "Porto",
+        "date_of_birth": "1976-01-14"
+      }
+    },
+    {
+      "key": "apartment-sale-3",
+      "listing_type": "sale",
+      "address": "Rua de São Sebastião 27, 2º A, 8000-322 Faro",
+      "description": "T1 a 10 minutos a pé da praia. Ideal para investimento em alojamento local. Mobilado e equipado.",
+      "price": 215000,
+      "owner": {
+        "full_name": "Catarina Lopes Faria",
+        "civil_status": "divorced",
+        "nif": "331567890",
+        "document_id": "12456789 0 ZZ3",
+        "issued_by": "IRN",
+        "issuing_district": "Faro",
+        "date_of_birth": "1982-11-09"
+      }
+    },
+    {
+      "key": "apartment-sale-4",
+      "listing_type": "sale",
+      "address": "Rua Eduardo Coelho 11, 1º Esq, 3000-181 Coimbra",
+      "description": "T2 perto da Universidade de Coimbra. Excelente rentabilidade para arrendamento estudantil.",
+      "price": 175000,
+      "owner": {
+        "full_name": "Bruno Alexandre Cunha",
+        "civil_status": "single",
+        "nif": "341678901",
+        "document_id": "13567890 1 ZZ4",
+        "issued_by": "IRN",
+        "issuing_district": "Coimbra",
+        "date_of_birth": "1991-05-30"
+      }
+    },
+    {
+      "key": "apartment-sale-5",
+      "listing_type": "sale",
+      "address": "Avenida Central 88, 5º Dto, 4710-229 Braga",
+      "description": "T3 novo, certificado energético A, garagem para 2 carros e zona condominial com piscina.",
+      "price": 290000,
+      "owner": {
+        "full_name": "Mariana Coelho Brito",
+        "civil_status": "civil_union",
+        "nif": "351789012",
+        "document_id": "14678901 2 ZZ5",
+        "issued_by": "IRN",
+        "issuing_district": "Braga",
+        "date_of_birth": "1986-09-17"
+      }
+    },
+    {
+      "key": "apartment-purchase-1",
+      "listing_type": "purchase",
+      "address": "Rua da Escola Politécnica 200, 1250-101 Lisboa",
+      "description": "Procura T2/T3 em Lisboa, zona Príncipe Real ou Estefânia. Cliente investidor, sem necessidade de financiamento.",
+      "price": 450000,
+      "owner": {
+        "full_name": "Pedro Miguel Antunes",
+        "civil_status": "married",
+        "nif": "361890123",
+        "document_id": "15789012 3 ZZ6",
+        "issued_by": "IRN",
+        "issuing_district": "Lisboa",
+        "date_of_birth": "1979-03-28"
+      }
+    },
+    {
+      "key": "apartment-purchase-2",
+      "listing_type": "purchase",
+      "address": "Rua de Costa Cabral 567, 4200-211 Porto",
+      "description": "Cliente jovem casal procura T2 no Porto, com lugar de garagem, até 280k€.",
+      "price": 280000,
+      "owner": {
+        "full_name": "Carolina Reis Magalhães",
+        "civil_status": "civil_union",
+        "nif": "371901234",
+        "document_id": "16890123 4 ZZ7",
+        "issued_by": "IRN",
+        "issuing_district": "Porto",
+        "date_of_birth": "1993-07-04"
+      }
+    },
+    {
+      "key": "apartment-purchase-3",
+      "listing_type": "purchase",
+      "address": "Rua Conselheiro Bivar 30, 8000-255 Faro",
+      "description": "Procura T1 ou T2 perto da marina de Faro para alojamento local. Aceita imóveis a remodelar.",
+      "price": 195000,
+      "owner": {
+        "full_name": "Ricardo Pinto Salgado",
+        "civil_status": "single",
+        "nif": "382012345",
+        "document_id": "17901234 5 ZZ8",
+        "issued_by": "IRN",
+        "issuing_district": "Faro",
+        "date_of_birth": "1984-12-22"
+      }
+    },
+    {
+      "key": "apartment-purchase-4",
+      "listing_type": "purchase",
+      "address": "Avenida Sá da Bandeira 14, 3000-340 Coimbra",
+      "description": "Família procura T3 no centro de Coimbra com elevador. Necessário lugar de garagem.",
+      "price": 240000,
+      "owner": {
+        "full_name": "Helena Marques Costa",
+        "civil_status": "married",
+        "nif": "392123456",
+        "document_id": "18012345 6 ZZ9",
+        "issued_by": "IRN",
+        "issuing_district": "Coimbra",
+        "date_of_birth": "1971-08-08"
+      }
+    },
+    {
+      "key": "apartment-purchase-5",
+      "listing_type": "purchase",
+      "address": "Rua dos Capelistas 56, 4700-340 Braga",
+      "description": "Investidor procura T2 novo em Braga para arrendamento. Construção recente, certificado A.",
+      "price": 215000,
+      "owner": {
+        "full_name": "Diogo Fernandes Cruz",
+        "civil_status": "single",
+        "nif": "402234567",
+        "document_id": "19123456 7 ZZ1",
+        "issued_by": "IRN",
+        "issuing_district": "Braga",
+        "date_of_birth": "1989-10-13"
+      }
+    }
+  ]
+}

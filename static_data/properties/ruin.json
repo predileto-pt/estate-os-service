@@ -1,0 +1,165 @@
+{
+  "typology": "ruin",
+  "properties": [
+    {
+      "key": "ruin-sale-1",
+      "listing_type": "sale",
+      "address": "Travessa do Cabeço 4, 1100-149 Lisboa",
+      "description": "Ruína em Alfama, 80 m² de área de implantação, com aprovação prévia da Câmara para reconstrução T2.",
+      "price": 195000,
+      "owner": {
+        "full_name": "Fernanda Pinto Caldeira",
+        "civil_status": "widowed",
+        "nif": "511345678",
+        "document_id": "30234567 8 ZZ3",
+        "issued_by": "IRN",
+        "issuing_district": "Lisboa",
+        "date_of_birth": "1955-10-07"
+      }
+    },
+    {
+      "key": "ruin-sale-2",
+      "listing_type": "sale",
+      "address": "Rua do Almada 233, 4050-035 Porto",
+      "description": "Prédio devoluto na Baixa do Porto, com 3 pisos para recuperar. Ótima oportunidade para alojamento local.",
+      "price": 320000,
+      "owner": {
+        "full_name": "Henrique Lourenço Rebelo",
+        "civil_status": "single",
+        "nif": "521456789",
+        "document_id": "31345678 9 ZZ4",
+        "issued_by": "IRN",
+        "issuing_district": "Porto",
+        "date_of_birth": "1963-03-18"
+      }
+    },
+    {
+      "key": "ruin-sale-3",
+      "listing_type": "sale",
+      "address": "Sítio das Açoteias 19, 8200-275 Albufeira",
+      "description": "Ruína tradicional algarvia com 200 m² de terreno. Águas furtadas originais e poço próprio.",
+      "price": 165000,
+      "owner": {
+        "full_name": "Lúcia Madalena Galvão",
+        "civil_status": "divorced",
+        "nif": "531567890",
+        "document_id": "32456789 0 ZZ5",
+        "issued_by": "IRN",
+        "issuing_district": "Faro",
+        "date_of_birth": "1969-07-25"
+      }
+    },
+    {
+      "key": "ruin-sale-4",
+      "listing_type": "sale",
+      "address": "Rua da Couraça da Estrela 51, 3000-132 Coimbra",
+      "description": "Casa de pedra do séc. XIX para recuperar, no centro histórico. Aprovação para 2 frações T1.",
+      "price": 145000,
+      "owner": {
+        "full_name": "Octávio Belchior Ramalho",
+        "civil_status": "married",
+        "nif": "541678901",
+        "document_id": "33567890 1 ZZ6",
+        "issued_by": "IRN",
+        "issuing_district": "Coimbra",
+        "date_of_birth": "1960-12-12"
+      }
+    },
+    {
+      "key": "ruin-sale-5",
+      "listing_type": "sale",
+      "address": "Largo do Paço 7, 4810-122 Guimarães",
+      "description": "Edifício devoluto em zona histórica de Guimarães, com classificação Património Mundial. Projeto aprovado.",
+      "price": 220000,
+      "owner": {
+        "full_name": "Adelaide Conceição Faro",
+        "civil_status": "widowed",
+        "nif": "551789012",
+        "document_id": "34678901 2 ZZ7",
+        "issued_by": "IRN",
+        "issuing_district": "Braga",
+        "date_of_birth": "1952-01-29"
+      }
+    },
+    {
+      "key": "ruin-purchase-1",
+      "listing_type": "purchase",
+      "address": "Rua do Recolhimento 14, 1100-450 Lisboa",
+      "description": "Investidor procura ruína em Alfama ou Mouraria para reabilitação e alojamento local. Até 250k€.",
+      "price": 250000,
+      "owner": {
+        "full_name": "Mário Sebastião Quaresma",
+        "civil_status": "single",
+        "nif": "561890123",
+        "document_id": "35789012 3 ZZ8",
+        "issued_by": "IRN",
+        "issuing_district": "Lisboa",
+        "date_of_birth": "1980-02-16"
+      }
+    },
+    {
+      "key": "ruin-purchase-2",
+      "listing_type": "purchase",
+      "address": "Rua dos Mártires da Liberdade 90, 4050-356 Porto",
+      "description": "Investidor procura prédio devoluto no Porto para projeto de reabilitação plurifamiliar. Até 400k€.",
+      "price": 400000,
+      "owner": {
+        "full_name": "Vera Lúcia Aires",
+        "civil_status": "civil_union",
+        "nif": "571901234",
+        "document_id": "36890123 4 ZZ9",
+        "issued_by": "IRN",
+        "issuing_district": "Porto",
+        "date_of_birth": "1985-06-06"
+      }
+    },
+    {
+      "key": "ruin-purchase-3",
+      "listing_type": "purchase",
+      "address": "Caminho do Farol 22, 8125-100 Olhão",
+      "description": "Casal estrangeiro procura ruína junto à Ria Formosa para recuperar. Aceita projeto a partir do zero.",
+      "price": 175000,
+      "owner": {
+        "full_name": "Sandra Marília Botelho",
+        "civil_status": "married",
+        "nif": "582012345",
+        "document_id": "37901234 5 ZZ1",
+        "issued_by": "IRN",
+        "issuing_district": "Faro",
+        "date_of_birth": "1978-09-09"
+      }
+    },
+    {
+      "key": "ruin-purchase-4",
+      "listing_type": "purchase",
+      "address": "Beco do Loureiro 3, 3000-204 Coimbra",
+      "description": "Estudante de arquitetura procura ruína em Coimbra para projeto pessoal de fim de curso. Até 90k€.",
+      "price": 90000,
+      "owner": {
+        "full_name": "Gonçalo Pereira Branco",
+        "civil_status": "single",
+        "nif": "592123456",
+        "document_id": "38012345 6 ZZ2",
+        "issued_by": "IRN",
+        "issuing_district": "Coimbra",
+        "date_of_birth": "1995-04-22"
+      }
+    },
+    {
+      "key": "ruin-purchase-5",
+      "listing_type": "purchase",
+      "address": "Rua da Misericórdia 21, 4750-272 Barcelos",
+      "description": "Promotor procura várias ruínas em Barcelos / Braga para reabilitação. Compra em conjunto preferencial.",
+      "price": 120000,
+      "owner": {
+        "full_name": "Cláudia Sofia Veloso",
+        "civil_status": "divorced",
+        "nif": "602234567",
+        "document_id": "39123456 7 ZZ3",
+        "issued_by": "IRN",
+        "issuing_district": "Braga",
+        "date_of_birth": "1974-11-27"
+      }
+    }
+  ]
+}

@@ -1,0 +1,165 @@
+{
+  "typology": "house",
+  "properties": [
+    {
+      "key": "house-sale-1",
+      "listing_type": "sale",
+      "address": "Rua das Flores 12, 1200-192 Lisboa",
+      "description": "Moradia T3 com jardim privado, garagem para 2 carros e cozinha equipada. A 5 minutos a pé do metro Rato.",
+      "price": 685000,
+      "owner": {
+        "full_name": "Maria Silva Costa",
+        "civil_status": "married",
+        "nif": "210345678",
+        "document_id": "12345678 9 ZZ4",
+        "issued_by": "IRN",
+        "issuing_district": "Lisboa",
+        "date_of_birth": "1978-04-12"
+      }
+    },
+    {
+      "key": "house-sale-2",
+      "listing_type": "sale",
+      "address": "Avenida da Boavista 1456, 4100-119 Porto",
+      "description": "Moradia geminada T4, dois pisos, com terraço e churrasqueira. Zona consolidada da Boavista.",
+      "price": 540000,
+      "owner": {
+        "full_name": "João Pedro Almeida",
+        "civil_status": "single",
+        "nif": "220456789",
+        "document_id": "23456789 0 ZZ5",
+        "issued_by": "IRN",
+        "issuing_district": "Porto",
+        "date_of_birth": "1985-09-23"
+      }
+    },
+    {
+      "key": "house-sale-3",
+      "listing_type": "sale",
+      "address": "Travessa da Sé 8, 8000-302 Faro",
+      "description": "Moradia tradicional algarvia recuperada, com piscina e jardim mediterrânico. Ótima para residência ou alojamento local.",
+      "price": 425000,
+      "owner": {
+        "full_name": "Ana Beatriz Sousa",
+        "civil_status": "divorced",
+        "nif": "230567890",
+        "document_id": "34567890 1 ZZ6",
+        "issued_by": "IRN",
+        "issuing_district": "Faro",
+        "date_of_birth": "1972-11-30"
+      }
+    },
+    {
+      "key": "house-sale-4",
+      "listing_type": "sale",
+      "address": "Rua Larga 47, 3000-272 Coimbra",
+      "description": "Moradia T3 perto do centro histórico de Coimbra. Logradouro amplo, sótão habitável e aquecimento central.",
+      "price": 310000,
+      "owner": {
+        "full_name": "Rui Manuel Tavares",
+        "civil_status": "married",
+        "nif": "240678901",
+        "document_id": "45678901 2 ZZ7",
+        "issued_by": "IRN",
+        "issuing_district": "Coimbra",
+        "date_of_birth": "1969-02-04"
+      }
+    },
+    {
+      "key": "house-sale-5",
+      "listing_type": "sale",
+      "address": "Rua de São João 23, 4700-313 Braga",
+      "description": "Moradia familiar T3+1, recuperada em 2022, com painéis solares e ar condicionado em todas as divisões.",
+      "price": 365000,
+      "owner": {
+        "full_name": "Inês Carvalho Pereira",
+        "civil_status": "civil_union",
+        "nif": "250789012",
+        "document_id": "56789012 3 ZZ8",
+        "issued_by": "IRN",
+        "issuing_district": "Braga",
+        "date_of_birth": "1990-07-19"
+      }
+    },
+    {
+      "key": "house-purchase-1",
+      "listing_type": "purchase",
+      "address": "Avenida da República 220, 1050-194 Lisboa",
+      "description": "Procura de moradia T3/T4 com jardim na zona de Lisboa, orçamento até 700k€. Cliente pronto para escritura.",
+      "price": 700000,
+      "owner": {
+        "full_name": "Carlos Henrique Lopes",
+        "civil_status": "married",
+        "nif": "260890123",
+        "document_id": "67890123 4 ZZ9",
+        "issued_by": "IRN",
+        "issuing_district": "Lisboa",
+        "date_of_birth": "1980-05-11"
+      }
+    },
+    {
+      "key": "house-purchase-2",
+      "listing_type": "purchase",
+      "address": "Rua do Rosário 88, 4050-525 Porto",
+      "description": "Família procura moradia T4 no Porto, preferência por zona de Foz ou Ramalde. Financiamento aprovado.",
+      "price": 620000,
+      "owner": {
+        "full_name": "Sofia Ramos Pinto",
+        "civil_status": "married",
+        "nif": "270901234",
+        "document_id": "78901234 5 ZZ1",
+        "issued_by": "IRN",
+        "issuing_district": "Porto",
+        "date_of_birth": "1983-12-08"
+      }
+    },
+    {
+      "key": "house-purchase-3",
+      "listing_type": "purchase",
+      "address": "Praça D. Manuel I 5, 8000-167 Faro",
+      "description": "Procura moradia algarvia para alojamento local. Aceita projeto a recuperar até 350k€.",
+      "price": 350000,
+      "owner": {
+        "full_name": "Hugo Filipe Santos",
+        "civil_status": "single",
+        "nif": "281012345",
+        "document_id": "89012345 6 ZZ2",
+        "issued_by": "IRN",
+        "issuing_district": "Faro",
+        "date_of_birth": "1992-03-27"
+      }
+    },
+    {
+      "key": "house-purchase-4",
+      "listing_type": "purchase",
+      "address": "Rua Olímpio Nicolau Rui Fernandes 14, 3030-193 Coimbra",
+      "description": "Casal procura moradia T3 em Coimbra para fixar família. Necessita garagem fechada e bom estado.",
+      "price": 280000,
+      "owner": {
+        "full_name": "Patrícia Nogueira Dias",
+        "civil_status": "civil_union",
+        "nif": "291123456",
+        "document_id": "90123456 7 ZZ3",
+        "issued_by": "IRN",
+        "issuing_district": "Coimbra",
+        "date_of_birth": "1987-08-15"
+      }
+    },
+    {
+      "key": "house-purchase-5",
+      "listing_type": "purchase",
+      "address": "Avenida da Liberdade 95, 4710-249 Braga",
+      "description": "Investidor procura moradias T3 para arrendamento de longa duração em Braga. Compra rápida.",
+      "price": 250000,
+      "owner": {
+        "full_name": "Tiago Vasconcelos Moura",
+        "civil_status": "single",
+        "nif": "302234567",
+        "document_id": "01234567 8 ZZ4",
+        "issued_by": "IRN",
+        "issuing_district": "Braga",
+        "date_of_birth": "1975-10-02"
+      }
+    }
+  ]
+}

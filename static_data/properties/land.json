@@ -1,0 +1,165 @@
+{
+  "typology": "land",
+  "properties": [
+    {
+      "key": "land-sale-1",
+      "listing_type": "sale",
+      "address": "Estrada Nacional 6, Km 18, 2640-001 Mafra",
+      "description": "Terreno urbano de 1.200 m², com viabilidade de construção para moradia unifamiliar. PDM consultado.",
+      "price": 145000,
+      "owner": {
+        "full_name": "António José Ribeiro",
+        "civil_status": "married",
+        "nif": "411345678",
+        "document_id": "20234567 8 ZZ2",
+        "issued_by": "IRN",
+        "issuing_district": "Lisboa",
+        "date_of_birth": "1965-04-19"
+      }
+    },
+    {
+      "key": "land-sale-2",
+      "listing_type": "sale",
+      "address": "Rua de Cima do Monte 8, 4435-665 Baguim do Monte",
+      "description": "Terreno rústico com 3.500 m², com fonte natural e árvores de fruto. Acesso por estrada alcatroada.",
+      "price": 78000,
+      "owner": {
+        "full_name": "Joaquim Manuel Sousa",
+        "civil_status": "widowed",
+        "nif": "421456789",
+        "document_id": "21345678 9 ZZ3",
+        "issued_by": "IRN",
+        "issuing_district": "Porto",
+        "date_of_birth": "1958-07-26"
+      }
+    },
+    {
+      "key": "land-sale-3",
+      "listing_type": "sale",
+      "address": "Sítio dos Olivais, 8005-417 Faro",
+      "description": "Terreno agrícola de 2 hectares no Algarve, com poço artesiano e oliveiras centenárias. Boa exposição solar.",
+      "price": 95000,
+      "owner": {
+        "full_name": "Manuela Inácio Cabrita",
+        "civil_status": "married",
+        "nif": "431567890",
+        "document_id": "22456789 0 ZZ4",
+        "issued_by": "IRN",
+        "issuing_district": "Faro",
+        "date_of_birth": "1962-12-03"
+      }
+    },
+    {
+      "key": "land-sale-4",
+      "listing_type": "sale",
+      "address": "Quinta do Casalinho, 3045-415 Coimbra",
+      "description": "Terreno urbanizável de 800 m² em zona em expansão. Com projecto aprovado para moradia T3.",
+      "price": 65000,
+      "owner": {
+        "full_name": "Vítor Hugo Carvalho",
+        "civil_status": "single",
+        "nif": "441678901",
+        "document_id": "23567890 1 ZZ5",
+        "issued_by": "IRN",
+        "issuing_district": "Coimbra",
+        "date_of_birth": "1973-02-15"
+      }
+    },
+    {
+      "key": "land-sale-5",
+      "listing_type": "sale",
+      "address": "Caminho do Outeiro 32, 4715-321 Braga",
+      "description": "Terreno de construção com 1.500 m², infraestruturas no limite, ideal para 2 moradias geminadas.",
+      "price": 88000,
+      "owner": {
+        "full_name": "Isabel Cristina Vieira",
+        "civil_status": "divorced",
+        "nif": "451789012",
+        "document_id": "24678901 2 ZZ6",
+        "issued_by": "IRN",
+        "issuing_district": "Braga",
+        "date_of_birth": "1970-05-08"
+      }
+    },
+    {
+      "key": "land-purchase-1",
+      "listing_type": "purchase",
+      "address": "Quinta da Bicuda, 2750-002 Cascais",
+      "description": "Investidor procura terreno urbanizável até 200k€ na linha de Cascais. Pelo menos 600 m² e PDM favorável.",
+      "price": 200000,
+      "owner": {
+        "full_name": "Eduardo Sequeira Borges",
+        "civil_status": "married",
+        "nif": "461890123",
+        "document_id": "25789012 3 ZZ7",
+        "issued_by": "IRN",
+        "issuing_district": "Lisboa",
+        "date_of_birth": "1968-09-29"
+      }
+    },
+    {
+      "key": "land-purchase-2",
+      "listing_type": "purchase",
+      "address": "Lugar de Lavadores, 4400-512 Vila Nova de Gaia",
+      "description": "Promotor procura lote para construção plurifamiliar T2/T3 em Gaia. Mínimo 2.000 m².",
+      "price": 350000,
+      "owner": {
+        "full_name": "Susana Marisa Pacheco",
+        "civil_status": "civil_union",
+        "nif": "471901234",
+        "document_id": "26890123 4 ZZ8",
+        "issued_by": "IRN",
+        "issuing_district": "Porto",
+        "date_of_birth": "1981-11-11"
+      }
+    },
+    {
+      "key": "land-purchase-3",
+      "listing_type": "purchase",
+      "address": "Estrada Municipal 526, 8200-555 Albufeira",
+      "description": "Cliente estrangeiro procura terreno no Algarve com vista mar, até 250k€. Para construção de villa privada.",
+      "price": 250000,
+      "owner": {
+        "full_name": "Nuno Filipe Estêvão",
+        "civil_status": "single",
+        "nif": "482012345",
+        "document_id": "27901234 5 ZZ9",
+        "issued_by": "IRN",
+        "issuing_district": "Faro",
+        "date_of_birth": "1977-06-23"
+      }
+    },
+    {
+      "key": "land-purchase-4",
+      "listing_type": "purchase",
+      "address": "Rua da Quinta Vermelha 4, 3040-100 Coimbra",
+      "description": "Procura terreno até 80k€ para autoconstrução em Coimbra. Ideal entre 500-1000 m².",
+      "price": 80000,
+      "owner": {
+        "full_name": "Beatriz Almeida Ferreira",
+        "civil_status": "married",
+        "nif": "492123456",
+        "document_id": "28012345 6 ZZ1",
+        "issued_by": "IRN",
+        "issuing_district": "Coimbra",
+        "date_of_birth": "1984-04-04"
+      }
+    },
+    {
+      "key": "land-purchase-5",
+      "listing_type": "purchase",
+      "address": "Rua Quinta da Caixa 19, 4805-150 Guimarães",
+      "description": "Empresário procura terreno para sede empresarial em Guimarães. Zona industrial, 5.000 m² mínimo.",
+      "price": 180000,
+      "owner": {
+        "full_name": "Paulo Jorge Macedo",
+        "civil_status": "married",
+        "nif": "502234567",
+        "document_id": "29123456 7 ZZ2",
+        "issued_by": "IRN",
+        "issuing_district": "Braga",
+        "date_of_birth": "1972-08-31"
+      }
+    }
+  ]
+}
