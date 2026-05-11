@@ -372,7 +372,7 @@ async def get_listing_container() -> ListingContainer:
         vector_index_namespace=settings.vector_index_namespace,
         embedding_model_version=settings.embedding_model,
         query_extractor=query_extractor,
-        vector_index_top_k=settings.vector_index_top_k,
+        vector_index_top_k=settings.listings_search_ranked_list_size,
         max_pre_filter_candidates=settings.search_max_pre_filter_candidates,
         broad_mode_overshoot=settings.search_broad_mode_overshoot,
     )
