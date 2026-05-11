@@ -91,15 +91,24 @@ def _existing_poi(
 
 
 class TrackingPlacesService(PlacesService):
-    """Returns canned per-place_type results and records every call."""
+    """Returns canned per-place_type results and records every call.
+
+    Phase 2 (`get_place_details`) returns `None` by default — most tests
+    don't care about rich metadata. Tests that DO care pass
+    `place_details_by_id={<place_id>: PlaceDetails(...)}` to seed
+    per-place rich data; the use case's _enrich_metadata then writes
+    `address` / `image_urls` / `reviews` onto the persisted POI rows.
+    """
 
     def __init__(
         self,
         results_by_place_type: dict[str, list[NearbyPlace]] | None = None,
         raise_on_place_types: set[str] | None = None,
+        place_details_by_id: dict[str, "PlaceDetails"] | None = None,
     ) -> None:
         self.results = results_by_place_type or {}
         self.raise_on = raise_on_place_types or set()
+        self.place_details = place_details_by_id or {}
         self.calls: list[tuple[float, float, str, int, str | None]] = []
 
     async def find_nearby(
@@ -121,9 +130,20 @@ class TrackingPlacesService(PlacesService):
         return self.results.get(place_type, [])
 
     async def get_place_details(self, place_id, *, include_reviews=True):
-        # Phase 2 (rich metadata) is irrelevant to these tests — return
-        # None so _enrich_metadata is a no-op.
-        return None
+        details = self.place_details.get(place_id)
+        if details is None or include_reviews:
+            return details
+        # Caller asked us to skip reviews (blacklisted category) — return
+        # the rest. Mirrors the Google adapter's behavior of dropping the
+        # reviews payload server-side to save the atmosphere SKU.
+        from properties.domain.models.nearby_place import PlaceDetails
+
+        return PlaceDetails(
+            place_id=details.place_id,
+            address=details.address,
+            image_urls=details.image_urls,
+            reviews=None,
+        )
 
 
 @pytest.fixture
@@ -700,16 +720,28 @@ class _RecordingPublisher:
 
 
 async def test_emits_property_updated_with_pois_after_success(property_repo, property_poi_repo):
-    """Spec `2026-05-property-enrich-emits-update-with-pois.md`. After a
-    successful enrichment run, EnrichProperty must publish
-    PROPERTY_UPDATED.v1 carrying the POIs in the lean snapshot shape so
-    the listings projector + embedding handler pick up the new catalog."""
+    """Spec `2026-05-property-enrich-emits-update-with-pois.md` +
+    `2026-05-poi-rich-metadata`. After a successful enrichment run,
+    EnrichProperty publishes PROPERTY_UPDATED.v1 carrying the POIs in
+    the snapshot shape — including the rich Phase 2 fields (address,
+    image_urls, reviews) — so the listings projector + detail endpoint
+    response surface them. Phase 2 must run BEFORE the emit; emitting
+    the pre-Phase-2 lean list silently drops the rich data."""
+    from properties.domain.models.nearby_place import PlaceDetails
     from shared.events.types import PROPERTY_UPDATED_V1
 
     prop = _property()
     await property_repo.save(prop)
     places = TrackingPlacesService(
-        results_by_place_type={"supermarket": [_place("Pingo Doce", place_id="pd-1")]}
+        results_by_place_type={"supermarket": [_place("Pingo Doce", place_id="pd-1")]},
+        place_details_by_id={
+            "pd-1": PlaceDetails(
+                place_id="pd-1",
+                address="Av. da República 12, Lisboa",
+                image_urls=["https://cdn/pingo-1.jpg", "https://cdn/pingo-2.jpg"],
+                reviews=[{"author": "Ana", "rating": 4, "text": "Bom"}],
+            )
+        },
     )
     publisher = _RecordingPublisher()
 
@@ -725,14 +757,65 @@ async def test_emits_property_updated_with_pois_after_success(property_repo, pro
     assert PROPERTY_UPDATED_V1 in types
     event = next(e for e in publisher.published if e.event_type == PROPERTY_UPDATED_V1)
     assert "pois" in event.data
-    # Lean shape: just category, name, distance_meters
     grocery_pois = [p for p in event.data["pois"] if p["category"] == "grocery"]
     assert len(grocery_pois) == 1
-    assert grocery_pois[0]["name"] == "Pingo Doce"
-    assert "distance_meters" in grocery_pois[0]
+    grocery = grocery_pois[0]
+    # Lean fields — unchanged.
+    assert grocery["name"] == "Pingo Doce"
+    assert "distance_meters" in grocery
+    # Rich fields — propagated from Phase 2 through the re-fetch.
+    assert grocery["address"] == "Av. da República 12, Lisboa"
+    assert grocery["image_urls"] == ["https://cdn/pingo-1.jpg", "https://cdn/pingo-2.jpg"]
+    assert grocery["reviews"] == [{"author": "Ana", "rating": 4, "text": "Bom"}]
     # Aggregate version was bumped before emit, so the snapshot version
     # is the post-bump value.
     assert event.data["aggregate_version"] >= 1
+
+
+async def test_emit_pois_carry_blacklisted_review_null_with_rich_address_and_images(
+    property_repo, property_poi_repo
+):
+    """Defensive regression: even for review-blacklisted categories
+    (school / hospital / kindergarten / police), the emit payload
+    must still carry `address` and `image_urls` from Phase 2 — only
+    `reviews` is suppressed. The pre-fix sequencing bug dropped ALL
+    three rich fields uniformly; locking the partial-suppression
+    behavior here so it can't regress to the all-or-nothing shape."""
+    from properties.domain.models.nearby_place import PlaceDetails
+    from shared.events.types import PROPERTY_UPDATED_V1
+
+    prop = _property()
+    await property_repo.save(prop)
+    places = TrackingPlacesService(
+        results_by_place_type={"school": [_place("Escola X", place_id="sch-1")]},
+        place_details_by_id={
+            "sch-1": PlaceDetails(
+                place_id="sch-1",
+                address="Rua das Flores 12",
+                image_urls=["https://cdn/school.jpg"],
+                reviews=[{"author": "ignored", "rating": 1}],
+            )
+        },
+    )
+    publisher = _RecordingPublisher()
+
+    use_case = EnrichProperty(
+        property_repo=property_repo,
+        property_poi_repo=property_poi_repo,
+        places_service=places,
+        domain_event_publisher=publisher,
+    )
+    await use_case.execute(property_id=prop.id, force=False, requested_by_user_id=USER_ID)
+
+    event = next(
+        e for e in publisher.published if e.event_type == PROPERTY_UPDATED_V1
+    )
+    school = next(p for p in event.data["pois"] if p["category"] == "school")
+    assert school["address"] == "Rua das Flores 12"
+    assert school["image_urls"] == ["https://cdn/school.jpg"]
+    # Blacklist applies — reviews dropped even though Place Details
+    # carried them.
+    assert school["reviews"] is None
 
 
 async def test_no_publisher_does_not_raise(property_repo, property_poi_repo):

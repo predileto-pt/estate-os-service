@@ -312,20 +312,26 @@ class EnrichProperty:
 
         refreshed = await self.property_repo.bump_aggregate_version(property_id)
 
-        # Emit `PROPERTY_UPDATED.v1` so the listings projector picks up
-        # the new POI catalog and the embedding handler re-runs with
-        # `NEARBY:` populated. Lean snapshot shape (category, name,
-        # distance_meters) is fully written by Phase 1, so we can fire
-        # before Phase 2 metadata fan-out — listings doesn't read the
-        # Phase 2 fields. Spec
-        # `2026-05-property-enrich-emits-update-with-pois.md`.
-        await emit_property_updated(self.domain_event_publisher, refreshed, pois=persisted)
-
         # Phase 2: fan out Place Details for the persisted POIs to fetch
         # address + image_urls + reviews. Per-POI fail-silent — Phase 1
         # is already committed; Phase 2 is best-effort. Spec:
         # 2026-05-poi-rich-metadata §Workflow integration.
         await self._enrich_metadata(persisted)
+
+        # Re-fetch the POIs after Phase 2 so the emitted snapshot carries
+        # the rich fields (`address`, `image_urls`, `reviews`) that Phase
+        # 2 wrote to the rows. The listings projection + detail-endpoint
+        # response (ADR-014 §15 / `pois` field) consume them — emitting
+        # the pre-Phase-2 lean list silently dropped the rich data on
+        # every enrichment cycle. The local `persisted` is from before
+        # Phase 2 and doesn't reflect those updates.
+        enriched = await self.property_poi_repo.list_by_property(property_id)
+
+        # Emit `PROPERTY_UPDATED.v1` so the listings projector picks up
+        # the new POI catalog and the embedding handler re-runs with
+        # `NEARBY:` populated. Spec
+        # `2026-05-property-enrich-emits-update-with-pois.md`.
+        await emit_property_updated(self.domain_event_publisher, refreshed, pois=enriched)
 
         log.info(
             "enrich_property.completed",
