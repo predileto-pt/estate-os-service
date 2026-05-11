@@ -1,6 +1,6 @@
 # Listing search — structured query extraction + hybrid retrieval (ADR-014)
 
-**Status:** in-progress (review-1 cleared 2026-05-11; ready to implement)
+**Status:** in-progress (review-2 cleared 2026-05-11; ready to implement)
 **Owner:** Peter
 **Created:** 2026-05-11
 **ADR:** [014-structured-query-extraction-and-hybrid-retrieval](../../docs/adr/014-structured-query-extraction-and-hybrid-retrieval.md)
@@ -142,7 +142,67 @@ Mirrors `properties.domain.models.property_poi.PoiCategory` value-for-value. The
 
 #### 4. LLM adapter — `LangChainQueryExtractor`
 
-`src/listings/adapters/ai/langchain_query_extractor.py`. Structured output against `gpt-4o-mini`. System prompt:
+`src/listings/adapters/ai/langchain_query_extractor.py`. Structured output against `gpt-4o-mini`. Mirrors the existing `PortugalAddressSearcher` pattern (`src/listings/adapters/ai/portugal_address_searcher.py:68-89`) — `with_structured_output` requires a Pydantic BaseModel, NOT a frozen dataclass. Internal `_ExtractorResult` Pydantic model is what LangChain sees; the adapter maps it to the domain `ParsedQuery`:
+
+```python
+class _ExtractorResult(BaseModel):
+    """Internal LLM-output envelope. Field-for-field mirror of
+    ParsedQuery — see the comment on the domain dataclass for
+    semantic meaning. List instead of tuple because Pydantic's
+    JSON-schema generation prefers list types for structured
+    output."""
+    free_text_remainder: str = ""
+    typology: Typology | None = None
+    min_bedrooms: int | None = None
+    min_bathrooms: int | None = None
+    min_area_m2: int | None = None
+    max_area_m2: int | None = None
+    min_price: Decimal | None = None
+    max_price: Decimal | None = None
+    has_pool: bool | None = None
+    has_garden: bool | None = None
+    has_elevator: bool | None = None
+    has_parking: bool | None = None
+    nearby_pois: list[PoiCategory] = []
+
+
+class LangChainQueryExtractor:
+    def __init__(self, *, model, openai_api_key, timeout_seconds, max_output_tokens):
+        self._llm = ChatOpenAI(
+            model=model, api_key=openai_api_key, temperature=0,
+            max_tokens=max_output_tokens,
+        ).with_structured_output(_ExtractorResult)
+        self._timeout = timeout_seconds
+
+    async def extract(self, query: str) -> ParsedQuery:
+        try:
+            result = await asyncio.wait_for(
+                self._llm.ainvoke([SystemMessage(content=_SYSTEM_PROMPT),
+                                   HumanMessage(content=query)]),
+                timeout=self._timeout,
+            )
+        except Exception:
+            log.exception("query_extractor.langchain.failed", query=query)
+            raise
+        r: _ExtractorResult = result  # type: ignore[assignment]
+        return ParsedQuery(
+            free_text_remainder=r.free_text_remainder,
+            typology=r.typology,
+            min_bedrooms=r.min_bedrooms,
+            min_bathrooms=r.min_bathrooms,
+            min_area_m2=r.min_area_m2,
+            max_area_m2=r.max_area_m2,
+            min_price=r.min_price,
+            max_price=r.max_price,
+            has_pool=r.has_pool,
+            has_garden=r.has_garden,
+            has_elevator=r.has_elevator,
+            has_parking=r.has_parking,
+            nearby_pois=tuple(r.nearby_pois),
+        )
+```
+
+System prompt:
 
 - Lists the closed `PoiCategory` vocabulary explicitly with surface-form hints ("primária"/"colégio"/"escola" → `school`; "academia"/"ginásio" → `gym`).
 - Lists the closed `Typology` vocabulary.
@@ -217,11 +277,35 @@ Internals:
    vector = vector_or_err
    ```
 
-4. **Cardinality guard + ANN** (§8 below). One Pinecone call. Fail-open: vector-index exceptions trigger `_relational_fallback` (same as ADR-013 v1).
+4. **Cardinality guard + ANN** (§8 below). One Pinecone call. Fail-open: vector-index exceptions trigger `_relational_fallback`. The v2 fallback reuses the SQL candidates already computed in stage 3 — so a user with `?parish=Cascais&q="T3 com piscina"` whose vector path fails still gets back **only T3+pool Cascais listings**, not all Cascais listings (which would defeat the value of extraction). Sketch:
+
+   ```python
+   async def _relational_fallback(
+       self,
+       *,
+       candidates: list[UUID],
+       parsed: ParsedQuery,
+   ) -> tuple[list[PropertyListing], int, ParsedQuery]:
+       """Vector path failed. Reuse the SQL pre-filter candidates and
+       skip the ANN ranking. Apply partition-and-rank so NULL-data
+       rows still go to the bottom of the page (deterministic order
+       within each bucket: created_at desc, id desc — no cosine
+       available)."""
+       if not candidates:
+           return [], 0, parsed
+       rows = await self._property_listing_repo.list_by_ids(
+           candidates[: self._top_k]
+       )
+       matched, partial = _split_buckets(rows, parsed)
+       matched.sort(key=lambda r: (r.created_at, str(r.id)), reverse=True)
+       partial.sort(key=lambda r: (r.created_at, str(r.id)), reverse=True)
+       ordered = matched + partial
+       return ordered, len(ordered), parsed
+   ```
 5. **Hydrate** via `list_by_ids` (filters `status='active'` at SQL — defense in depth).
-6. **`_partition_and_rank`** (replaces `_reorder_by_score`): rows where every set `ParsedQuery` criterion was evaluable against non-NULL columns → matched bucket. Rows where ≥1 criterion couldn't be evaluated (NULL on the column) → partial bucket. Each bucket ranked by cosine. Concatenate.
-7. Paginate over the concatenation.
-8. Return `(rows, total, parsed)`.
+6. **`_partition_and_rank`** (replaces `_reorder_by_score`): rows where every set `ParsedQuery` criterion was evaluable against non-NULL columns → matched bucket. Rows where ≥1 criterion couldn't be evaluated (NULL on the column) → partial bucket. Each bucket ranked by cosine. Concatenate. `total = len(matched) + len(partial)` (mirrors ADR-013 v1's "post-hydrate count" semantic).
+7. Paginate over the concatenation: `page = ordered[filters.offset : filters.offset + filters.limit]`.
+8. Return `(page, total, parsed)`.
 
 The route handler (§12) updates its call site to unpack the new 3-tuple.
 
@@ -263,7 +347,18 @@ def _render_query_for_embed(parsed: ParsedQuery) -> str:
     return "\n".join(sections)
 ```
 
-Empty `ParsedQuery` yields an empty string. The use case treats that as "embed the raw query as DESCRIPTION:" (a tiny guard at the top of `_render_query_for_embed`).
+Empty `ParsedQuery` yields an empty string. **The guard lives in the use case**, not in the helper (which stays a pure function of `ParsedQuery`):
+
+```python
+embed_text = _render_query_for_embed(parsed)
+if not embed_text.strip():
+    # Defensive: extractor produced an empty ParsedQuery (e.g. LLM
+    # returned `{}`). Fall back to the raw query as a DESCRIPTION:
+    # block so the embedder has SOMETHING to encode.
+    embed_text = f"DESCRIPTION: {query}"
+```
+
+In practice this branch should be rare — even a one-word query lands in `free_text_remainder` via the prompt's "everything left after extraction" rule.
 
 #### 8. SQL pre-filter — `list_ids_for_search` repo method + cardinality guard
 
@@ -550,26 +645,59 @@ def _to_response_with_pois(
 
 The structured-filter (q-empty) path keeps using the existing `_to_response` (no POI fields on the response — they're absent / null, see schema below).
 
-#### 13. Widen `ListingPoi` + projection
+#### 13. Properties-side: extend the POI snapshot to carry rich metadata
 
-Current shape: `{category, name, distance_meters}`. New shape mirrors the rich `PropertyPoi` fields:
+**Cross-context dependency landed in this spec.** The rich POI fields already live on `PropertyPoi` (the properties aggregate model — see `src/properties/domain/models/property_poi.py:54-63`), but the event payload builder in `src/properties/application/events/property_event.py:111-119` drops them on the floor:
 
 ```python
-@dataclass(frozen=True)
+# CURRENT — only the three lean fields make it into the snapshot:
+payload["pois"] = [
+    {"category": poi.category.value, "name": poi.name, "distance_meters": poi.distance_meters}
+    for poi in pois
+]
+```
+
+Without this fix the matched-POI response surfaces only `{category, name, distance_meters}` regardless of what the projector reads — the upstream snapshot is the bottleneck. Extend the builder:
+
+```python
+# NEW — pass through the rich Place-details fields:
+payload["pois"] = [
+    {
+        "category": poi.category.value,
+        "name": poi.name,
+        "distance_meters": poi.distance_meters,
+        "address": poi.address,
+        "image_urls": list(poi.image_urls or []),
+        "reviews": poi.reviews,                # list[dict] | None
+    }
+    for poi in pois
+]
+```
+
+This is a small change at one call site. The properties context owns the snapshot shape; this is a deliberate, documented extension to it. Tracked under the same spec since the matched-POI UX is the visible win and the change is too small to justify a separate properties-side spec.
+
+#### 14. Widen `ListingPoi` + projection
+
+New shape mirrors the rich `PropertyPoi` fields (matches upstream collection types — `list` not `tuple` — to avoid impedance mismatch and the unhashable-frozen-dataclass footgun):
+
+```python
+@dataclass(frozen=True, eq=True, unsafe_hash=False)
 class ListingPoi:
     category: str
     name: str
     distance_meters: float
     address: str | None = None
-    image_urls: tuple[str, ...] = ()
-    reviews: tuple[dict, ...] = ()
+    image_urls: list[str] = field(default_factory=list)
+    reviews: list[dict] | None = None
 ```
 
-The projector (`_event_to_row` in `inmemory_property_listing_repo.py` and `property_listing_repository.py`) reads the new fields from the upstream POI snapshot payload — properties already carries them since the `2026-05-poi-rich-metadata` spec. No upstream change required.
+`unsafe_hash=False` (and no auto-hash from `frozen=True` + `eq=True`) — explicit: `ListingPoi` is a value object but not hashable, because `list[dict]` contents would raise `TypeError` at hash time. The matched-POI composition path never hashes individual POIs (it hashes only `poi.category` strings via set comprehensions), so this is safe.
 
-**No Alembic migration.** `property_listings.pois` is already a JSONB column and absorbs the new fields without DDL. Existing rows refresh on the next `PROPERTY_UPDATED.v1`. The canonical-text v3 backfill (§Rollout) will also touch every active row and write the new POI shape as a side effect.
+The projector (`_event_to_row` in `inmemory_property_listing_repo.py` and `property_listing_repository.py`) reads the new fields from the upstream POI snapshot payload — populated by the §13 properties-side change.
 
-#### 14. Response schemas
+**No Alembic migration.** `property_listings.pois` is already a JSONB column and absorbs the new fields without DDL. Existing rows refresh on the next `PROPERTY_UPDATED.v1`. The canonical-text v3 backfill (§Rollout) touches every active row and writes the new POI shape as a side effect.
+
+#### 15. Response schemas
 
 `src/listings/adapters/api/schemas.py` adds:
 
@@ -585,24 +713,15 @@ class POIResponse(BaseModel):
 
 class ListedPropertyResponse(BaseModel):
     # …existing fields
-    matched_pois: list[POIResponse] | None = None
-    unmatched_pois: list[str] | None = None
+    matched_pois: list[POIResponse] = []
+    unmatched_pois: list[str] = []
 ```
 
-Both fields default to `None`. To get the "absent from JSON when `q` is empty" behavior, the route decorator MUST set `response_model_exclude_none=True`:
+Both fields default to `[]` (NOT `None`). The q-empty path doesn't populate them — they stay as the empty default and serialize as `"matched_pois": [], "unmatched_pois": []` in the JSON. The q-set path populates them in the route handler.
 
-```python
-@router.get(
-    "/properties",
-    response_model=PaginatedListingResponse,
-    response_model_exclude_none=True,   # ← new
-    ...
-)
-```
+**Why empty lists instead of `None` + `response_model_exclude_none=True`:** `exclude_none` would strip ALL `None` fields from the response, including ADR-013 phase 2 fields like `parish`, `municipality`, `district`, `country` (which are nullable when address enrichment hasn't run). The existing integration tests at `tests/integration/test_listings.py:200-220` assert `assert key in item` for those keys — `exclude_none` would silently break BWC. Empty lists keep the schema regular: `matched_pois`/`unmatched_pois` are ALWAYS present, just empty when there's nothing to match against. ~50 bytes per response of wire noise on q-empty calls; cleaner architecturally than per-route serialization flags.
 
-Without this flag FastAPI serializes the fields as `null` in JSON. With it, the keys are omitted entirely when the value is `None`. When `q` is set, the route handler populates both fields (possibly as empty lists if the listing has no POIs in the requested categories) and they appear in the response.
-
-#### 15. Container wiring
+#### 16. Container wiring
 
 Container ctor signature changes:
 - `query_understanding_service` → `query_extractor: QueryExtractor | None = None`.
@@ -610,7 +729,7 @@ Container ctor signature changes:
 
 The conftest `listing_container` fixture and the bootstrap function update accordingly.
 
-#### 16. Bootstrap
+#### 17. Bootstrap
 
 `src/shared/entrypoints/bootstrap.py`:
 
@@ -647,6 +766,7 @@ All unit test files flat under `tests/unit/listings/` (existing convention).
 - **Unit** — `tests/unit/listings/test_search_listings_use_case.py`: replace the existing fail-open + filter-translation tests with structured-aware ones. New assertions: SQL pre-filter is called with the right combined filters; `asyncio.gather` runs pre-filter + embed in parallel; cardinality guard switches to broad-mode when pre-filter saturates; route-param/ParsedQuery conflict resolution; `_partition_and_rank` partitions NULL rows to the bottom of the result list; `execute` returns the 3-tuple `(rows, total, parsed)`.
 - **Unit** — `tests/unit/listings/test_list_ids_for_search.py`: pin the SQL pre-filter against the in-memory repo. Every soft-hard combination, every NULL admission, every route-param-vs-ParsedQuery precedence rule, plus the saturation flag when `len(result) == limit`.
 - **Integration** — `tests/integration/test_search_endpoint.py` (existing): update for the new response shape (`matched_pois` / `unmatched_pois`). Add cases covering soft-hard NULL admission (a T2 with NULL bedrooms appears at the bottom of a "T3" search; a T2 with `num_of_bedrooms=2` is excluded outright). Add a broad-mode cardinality test (seed 1100 active listings + low-selectivity query; assert the pipeline still returns top-k correctly via the intersect path).
+- **Unit** — `tests/unit/properties/test_property_event_payload.py` (likely existing — extend it): given a `Property` whose POIs carry `address`, `image_urls`, `reviews`, the emitted `pois` payload contains those three keys with the expected values. Defends against an accidental refactor that strips them out.
 
 ### Rollout
 
@@ -675,13 +795,14 @@ If we go to production before this spec ships, the rollout flips to ADR-013's pa
 - `tests/unit/listings/test_list_ids_for_search.py`
 
 ### Modified
+- `src/properties/application/events/property_event.py` — extend the POI snapshot payload to carry `address`, `image_urls`, `reviews` (§13). Cross-context dependency landed in this spec because the matched-POI UX is the visible win and the change is small (3 fields added at one call site).
 - `src/listings/application/use_cases/search_listings.py` — rewritten internals (extract → parallel(SQL pre-filter, embed) → cardinality-guarded ANN → hydrate → partition-and-rank). Returns 3-tuple including `ParsedQuery`.
 - `src/listings/application/services/canonical_text.py` — add `render_v3`, remove `render_v2`.
 - `src/listings/application/ports/repositories/property_listing_repository.py` — add `list_ids_for_search` abstract method.
 - `src/listings/adapters/database/property_listing_repository.py` — implement `list_ids_for_search` against `PropertyListingModel`. Reads the new POI fields from the upstream snapshot via the projector.
 - `src/listings/adapters/inmemory/inmemory_property_listing_repo.py` — implement `list_ids_for_search` (Python filter loop). Reads new POI fields from the snapshot.
 - `src/listings/adapters/workers/embedding_handler.py` — canonical-text version routing only. `_index_metadata` schema unchanged.
-- `src/listings/adapters/api/routes/listings.py` — unpack 3-tuple; new `_to_response_with_pois` helper composing matched/unmatched POIs.
+- `src/listings/adapters/api/routes/listings.py` — unpack 3-tuple; new `_to_response_with_pois` helper composing matched/unmatched POIs; new imports for `PoiCategory` (type hint on the helper's `requested_pois` parameter) and `POIResponse`.
 - `src/listings/adapters/api/schemas.py` — add `POIResponse`, `matched_pois` + `unmatched_pois` on `ListedPropertyResponse`.
 - `src/listings/domain/property_listing.py` — widen `ListingPoi` to carry address/image_urls/reviews.
 - `src/listings/container.py` — `query_understanding_service` → `query_extractor`.
@@ -731,9 +852,10 @@ Each criterion phrases an **externally observable** behavior.
 - [ ] Embedding-handler metadata payload unchanged from ADR-013 V1 schema (`listing_id`, `organization_id`, `parish`, `municipality`, `district`, `listing_type`, `typology`, `status`, `price_eur`).
 
 ### Response shape
-- [ ] `q` set + listing has `school` POI → response includes `matched_pois=[{category: "school", name, distance_meters, address, image_urls, reviews}]` and `unmatched_pois=[]`.
+- [ ] **Upstream snapshot carries the rich POI fields.** Unit test on `build_property_payload` (or whatever the snapshot builder is called) — given a `PropertyPoi(address="X", image_urls=["a"], reviews=[{...}])`, the emitted payload's `pois[i]` dict contains those three keys with the expected values. Verified at the properties side, not just listings, so a stray refactor on the payload builder doesn't silently regress this spec.
+- [ ] `q` set + listing has `school` POI → response includes `matched_pois=[{category: "school", name, distance_meters, address, image_urls, reviews}]` and `unmatched_pois=[]`. Asserted with non-null `address` and non-empty `image_urls` to confirm the snapshot → projection → response path carries the rich fields end-to-end.
 - [ ] `q` set + user asked for `gym` + listing has no gym POI → response includes `unmatched_pois=["gym"]`.
-- [ ] `q` empty → response has neither `matched_pois` nor `unmatched_pois` (omitted via `response_model_exclude_none=True` on the route decorator).
+- [ ] `q` empty → response carries `"matched_pois": []` and `"unmatched_pois": []` (always present; empty defaults from the schema). No `response_model_exclude_none` flag.
 - [ ] `ListedPropertyResponse` backwards-compatible with the v1 contract for q-empty calls — all existing ADR-013 phase 2 integration tests pass.
 - [ ] Multiple matches per category: when a listing has 3 schools in `prop.pois` and the user asks for `SCHOOL`, all 3 surface in `matched_pois` (no dedup to nearest). Order is ascending by `distance_meters`, matching the order the canonical-text composer renders POIs in `NEARBY:`. Asserted by seeding a listing with 3 schools at 200m / 800m / 1500m and checking `[p.distance_meters for p in response.matched_pois] == [200, 800, 1500]`.
 
@@ -768,6 +890,7 @@ Conventional commits, scope = `listings`:
 - `feat(listings): PoiCategory closed enum + properties-side contract test`
 - `feat(listings): ParsedQuery value object`
 - `feat(listings): QueryExtractor port + identity adapter + LangChain adapter (replaces QueryUnderstandingService)`
+- `feat(properties): emit address/image_urls/reviews in POI snapshot payload`
 - `feat(listings): widen ListingPoi with address/image_urls/reviews from upstream snapshot`
 - `feat(listings): list_ids_for_search on PropertyListingRepository (SQL pre-filter)`
 - `feat(listings): canonical-text v3 composer + handler routing`
