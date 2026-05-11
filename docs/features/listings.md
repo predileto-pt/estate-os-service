@@ -42,19 +42,17 @@ Return a single active property. Returns 404 if not found or not active.
 
 ### ListProperties
 
-Filter active properties by listing type, typology, district (substring on address), price range, with offset pagination. Used by the public property search.
+Cursor-paginated active listings filtered by listing type, typology, parish/municipality/district, and price range. Used by the public portal (`GET /api/v1/listings/properties` with `q` empty).
 
-- **Inputs:** `PropertyFilters` dataclass
-  - `listing_type?` — `SALE` / `PURCHASE`
-  - `typology?` — `HOUSE` / `APARTMENT` / `LAND` / `RUIN`
-  - `min_price?`, `max_price?` — `Decimal`
-  - `district?` — substring match on address
-  - `limit` (1-100, default 20)
-  - `offset` (default 0)
-- **Output:** `(list[ListedProperty], int)` — items and total count
-- **Side effects:** none. The route handler enriches images with pre-signed URLs.
-- **Notes:** price filtering is applied post-query because prices are stored in a separate table.
-- **Source:** `src/listings/application/use_cases/list_properties.py`
+- **Inputs:** `fp` (filter fingerprint from the route), `PropertyFilters`, `cursor: ListCursor | None`, `limit`
+  - `listing_type?`, `typology?`, `min_price?`, `max_price?`
+  - `parish?` / `municipality?` / `district?` — exact match on the structured columns
+  - `limit` (1–20, default 20)
+- **Output:** `CachedPage(items, next_cursor)` — `next_cursor` is the already-encoded token string, `None` at the tail
+- **Pagination:** keyset on `(created_at DESC, id DESC)` via `list_active_keyset`. No `COUNT(*)` query — the response drops `total` entirely.
+- **Caching:** TTL-only (default 90s, off by default behind `LISTINGS_PAGE_CACHE_ENABLED`). Cache key = `listings:list:v1:{fp}:{cursor_pos}:{limit}` so a different `limit` is a different cached page. Wired in front via the `ListingsPageCache` port (Null / InMemory / Redis adapters under `src/listings/adapters/cache/`).
+- **Documented keyset invariant:** rows inserted with `created_at` newer than the head visible at first request do NOT appear on later pages of the same cursor chain. FE refresh = new cursor chain.
+- **Source:** `src/listings/application/use_cases/list_properties.py`. ADR-016 + spec `2026-05-listings-cursor-pagination-and-page-cache`.
 
 ### ListOrgActiveListings
 
@@ -361,15 +359,25 @@ The rich POI fields (`address`, `image_urls`, `reviews`) flow from `PropertyPoi`
 | `SEARCH_LLM_MODEL`                          | `QueryExtractor` LLM. Cheap PT-capable default.                                              | `gpt-4o-mini` |
 | `SEARCH_LLM_TIMEOUT_SECONDS`                | Per-call timeout for the extractor. On timeout, fall back to `ParsedQuery(free_text_remainder=query)`. | `4.0`  |
 | `SEARCH_LLM_MAX_OUTPUT_TOKENS`              | Hard cap on extractor output.                                                                | `200`         |
-| `VECTOR_INDEX_TOP_K`                        | Cap on Pinecone `top_k`.                                                                     | `50`          |
+| `LISTINGS_SEARCH_RANKED_LIST_SIZE`          | Cap on the ranked id list cached per `(q, filters)`. Renamed from `VECTOR_INDEX_TOP_K` in ADR-016. | `200`         |
 | `SEARCH_MAX_PRE_FILTER_CANDIDATES`          | Cap on the SQL pre-filter result. `len == cap` → cardinality guard switches to broad-mode.   | `1000`        |
 | `SEARCH_BROAD_MODE_OVERSHOOT`               | Multiplier on Pinecone `top_k` in broad mode (overshoot, then post-intersect with candidates). Final response is still capped to top_k. | `4`           |
+| `LISTINGS_PAGE_CACHE_ENABLED`               | Master switch for the listings page cache (Redis). Off by default; Null adapters wired when off so call sites stay structurally identical. | `false`       |
+| `LISTINGS_PAGE_CACHE_TTL_SECONDS`           | TTL for both `ListingsPageCache` and `SearchResultCache` entries.                            | `90`          |
+| `REDIS_URL`                                 | Connection string for the shared Redis client.                                               | `redis://localhost:6379/0` |
 
 ### Pagination semantics
 
-`limit` and `offset` apply over the ranked list. Paging beyond `VECTOR_INDEX_TOP_K` (default 50) returns whatever's left in the top-k window; cursor pagination is a follow-up.
+The public endpoint is cursor-paginated (ADR-016). Two modes share the same `?cursor=`/`limit=` interface:
 
-`total` in the response = count of post-hydrate rows after partition (matched + partial). NOT a global match count.
+- **List mode** (`?q` empty): `?cursor=` encodes a keyset position `(created_at, id)`; arbitrary depth.
+- **Search mode** (`?q` set): `?cursor=` encodes an offset into the cached ranked id list. Depth bounded at `LISTINGS_SEARCH_RANKED_LIST_SIZE` (default 200) — past that, `next_cursor: null`. The bound is a deliberate product call (vector relevance at rank 200 is noise; users rarely scroll that far).
+
+Cache hits skip both the LLM call AND the Pinecone call. Cache miss runs the full pipeline once per `(q, filters)` per TTL window and caches `(parsed, ranked_ids)` atomically — subsequent pages of the same search just `list_by_ids` the slice.
+
+**Search-path cache-expiry invariant:** if the ranked-id-list cache expires mid-scroll, the next page miss re-fetches Pinecone; ranking may differ slightly and the user may see a small number of duplicated or skipped items at the page boundary where the expiry happened. Accepted v1 behavior; visible only when the underlying ranking changes within the TTL window.
+
+The response shape has no `total` — infinite-scroll FE doesn't need it, and dropping it removes a second DB query per request.
 
 ### Re-indexing on the v3 canonical-text bump
 
