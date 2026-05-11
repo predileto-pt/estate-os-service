@@ -106,9 +106,14 @@ class ProcessPropertyExtraction:
             except Exception:
                 log.warning("extraction.geolocation_failed", address=result.address)
 
+            # Extraction has no human-authored title; default to the
+            # same "<Typology> · <address>" shape the migration uses for
+            # backfill. Admin can rename later.
+            default_title = f"{job.typology.capitalize()} · {result.address}"
             prop = Property(
                 id=uuid4(),
                 organization_id=job.organization_id,
+                title=default_title,
                 address=result.address,
                 listing_type=ListingType(job.listing_type),
                 typology=Typology(job.typology),

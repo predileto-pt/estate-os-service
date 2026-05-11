@@ -71,6 +71,7 @@ class PropertyModel(Base):
     organization_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=False
     )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
     address: Mapped[str] = mapped_column(Text, nullable=False)
     listing_type: Mapped[ListingType] = mapped_column(
         Enum(

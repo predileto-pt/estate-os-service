@@ -35,6 +35,7 @@ def _listing(**overrides) -> PropertyListing:
     base = dict(
         id=UUID("00000000-0000-0000-0000-000000000001"),
         organization_id=UUID("00000000-0000-0000-0000-000000000010"),
+        title="Test property",
         status=PropertyStatus.ACTIVE,
         listing_type=ListingType.SALE,
         typology=Typology.APARTMENT,

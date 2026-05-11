@@ -40,6 +40,7 @@ def _property_response(prop, image_download_urls: dict | None = None) -> dict:
     return {
         "id": prop.id,
         "organization_id": prop.organization_id,
+        "title": prop.title,
         "address": prop.address,
         "listing_type": prop.listing_type,
         "typology": prop.typology,
@@ -146,6 +147,7 @@ async def create_property(
     create_uc = request.app.state.property_container.create_property
     prop = await create_uc.execute(
         organization_id=str(body.organization_id),
+        title=body.title,
         address=body.address,
         listing_type=body.listing_type,
         typology=body.typology,

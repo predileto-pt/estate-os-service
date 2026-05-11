@@ -129,6 +129,7 @@ class SupabasePropertyRepository(PropertyRepository):
         return Property(
             id=UUID(row["id"]),
             organization_id=UUID(row["organization_id"]),
+            title=row["title"],
             address=row["address"],
             listing_type=ListingType(row["listing_type"]),
             typology=Typology(row["typology"]),
@@ -155,6 +156,7 @@ class SupabasePropertyRepository(PropertyRepository):
         return {
             "id": str(prop.id),
             "organization_id": str(prop.organization_id),
+            "title": prop.title,
             "address": prop.address,
             "listing_type": prop.listing_type.value,
             "typology": prop.typology.value,

@@ -32,6 +32,7 @@ def _complete_property(status: PropertyStatus = PropertyStatus.DRAFT) -> Propert
     prop = Property(
         id=pid,
         organization_id=UUID("00000000-0000-0000-0000-000000000010"),
+        title="Test property",
         address="Rua Augusta 1, Lisboa",
         listing_type=ListingType.SALE,
         typology=Typology.APARTMENT,

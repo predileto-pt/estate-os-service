@@ -79,6 +79,7 @@ def build_property_snapshot(prop: Property, pois: list[PropertyPoi] | None = Non
         "id": str(prop.id),
         "organization_id": str(prop.organization_id),
         "aggregate_version": prop.aggregate_version,
+        "title": prop.title,
         "address": prop.address,
         # Extracted postal code rides on every event so the listings
         # address-enrichment handler has an authoritative geographic

@@ -88,6 +88,7 @@ def _to_response(prop: PropertyListing, image_urls: dict[str, str]) -> ListedPro
     return ListedPropertyResponse(
         id=prop.id,
         organization_id=prop.organization_id,
+        title=prop.title,
         listing_type=prop.listing_type,
         typology=prop.typology,
         description=prop.description,

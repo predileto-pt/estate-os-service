@@ -157,6 +157,7 @@ class PropertyImageResponse(BaseModel):
 
 class CreatePropertyRequest(BaseModel):
     organization_id: UUID
+    title: str = Field(min_length=1, max_length=200)
     address: str
     listing_type: ListingType
     typology: Typology
@@ -179,6 +180,7 @@ class PropertyCharacteristicsResponse(BaseModel):
 class PropertyResponse(BaseModel):
     id: UUID
     organization_id: UUID
+    title: str
     address: str
     listing_type: ListingType
     typology: Typology
@@ -197,6 +199,7 @@ class PropertyResponse(BaseModel):
 class PublicPropertyResponse(BaseModel):
     id: UUID
     organization_id: UUID
+    title: str
     address: str
     listing_type: ListingType
     typology: Typology

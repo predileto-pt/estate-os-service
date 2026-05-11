@@ -83,6 +83,7 @@ class ListingPrice:
 class PropertyListing:
     id: UUID  # == properties.id
     organization_id: UUID
+    title: str
     status: PropertyStatus
     listing_type: ListingType
     typology: Typology

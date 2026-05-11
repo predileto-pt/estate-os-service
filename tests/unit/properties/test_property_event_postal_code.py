@@ -23,6 +23,7 @@ def _prop(address: str) -> Property:
     return Property(
         id=uuid4(),
         organization_id=uuid4(),
+        title="Test property",
         address=address,
         listing_type=ListingType.SALE,
         typology=Typology.APARTMENT,

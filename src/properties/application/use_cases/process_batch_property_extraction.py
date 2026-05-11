@@ -206,9 +206,11 @@ class ProcessBatchPropertyExtraction:
             if property_result.characteristics:
                 characteristics = PropertyCharacteristics.from_dict(property_result.characteristics)
 
+            default_title = f"{job.typology.capitalize()} · {property_result.address}"
             prop = Property(
                 id=uuid4(),
                 organization_id=job.organization_id,
+                title=default_title,
                 address=property_result.address,
                 listing_type=ListingType(job.listing_type),
                 typology=Typology(job.typology),

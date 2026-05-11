@@ -35,6 +35,7 @@ class CreateProperty:
         self,
         *,
         organization_id: str,
+        title: str,
         address: str,
         listing_type: ListingType,
         typology: Typology,
@@ -44,6 +45,7 @@ class CreateProperty:
         prop = Property(
             id=uuid4(),
             organization_id=UUID(organization_id),
+            title=title,
             address=address,
             listing_type=listing_type,
             typology=typology,

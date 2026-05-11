@@ -31,6 +31,7 @@ def _stub_listing() -> PropertyListing:
     return PropertyListing(
         id=uuid4(),
         organization_id=uuid4(),
+        title="Test property",
         status=PropertyStatus.ACTIVE,
         listing_type=ListingType.SALE,
         typology=Typology.APARTMENT,

@@ -34,6 +34,7 @@ def _make_property(*, organization_id, latitude=38.768, longitude=-9.108) -> Pro
     return Property(
         id=uuid4(),
         organization_id=organization_id,
+        title="Test property",
         address="Avenida da Liberdade 12",
         listing_type=ListingType.SALE,
         typology=Typology.APARTMENT,

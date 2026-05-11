@@ -42,6 +42,7 @@ def _prop(
     return Property(
         id=uuid4(),
         organization_id=organization_id,
+        title="Test property",
         address="Rua Augusta 1, Lisboa",
         listing_type=ListingType.SALE,
         typology=Typology.APARTMENT,

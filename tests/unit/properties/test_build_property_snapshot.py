@@ -30,6 +30,7 @@ def _base_property() -> Property:
     return Property(
         id=UUID("00000000-0000-0000-0000-000000000001"),
         organization_id=UUID("00000000-0000-0000-0000-000000000010"),
+        title="Test property",
         address="Rua Augusta 1, Lisboa",
         listing_type=ListingType.SALE,
         typology=Typology.APARTMENT,

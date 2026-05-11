@@ -20,6 +20,7 @@ class TestPropertyModel:
         prop = Property(
             id=uuid4(),
             organization_id=uuid4(),
+            title="Test property",
             address="Rua das Flores 123, Porto",
             listing_type=ListingType.SALE,
             typology=Typology.APARTMENT,
@@ -39,6 +40,7 @@ class TestPropertyModel:
         prop = Property(
             id=uuid4(),
             organization_id=uuid4(),
+            title="Test property",
             address="Rua das Flores 123, Porto",
             listing_type=ListingType.PURCHASE,
             typology=Typology.HOUSE,
@@ -55,6 +57,7 @@ class TestPropertyModel:
         prop = Property(
             id=prop_id,
             organization_id=uuid4(),
+            title="Test property",
             address="Rua das Flores 123, Porto",
             listing_type=ListingType.SALE,
             typology=Typology.APARTMENT,
@@ -89,6 +92,7 @@ class TestPropertyModel:
         prop = Property(
             id=prop_id,
             organization_id=uuid4(),
+            title="Test property",
             address="Rua das Flores 123, Porto",
             listing_type=ListingType.SALE,
             typology=Typology.APARTMENT,

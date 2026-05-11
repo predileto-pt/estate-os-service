@@ -76,6 +76,7 @@ class ListedPropertyResponse(BaseModel):
 
     id: UUID
     organization_id: UUID
+    title: str
     listing_type: ListingType
     typology: Typology
     description: str | None

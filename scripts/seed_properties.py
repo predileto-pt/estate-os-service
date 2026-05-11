@@ -138,10 +138,15 @@ async def fetch_image(client: httpx.AsyncClient, seed: str) -> bytes:
 async def create_property(
     api: httpx.AsyncClient, org_id: str, prop: dict
 ) -> str:
+    # Title is required by the API. Fixtures can supply one explicitly;
+    # otherwise we synthesize from typology + address (same shape the
+    # migration uses for backfill).
+    title = prop.get("title") or f"{prop['typology'].capitalize()} · {prop['address']}"
     response = await api.post(
         "/api/v1/admin/properties/",
         json={
             "organization_id": org_id,
+            "title": title,
             "address": prop["address"],
             "listing_type": prop["listing_type"],
             "typology": prop["typology"],

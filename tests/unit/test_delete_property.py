@@ -28,6 +28,7 @@ def _make_property(num_images: int = 0) -> Property:
     prop = Property(
         id=uuid4(),
         organization_id=ORG_ID,
+        title="Test property",
         address="Rua das Flores 123",
         listing_type=ListingType.SALE,
         typology=Typology.APARTMENT,

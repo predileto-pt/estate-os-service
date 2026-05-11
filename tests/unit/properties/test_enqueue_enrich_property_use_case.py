@@ -38,6 +38,7 @@ def _property(
     return Property(
         id=uuid4(),
         organization_id=organization_id,
+        title="Test property",
         address="Rua A",
         listing_type=ListingType.SALE,
         typology=Typology.APARTMENT,

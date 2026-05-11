@@ -40,6 +40,7 @@ class PropertyListingModel(Base):
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
     organization_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
 
     status: Mapped[PropertyStatus] = mapped_column(
         Enum(

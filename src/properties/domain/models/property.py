@@ -40,6 +40,7 @@ class PropertyStatus(str, enum.Enum):
 class Property:
     id: UUID
     organization_id: UUID
+    title: str
     address: str
     listing_type: ListingType
     typology: Typology

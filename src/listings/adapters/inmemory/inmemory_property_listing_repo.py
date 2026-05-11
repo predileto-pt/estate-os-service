@@ -291,6 +291,7 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
         listing = PropertyListing(
             id=property_id,
             organization_id=UUID(event_data["organization_id"]),
+            title=event_data.get("title") or "Property",
             status=PropertyStatus(event_data["status"]),
             listing_type=ListingType(event_data["listing_type"]),
             typology=Typology(event_data["typology"]),

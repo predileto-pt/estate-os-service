@@ -31,6 +31,7 @@ def _listing(*, created_at: datetime, listing_id: UUID, listing_type: ListingTyp
     return PropertyListing(
         id=listing_id,
         organization_id=uuid4(),
+        title="Test property",
         status=PropertyStatus.ACTIVE,
         listing_type=listing_type,
         typology=Typology.APARTMENT,

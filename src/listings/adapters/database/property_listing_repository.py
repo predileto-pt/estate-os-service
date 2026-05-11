@@ -58,6 +58,7 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
         return PropertyListing(
             id=UUID(m.id),
             organization_id=UUID(m.organization_id),
+            title=m.title,
             status=PropertyStatus(m.status.value if hasattr(m.status, "value") else m.status),
             listing_type=ListingType(
                 m.listing_type.value if hasattr(m.listing_type, "value") else m.listing_type
@@ -604,6 +605,12 @@ def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:
     row = {
         "id": data["id"],
         "organization_id": data["organization_id"],
+        # `.get` with a fallback so events emitted before the title
+        # change (still sitting in flight on the queue when we deploy)
+        # don't crash the projector. Production-time data won't hit
+        # this branch — the title migration backfills + the snapshot
+        # builder always sets the key.
+        "title": data.get("title") or "Property",
         "status": data["status"],
         "listing_type": data["listing_type"],
         "typology": data["typology"],

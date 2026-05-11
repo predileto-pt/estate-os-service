@@ -46,6 +46,7 @@ def _property(
     prop = Property(
         id=uuid4(),
         organization_id=organization_id,
+        title="Test property",
         address=address,
         listing_type=ListingType.SALE,
         typology=Typology.APARTMENT,

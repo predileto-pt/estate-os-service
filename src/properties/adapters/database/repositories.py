@@ -105,6 +105,7 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
         return Property(
             id=UUID(m.id),
             organization_id=UUID(m.organization_id),
+            title=m.title,
             address=m.address,
             listing_type=ListingType(m.listing_type.value),
             typology=Typology(m.typology.value),
@@ -188,6 +189,7 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
         model = PropertyModel(
             id=str(prop.id),
             organization_id=str(prop.organization_id),
+            title=prop.title,
             address=prop.address,
             listing_type=prop.listing_type.value,
             typology=prop.typology.value,

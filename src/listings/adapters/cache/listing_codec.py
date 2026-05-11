@@ -95,6 +95,7 @@ def to_listing_dict(listing: PropertyListing) -> dict[str, Any]:
     return {
         "id": str(listing.id),
         "organization_id": str(listing.organization_id),
+        "title": listing.title,
         "status": listing.status.value,
         "listing_type": listing.listing_type.value,
         "typology": listing.typology.value,
@@ -141,6 +142,7 @@ def from_listing_dict(d: dict[str, Any]) -> PropertyListing:
     return PropertyListing(
         id=UUID(d["id"]),
         organization_id=UUID(d["organization_id"]),
+        title=d.get("title") or "Property",
         status=PropertyStatus(d["status"]),
         listing_type=ListingType(d["listing_type"]),
         typology=Typology(d["typology"]),
