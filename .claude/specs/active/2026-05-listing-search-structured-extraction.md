@@ -1,6 +1,6 @@
 # Listing search — structured query extraction + hybrid retrieval (ADR-014)
 
-**Status:** in-progress (review-2 cleared 2026-05-11; ready to implement)
+**Status:** in-progress (review-3 cleared 2026-05-11; ready to implement)
 **Owner:** Peter
 **Created:** 2026-05-11
 **ADR:** [014-structured-query-extraction-and-hybrid-retrieval](../../docs/adr/014-structured-query-extraction-and-hybrid-retrieval.md)
@@ -40,6 +40,8 @@ When `q` is empty/absent, the existing structured-filter path runs unchanged. Ac
 - **`min_parking_spaces` filter** — exact-count parking requirements like "com 2 lugares de garagem". TODO comment in the extractor + a follow-up bullet under "Out of scope follow-ups". Current scope only handles `has_parking: bool`.
 - **A v2-gated parallel rollout.** Because the search hasn't been to production, we refactor in place — no `LISTINGS_SEARCH_ENABLED_V2`, no second namespace, no "v1 stays callable for one release cycle" complexity. If we ever ship search to prod and then need to bump schemas again, we'll exercise ADR-013's parallel-namespace pattern at that point.
 - **A new canonical-text version for non-PT listings.** v3 is PT-tuned. EN/DE/FR follow when those markets light up.
+- **Other `build_property_snapshot` field additions.** §13 extends the POI sub-payload with three fields (`address`, `image_urls`, `reviews`). If you need to surface other `PropertyPoi` fields downstream (e.g. `manually_edited`, `place_id`, `latitude`, `longitude`) or extend the snapshot in other ways, file a separate spec — don't piggyback on this one.
+- **Type-aware price filtering.** `parsed.min_price` / `parsed.max_price` filter against the existing `PropertyListingModel.min_price` column (= the listing's LOWEST price across types — see ADR-013). For a rent-and-sale listing with rent=€1500/mo and sale=€500k, `min_price=1500`, so `parsed.min_price=250000` would exclude it even though the sale price meets the user's intent. Inherited limitation; type-aware price ranges (filter on `prices` JSONB by listing_type) are out of scope here.
 
 ## Approach
 
@@ -61,7 +63,7 @@ When `q` is empty/absent, the existing structured-filter path runs unchanged. Ac
   class QueryExtractor(Protocol):
       async def extract(self, query: str) -> ParsedQuery: ...
   ```
-- `src/listings/adapters/ai/langchain_query_extractor.py` — LangChain `with_structured_output(ParsedQuery)` adapter.
+- `src/listings/adapters/ai/langchain_query_extractor.py` — LangChain adapter; internal `_ExtractorResult` Pydantic model + map to `ParsedQuery` (see §4 for the full sketch — `with_structured_output` requires a Pydantic class, not a frozen dataclass).
 - `src/listings/adapters/inmemory/inmemory_query_extractor.py` — identity adapter returning `ParsedQuery(free_text_remainder=query)`. Used in tests + as the wired adapter when `LISTINGS_SEARCH_ENABLED=false`.
 
 The container's `query_understanding_service` attribute is **renamed** to `query_extractor` in the same commit.
@@ -273,11 +275,27 @@ Internals:
        saturated = len(candidates) >= self._max_pre_filter_candidates
    if isinstance(vector_or_err, Exception):
        log.exception("search_listings.embed_failed", query=query)
-       return await self._relational_fallback(location, filters)
+       return await self._relational_fallback(
+           candidates=candidates, parsed=parsed, filters=filters,
+       )
    vector = vector_or_err
    ```
 
-4. **Cardinality guard + ANN** (§8 below). One Pinecone call. Fail-open: vector-index exceptions trigger `_relational_fallback`. The v2 fallback reuses the SQL candidates already computed in stage 3 — so a user with `?parish=Cascais&q="T3 com piscina"` whose vector path fails still gets back **only T3+pool Cascais listings**, not all Cascais listings (which would defeat the value of extraction). Sketch:
+4. **Cardinality guard + ANN.** Run the vector query under a try/except so vector-index exceptions also trigger `_relational_fallback`:
+
+   ```python
+   try:
+       matches = await self._run_vector_query(
+           vector=vector, candidates=candidates, cardinality_saturated=saturated,
+       )
+   except Exception:
+       log.exception("search_listings.vector_query_failed", query=query)
+       return await self._relational_fallback(
+           candidates=candidates, parsed=parsed, filters=filters,
+       )
+   ```
+
+   The fallback reuses the SQL candidates already computed in stage 3 — so a user with `?parish=Cascais&q="T3 com piscina"` whose vector path fails still gets back **only T3+pool Cascais listings**, not all Cascais listings (which would defeat the value of extraction). Sketch:
 
    ```python
    async def _relational_fallback(
@@ -285,14 +303,17 @@ Internals:
        *,
        candidates: list[UUID],
        parsed: ParsedQuery,
+       filters: PropertyFilters,
    ) -> tuple[list[PropertyListing], int, ParsedQuery]:
        """Vector path failed. Reuse the SQL pre-filter candidates and
        skip the ANN ranking. Apply partition-and-rank so NULL-data
        rows still go to the bottom of the page (deterministic order
        within each bucket: created_at desc, id desc — no cosine
-       available)."""
+       available). Pagination applies just like the happy path."""
        if not candidates:
            return [], 0, parsed
+       # Cap to top_k before hydrate — same bound the happy path uses
+       # so the response shape stays predictable.
        rows = await self._property_listing_repo.list_by_ids(
            candidates[: self._top_k]
        )
@@ -300,7 +321,8 @@ Internals:
        matched.sort(key=lambda r: (r.created_at, str(r.id)), reverse=True)
        partial.sort(key=lambda r: (r.created_at, str(r.id)), reverse=True)
        ordered = matched + partial
-       return ordered, len(ordered), parsed
+       page = ordered[filters.offset : filters.offset + filters.limit]
+       return page, len(ordered), parsed
    ```
 5. **Hydrate** via `list_by_ids` (filters `status='active'` at SQL — defense in depth).
 6. **`_partition_and_rank`** (replaces `_reorder_by_score`): rows where every set `ParsedQuery` criterion was evaluable against non-NULL columns → matched bucket. Rows where ≥1 criterion couldn't be evaluated (NULL on the column) → partial bucket. Each bucket ranked by cosine. Concatenate. `total = len(matched) + len(partial)` (mirrors ADR-013 v1's "post-hydrate count" semantic).
@@ -636,6 +658,12 @@ def _to_response_with_pois(
         for poi in prop.pois
         if poi.category in requested
     ]
+    # Explicit ascending-distance sort. `prop.pois` from the projection
+    # is in discovery order (whatever order properties emitted the POIs
+    # in `build_property_snapshot`), NOT distance order. The canonical-
+    # text composer sorts by (category, distance, name) for the NEARBY:
+    # line — that sort doesn't propagate to the JSONB projection.
+    matched_pois.sort(key=lambda p: p.distance_meters)
     unmatched_pois = sorted(requested - listing_categories)
     return base.model_copy(update={
         "matched_pois": matched_pois,
@@ -766,7 +794,7 @@ All unit test files flat under `tests/unit/listings/` (existing convention).
 - **Unit** — `tests/unit/listings/test_search_listings_use_case.py`: replace the existing fail-open + filter-translation tests with structured-aware ones. New assertions: SQL pre-filter is called with the right combined filters; `asyncio.gather` runs pre-filter + embed in parallel; cardinality guard switches to broad-mode when pre-filter saturates; route-param/ParsedQuery conflict resolution; `_partition_and_rank` partitions NULL rows to the bottom of the result list; `execute` returns the 3-tuple `(rows, total, parsed)`.
 - **Unit** — `tests/unit/listings/test_list_ids_for_search.py`: pin the SQL pre-filter against the in-memory repo. Every soft-hard combination, every NULL admission, every route-param-vs-ParsedQuery precedence rule, plus the saturation flag when `len(result) == limit`.
 - **Integration** — `tests/integration/test_search_endpoint.py` (existing): update for the new response shape (`matched_pois` / `unmatched_pois`). Add cases covering soft-hard NULL admission (a T2 with NULL bedrooms appears at the bottom of a "T3" search; a T2 with `num_of_bedrooms=2` is excluded outright). Add a broad-mode cardinality test (seed 1100 active listings + low-selectivity query; assert the pipeline still returns top-k correctly via the intersect path).
-- **Unit** — `tests/unit/properties/test_property_event_payload.py` (likely existing — extend it): given a `Property` whose POIs carry `address`, `image_urls`, `reviews`, the emitted `pois` payload contains those three keys with the expected values. Defends against an accidental refactor that strips them out.
+- **Unit** — `tests/unit/properties/test_property_event_payload.py` (new file — only the sibling `test_property_event_postal_code.py` exists today): given a `Property` whose POIs carry `address`, `image_urls`, `reviews`, the emitted `build_property_snapshot` payload's `pois[i]` dict contains those three keys with the expected values. Defends against an accidental refactor that strips them out.
 
 ### Rollout
 
@@ -793,6 +821,7 @@ If we go to production before this spec ships, the rollout flips to ADR-013's pa
 - `tests/unit/listings/test_query_for_embed_renderer.py`
 - `tests/unit/listings/test_canonical_text_v3.py`
 - `tests/unit/listings/test_list_ids_for_search.py`
+- `tests/unit/properties/test_property_event_payload.py` — new file (no existing tests cover the `build_property_snapshot` payload shape; only `test_property_event_postal_code.py` exists for the related postal-code extraction). Pins that `address` / `image_urls` / `reviews` make it into the POI sub-payload, defending against a future refactor that strips them.
 
 ### Modified
 - `src/properties/application/events/property_event.py` — extend the POI snapshot payload to carry `address`, `image_urls`, `reviews` (§13). Cross-context dependency landed in this spec because the matched-POI UX is the visible win and the change is small (3 fields added at one call site).
@@ -852,12 +881,12 @@ Each criterion phrases an **externally observable** behavior.
 - [ ] Embedding-handler metadata payload unchanged from ADR-013 V1 schema (`listing_id`, `organization_id`, `parish`, `municipality`, `district`, `listing_type`, `typology`, `status`, `price_eur`).
 
 ### Response shape
-- [ ] **Upstream snapshot carries the rich POI fields.** Unit test on `build_property_payload` (or whatever the snapshot builder is called) — given a `PropertyPoi(address="X", image_urls=["a"], reviews=[{...}])`, the emitted payload's `pois[i]` dict contains those three keys with the expected values. Verified at the properties side, not just listings, so a stray refactor on the payload builder doesn't silently regress this spec.
+- [ ] **Upstream snapshot carries the rich POI fields.** Unit test on `build_property_snapshot` at `src/properties/application/events/property_event.py:51` — given a `PropertyPoi(address="X", image_urls=["a"], reviews=[{...}])`, the emitted payload's `pois[i]` dict contains those three keys with the expected values. Verified at the properties side, not just listings, so a stray refactor on the payload builder doesn't silently regress this spec.
 - [ ] `q` set + listing has `school` POI → response includes `matched_pois=[{category: "school", name, distance_meters, address, image_urls, reviews}]` and `unmatched_pois=[]`. Asserted with non-null `address` and non-empty `image_urls` to confirm the snapshot → projection → response path carries the rich fields end-to-end.
 - [ ] `q` set + user asked for `gym` + listing has no gym POI → response includes `unmatched_pois=["gym"]`.
 - [ ] `q` empty → response carries `"matched_pois": []` and `"unmatched_pois": []` (always present; empty defaults from the schema). No `response_model_exclude_none` flag.
 - [ ] `ListedPropertyResponse` backwards-compatible with the v1 contract for q-empty calls — all existing ADR-013 phase 2 integration tests pass.
-- [ ] Multiple matches per category: when a listing has 3 schools in `prop.pois` and the user asks for `SCHOOL`, all 3 surface in `matched_pois` (no dedup to nearest). Order is ascending by `distance_meters`, matching the order the canonical-text composer renders POIs in `NEARBY:`. Asserted by seeding a listing with 3 schools at 200m / 800m / 1500m and checking `[p.distance_meters for p in response.matched_pois] == [200, 800, 1500]`.
+- [ ] Multiple matches per category: when a listing has 3 schools in `prop.pois` and the user asks for `SCHOOL`, all 3 surface in `matched_pois` (no dedup to nearest). Order is ascending by `distance_meters` — the route helper sorts explicitly (the projection's `prop.pois` is in discovery order, not distance order, so this sort is load-bearing). Asserted by seeding a listing with 3 schools at 1500m / 200m / 800m **in that insertion order** (NOT sorted) and checking `[p.distance_meters for p in response.matched_pois] == [200, 800, 1500]`.
 
 ### Hygiene
 - [ ] `ruff check` clean, full suite green.
