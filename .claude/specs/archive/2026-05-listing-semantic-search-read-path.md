@@ -1,6 +1,6 @@
 # Listing semantic search — read path (ADR-013 phase 2)
 
-**Status:** in-progress — implementation amended 2026-05-11 to swap /locations from DB-derived to static-catalog (see §"GET /api/v1/listings/locations")
+**Status:** shipped 2026-05-11 (implementation amended in-flight to swap /locations from DB-derived to static-catalog — see §"GET /api/v1/listings/locations")
 **Owner:** Peter
 **Created:** 2026-05-09
 

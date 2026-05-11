@@ -65,6 +65,8 @@ class SearchListings:
             log.warning("search_listings.rewrite_failed", query=query)
             rewritten = query
 
+        log.info("search_listings.rewrite_success", query=query, rewritten=rewritten)
+
         # 2. Embed. The top-k bound uses the user's pagination window
         #    so deep pages still get served, capped by VECTOR_INDEX_TOP_K
         #    so offset=999999 can't blow up Pinecone.
@@ -94,9 +96,7 @@ class SearchListings:
         # 4. DB hydrate. `list_by_ids` filters to status='active' at the
         #    SQL level (lowercase StrEnum value), defense in depth on top
         #    of the vector-index metadata `status` filter.
-        rows = await self._property_listing_repo.list_by_ids(
-            [UUID(m.id) for m in matches]
-        )
+        rows = await self._property_listing_repo.list_by_ids([UUID(m.id) for m in matches])
         ordered = self._reorder_by_score(rows, matches)
 
         # 5. Paginate over the ranked list.

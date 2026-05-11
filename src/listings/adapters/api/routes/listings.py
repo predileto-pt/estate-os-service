@@ -106,7 +106,9 @@ def _to_response(prop: PropertyListing, image_urls: dict[str, str]) -> ListedPro
     response_model=PaginatedListingResponse,
     summary="List active properties with filters (q = semantic search)",
     responses={
-        200: {"description": "Listing results — vector-ranked when `q` is set, otherwise structured-filter order."},
+        200: {
+            "description": "Listing results — vector-ranked when `q` is set, otherwise structured-filter order."
+        },
         422: {"description": "`q` was provided without any location filter."},
     },
 )
