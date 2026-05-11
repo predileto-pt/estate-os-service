@@ -347,22 +347,22 @@ async def get_listing_container() -> ListingContainer:
     # we use the identity adapter so the container never has None
     # there and the route never branches on adapter presence.
     if settings.listings_search_enabled:
-        from listings.adapters.ai.langchain_query_understanding import (
-            LangChainQueryUnderstandingService,
+        from listings.adapters.ai.langchain_query_extractor import (
+            LangChainQueryExtractor,
         )
 
-        query_understanding_service = LangChainQueryUnderstandingService(
+        query_extractor = LangChainQueryExtractor(
             model=settings.search_llm_model,
             openai_api_key=settings.openai_api_key,
             timeout_seconds=settings.search_llm_timeout_seconds,
             max_output_tokens=settings.search_llm_max_output_tokens,
         )
     else:
-        from listings.adapters.inmemory.inmemory_query_understanding import (
-            IdentityQueryUnderstandingService,
+        from listings.adapters.inmemory.inmemory_query_extractor import (
+            IdentityQueryExtractor,
         )
 
-        query_understanding_service = IdentityQueryUnderstandingService()
+        query_extractor = IdentityQueryExtractor()
 
     _listing_container = ListingContainer(
         property_listing_repo=SqlAlchemyPropertyListingRepository(session_factory),
@@ -371,8 +371,10 @@ async def get_listing_container() -> ListingContainer:
         vector_index=vector_index,
         vector_index_namespace=settings.vector_index_namespace,
         embedding_model_version=settings.embedding_model,
-        query_understanding_service=query_understanding_service,
+        query_extractor=query_extractor,
         vector_index_top_k=settings.vector_index_top_k,
+        max_pre_filter_candidates=settings.search_max_pre_filter_candidates,
+        broad_mode_overshoot=settings.search_broad_mode_overshoot,
     )
     return _listing_container
 

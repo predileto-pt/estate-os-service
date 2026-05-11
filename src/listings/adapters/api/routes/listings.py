@@ -12,6 +12,7 @@ from listings.adapters.api.schemas import (
     LocationTreeResponse,
     MunicipalityNode,
     PaginatedListingResponse,
+    POIResponse,
     PropertyCharacteristicsResponse,
     PropertyImageResponse,
     PropertyPriceResponse,
@@ -23,6 +24,8 @@ from listings.adapters.api.search_validation import (
 from listings.domain.exceptions import PropertyNotFoundError
 from listings.domain.location_filter import LocationFilter
 from listings.domain.models import ListingType, Typology
+from listings.domain.parsed_query import ParsedQuery
+from listings.domain.poi_category import PoiCategory
 from listings.domain.property_filters import PropertyFilters
 from listings.domain.property_listing import PropertyListing
 from organizations.domain.models.membership import Membership
@@ -164,6 +167,7 @@ async def list_properties(
         offset=offset,
     )
 
+    requested_pois: tuple[PoiCategory, ...] = ()
     if normalized_q is None or not getattr(container, "search_listings", None):
         # Either `q` was empty/absent OR the search container is not
         # wired (LISTINGS_SEARCH_ENABLED=false). Fall through to the
@@ -183,18 +187,62 @@ async def list_properties(
             limit=limit,
             offset=offset,
         )
-        properties, total = await container.search_listings.execute(
+        properties, total, parsed = await container.search_listings.execute(
             query=normalized_q,
             location=location,
             filters=search_filters,
         )
+        requested_pois = parsed.nearby_pois
 
     items = []
     for prop in properties:
         image_urls = await _generate_image_urls(request, prop)
-        items.append(_to_response(prop, image_urls))
+        items.append(_to_response_with_pois(prop, image_urls, requested_pois))
 
     return PaginatedListingResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+def _to_response_with_pois(
+    prop: PropertyListing,
+    image_urls: dict[str, str],
+    requested_pois: tuple[PoiCategory, ...],
+) -> ListedPropertyResponse:
+    """Extends `_to_response` with matched/unmatched POI buckets when
+    `requested_pois` is set (q-set search path). The structured-filter
+    (q-empty) path passes `requested_pois=()` and gets the default
+    empty lists.
+
+    Spec: ADR-014 §12 / §15.
+    """
+    base = _to_response(prop, image_urls)
+    if not requested_pois:
+        # q-empty path — base already has the schema-default empty
+        # matched_pois/unmatched_pois.
+        return base
+    requested = {p.value for p in requested_pois}
+    listing_categories = {poi.category for poi in prop.pois}
+    matched_pois = [
+        POIResponse(
+            category=poi.category,
+            name=poi.name,
+            distance_meters=poi.distance_meters,
+            address=poi.address,
+            image_urls=list(poi.image_urls),
+            reviews=poi.reviews,
+        )
+        for poi in prop.pois
+        if poi.category in requested
+    ]
+    # Explicit ascending-distance sort. `prop.pois` from the projection
+    # is in discovery order (whatever order properties emitted in
+    # build_property_snapshot), NOT distance order. The canonical-text
+    # composer sorts by distance for the NEARBY: line — that sort
+    # doesn't propagate to the JSONB projection.
+    matched_pois.sort(key=lambda p: p.distance_meters)
+    unmatched_pois = sorted(requested - listing_categories)
+    return base.model_copy(
+        update={"matched_pois": matched_pois, "unmatched_pois": unmatched_pois}
+    )
 
 
 @router.get(

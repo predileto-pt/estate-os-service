@@ -66,6 +66,16 @@ class Settings(BaseSettings):
     # `min(top_k, limit+offset)` so pagination beyond this is out
     # of scope for v1 (cursor pagination is a follow-up).
     vector_index_top_k: int = 50
+    # ADR-014 hybrid retrieval — SQL pre-filter knobs.
+    # `SEARCH_MAX_PRE_FILTER_CANDIDATES`: cap on the SQL pre-filter
+    # result. When the result equals this cap, the cardinality guard
+    # in SearchListings switches to broad-mode (Pinecone over the
+    # whole namespace, then post-intersect with the candidate set).
+    search_max_pre_filter_candidates: int = 1000
+    # `SEARCH_BROAD_MODE_OVERSHOOT`: multiplier on Pinecone `top_k`
+    # in broad mode. We overshoot to survive the post-intersection
+    # filter; final response is still capped to `top_k`.
+    search_broad_mode_overshoot: int = 4
 
     # AWS / LocalStack
     aws_region: str = "eu-west-1"

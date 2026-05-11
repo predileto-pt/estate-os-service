@@ -1,6 +1,6 @@
 # Listing search — structured query extraction + hybrid retrieval (ADR-014)
 
-**Status:** in-progress (review-3 cleared 2026-05-11; ready to implement)
+**Status:** in-progress (review-3 cleared 2026-05-11; implementation started 2026-05-11)
 **Owner:** Peter
 **Created:** 2026-05-11
 **ADR:** [014-structured-query-extraction-and-hybrid-retrieval](../../docs/adr/014-structured-query-extraction-and-hybrid-retrieval.md)
@@ -923,7 +923,5 @@ Conventional commits, scope = `listings`:
 - `feat(listings): widen ListingPoi with address/image_urls/reviews from upstream snapshot`
 - `feat(listings): list_ids_for_search on PropertyListingRepository (SQL pre-filter)`
 - `feat(listings): canonical-text v3 composer + handler routing`
-- `feat(listings): SearchListings rewrite — parallel pre-filter + cardinality guard + partition-and-rank`
-- `feat(listings): matched/unmatched POIs on ListedPropertyResponse`
-- `chore(listings): wire QueryExtractor + pre-filter settings in container + bootstrap`
+- `feat(listings): SearchListings rewrite + matched/unmatched POIs + container/bootstrap swap` (atomic — commits 8 + 9 + 10 from the original plan collapsed because the use-case 3-tuple return signature, the route handler unpacking, and the QueryExtractor wiring couldn't land independently without breaking CI between commits)
 - `docs(listings): update README + listings.md for the new pipeline`

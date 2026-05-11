@@ -41,6 +41,21 @@ class PropertyImageResponse(BaseModel):
     download_url: str
 
 
+class POIResponse(BaseModel):
+    """POI matched against the user's extracted `nearby_pois`. Rich
+    fields surface from the listings projection (populated by the
+    properties POI snapshot — ADR-014 §13). Only the q-set search
+    path populates these; q-empty calls leave `matched_pois` /
+    `unmatched_pois` as empty lists."""
+
+    category: str
+    name: str
+    distance_meters: float
+    address: str | None = None
+    image_urls: list[str] = []
+    reviews: list[dict] | None = None
+
+
 class ListedPropertyResponse(BaseModel):
     """Public-facing listing payload, served from the
     `property_listings` projection (collapsed from the legacy
@@ -50,6 +65,13 @@ class ListedPropertyResponse(BaseModel):
     `2026-05-property-address-enrichment-fix`). Structured location
     fields (parish/municipality/district/country) ARE exposed now that
     the route reads from the projection.
+
+    `matched_pois` / `unmatched_pois` (ADR-014 §15) default to `[]`
+    — ALWAYS present, just empty on the q-empty path. Empty defaults
+    keep the schema regular and don't require
+    `response_model_exclude_none` (which would strip the nullable
+    parish/municipality/district fields too — that's a v1
+    contract break).
     """
 
     id: UUID
@@ -68,6 +90,8 @@ class ListedPropertyResponse(BaseModel):
     updated_at: datetime
     prices: list[PropertyPriceResponse]
     images: list[PropertyImageResponse] = []
+    matched_pois: list[POIResponse] = []
+    unmatched_pois: list[str] = []
 
 
 class PaginatedListingResponse(BaseModel):

@@ -28,12 +28,13 @@ from listings.adapters.embedding.stub_provider import StubEmbeddingProvider
 from listings.adapters.inmemory.inmemory_property_listing_repo import (
     InMemoryPropertyListingRepository,
 )
-from listings.adapters.inmemory.inmemory_query_understanding import (
-    IdentityQueryUnderstandingService,
+from listings.adapters.inmemory.inmemory_query_extractor import (
+    IdentityQueryExtractor,
 )
 from listings.adapters.vector.inmemory_index import InMemoryVectorIndex
-from listings.application.ports.query_understanding import QueryUnderstandingService
+from listings.application.ports.query_extractor import QueryExtractor
 from listings.container import Container as ListingContainer
+from listings.domain.parsed_query import ParsedQuery
 
 NAMESPACE = "search-test-v1"
 
@@ -41,10 +42,10 @@ NAMESPACE = "search-test-v1"
 # ──────────── Search-enabled container override ────────────
 
 
-class _RaisingQU(QueryUnderstandingService):
-    """Stub that raises on rewrite. Used to assert fail-open behavior."""
+class _RaisingQU(QueryExtractor):
+    """Stub that raises on extract. Used to assert fail-open behavior."""
 
-    async def rewrite(self, query: str) -> str:
+    async def extract(self, query: str) -> ParsedQuery:
         raise RuntimeError("simulated LLM failure")
 
 
@@ -72,7 +73,7 @@ def search_embedding_provider():
 
 @pytest.fixture
 def search_query_understanding():
-    return IdentityQueryUnderstandingService()
+    return IdentityQueryExtractor()
 
 
 @pytest.fixture
@@ -97,7 +98,7 @@ def listing_container(
         embedding_provider=search_embedding_provider,
         vector_index=search_vector_index,
         vector_index_namespace=NAMESPACE,
-        query_understanding_service=search_query_understanding,
+        query_extractor=search_query_understanding,
     )
 
 

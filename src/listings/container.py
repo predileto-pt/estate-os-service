@@ -1,6 +1,6 @@
 from listings.application.ports.address_searcher import AddressSearcher
 from listings.application.ports.embedding_provider import EmbeddingProvider
-from listings.application.ports.query_understanding import QueryUnderstandingService
+from listings.application.ports.query_extractor import QueryExtractor
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
@@ -21,8 +21,10 @@ class Container:
         vector_index: VectorIndex | None = None,
         vector_index_namespace: str = "openai-text-embedding-3-small-v1",
         embedding_model_version: str = "text-embedding-3-small",
-        query_understanding_service: QueryUnderstandingService | None = None,
+        query_extractor: QueryExtractor | None = None,
         vector_index_top_k: int = 50,
+        max_pre_filter_candidates: int = 1000,
+        broad_mode_overshoot: int = 4,
     ) -> None:
         # Single read-model: the carried-state `property_listings`
         # projection. The legacy `ListingRepository` (read mapping over
@@ -53,13 +55,13 @@ class Container:
         self.vector_index_namespace = vector_index_namespace
         self.embedding_model_version = embedding_model_version
 
-        # Search read path (spec
-        # `2026-05-listing-semantic-search-read-path`, ADR-013 phase 2).
-        # `query_understanding_service` is non-None at runtime regardless
-        # of the gate — bootstrap wires the LLM adapter when the gate
-        # is on, the identity adapter otherwise. That keeps the route
-        # branching simple: it only checks `search_listings` presence.
-        self.query_understanding_service = query_understanding_service
+        # Search read path (ADR-014 — structured query extraction +
+        # hybrid retrieval). `query_extractor` is non-None at runtime
+        # regardless of the gate — bootstrap wires the LLM adapter
+        # when LISTINGS_SEARCH_ENABLED=true, the identity adapter
+        # otherwise. That keeps the route branching simple: it only
+        # checks `search_listings` presence.
+        self.query_extractor = query_extractor
 
         # Wire SearchListings only when ALL three ports are present.
         # Missing any one (e.g. LISTINGS_SEARCH_ENABLED=false leaves
@@ -67,17 +69,19 @@ class Container:
         # structured-filter path.
         self.search_listings: SearchListings | None = None
         if (
-            query_understanding_service is not None
+            query_extractor is not None
             and embedding_provider is not None
             and vector_index is not None
         ):
             self.search_listings = SearchListings(
-                query_understanding=query_understanding_service,
+                query_extractor=query_extractor,
                 embedding_provider=embedding_provider,
                 vector_index=vector_index,
                 property_listing_repo=property_listing_repo,
                 namespace=vector_index_namespace,
                 top_k=vector_index_top_k,
+                max_pre_filter_candidates=max_pre_filter_candidates,
+                broad_mode_overshoot=broad_mode_overshoot,
             )
 
         # /locations use case is always wired. As of 2026-05-11 it
