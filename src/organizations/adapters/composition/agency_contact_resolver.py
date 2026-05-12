@@ -7,6 +7,14 @@ side: listings depends on `GetAgencyContact` only, and this adapter
 lives outside the listings package.
 
 Spec: `2026-05-listings-agency-contact`.
+
+Contact source (post org-level email/phone columns):
+  1. `Organization.email` / `Organization.phone` win when set.
+  2. Fall back to the creating `User.email` / `User.phone` for orgs
+     that haven't filled in their own contact yet.
+The user-fallback exists for back-compat with pre-fields orgs; once
+agency onboarding mandates org-level contact, the fallback can be
+deleted.
 """
 
 from __future__ import annotations
@@ -21,6 +29,10 @@ from listings.application.ports.get_agency_contact import (
 from organizations.application.ports.repositories.organization_repository import (
     OrganizationRepository,
 )
+
+
+def _format_phone(country_code: str, number: str) -> str:
+    return f"{country_code} {number}".strip()
 
 
 class AgencyContactResolver(GetAgencyContact):
@@ -38,14 +50,22 @@ class AgencyContactResolver(GetAgencyContact):
         if org is None:
             return AgencyContact(name=None, email=None, phone=None)
 
-        user = await self._user_repo.get_by_id(org.created_by)
-
-        phone: str | None = None
-        if user is not None and user.phone is not None:
-            phone = f"{user.phone.country_code} {user.phone.number}".strip()
-
-        return AgencyContact(
-            name=org.name,
-            email=user.email if user is not None else None,
-            phone=phone,
+        email: str | None = org.email
+        phone: str | None = (
+            _format_phone(org.phone.country_code, org.phone.number)
+            if org.phone is not None
+            else None
         )
+
+        # Only fetch the creating user when at least one field still
+        # needs a fallback — avoids a wasted DB hit for fully-populated
+        # orgs.
+        if email is None or phone is None:
+            user = await self._user_repo.get_by_id(org.created_by)
+            if user is not None:
+                if email is None:
+                    email = user.email
+                if phone is None and user.phone is not None:
+                    phone = _format_phone(user.phone.country_code, user.phone.number)
+
+        return AgencyContact(name=org.name, email=email, phone=phone)

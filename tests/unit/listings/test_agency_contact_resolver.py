@@ -18,6 +18,7 @@ from organizations.adapters.inmemory.inmemory_organization_repo import (
     InMemoryOrganizationRepository,
 )
 from organizations.domain.models.organization import Organization
+from organizations.domain.value_objects import PhoneNumber as OrgPhoneNumber
 
 
 def _make_user(*, user_id: UUID, phone: PhoneNumber | None = None) -> IdentityUser:
@@ -108,3 +109,65 @@ async def test_email_phone_none_when_creating_user_missing(resolver, org_repo):
     assert contact.name == "Predileto Imobiliária"
     assert contact.email is None
     assert contact.phone is None
+
+
+# ── Org-level contact precedence (post org email/phone columns) ─────────────
+
+
+async def test_org_email_and_phone_win_over_creating_user(resolver, org_repo, user_repo):
+    """When the org has its own email + phone, they take precedence over
+    the creating user's contact. Spec: agency onboarding fills org-level
+    contact; the user-fallback is back-compat for orgs that haven't
+    filled it in yet."""
+    user_id = uuid4()
+    org_id = uuid4()
+    await user_repo.save(
+        _make_user(user_id=user_id, phone=PhoneNumber(country_code="+351", number="900000000"))
+    )
+    org = _make_org(org_id=org_id, created_by=user_id)
+    org.email = "contact@predileto.pt"
+    org.phone = OrgPhoneNumber(country_code="+351", number="912345678")
+    await org_repo.save(org)
+
+    contact = await resolver.execute(org_id)
+
+    assert contact == AgencyContact(
+        name="Predileto Imobiliária",
+        email="contact@predileto.pt",
+        phone="+351 912345678",
+    )
+
+
+async def test_falls_back_to_user_for_missing_org_fields(resolver, org_repo, user_repo):
+    """Mixed: org email set, org phone null → email from org, phone from
+    creating user. Each field falls back independently."""
+    user_id = uuid4()
+    org_id = uuid4()
+    await user_repo.save(
+        _make_user(user_id=user_id, phone=PhoneNumber(country_code="+351", number="900000000"))
+    )
+    org = _make_org(org_id=org_id, created_by=user_id)
+    org.email = "contact@predileto.pt"  # org email set
+    # org.phone left as None
+    await org_repo.save(org)
+
+    contact = await resolver.execute(org_id)
+
+    assert contact.email == "contact@predileto.pt"
+    assert contact.phone == "+351 900000000"
+
+
+async def test_org_phone_alone_keeps_user_email_fallback(resolver, org_repo, user_repo):
+    """Inverse mixed: org phone set, org email null → phone from org,
+    email from creating user."""
+    user_id = uuid4()
+    org_id = uuid4()
+    await user_repo.save(_make_user(user_id=user_id, phone=None))
+    org = _make_org(org_id=org_id, created_by=user_id)
+    org.phone = OrgPhoneNumber(country_code="+351", number="912345678")
+    await org_repo.save(org)
+
+    contact = await resolver.execute(org_id)
+
+    assert contact.email == "agency@example.com"  # from user
+    assert contact.phone == "+351 912345678"  # from org
