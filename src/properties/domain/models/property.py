@@ -116,6 +116,19 @@ class Property:
             raise PropertyAddressInvalidError()
         self.address = cleaned
 
+    def update_description(self, new_description: str | None) -> None:
+        """Replace the property's description. Strips surrounding whitespace.
+
+        Empty / whitespace-only / `None` is allowed — descriptions are
+        optional on `Property` (typed `str | None`). Does NOT bump
+        aggregate_version; the use case drives that.
+        """
+        if new_description is None:
+            self.description = None
+            return
+        cleaned = new_description.strip()
+        self.description = cleaned or None
+
     def add_price(self, price: PropertyPrice) -> None:
         price.property_id = self.id
         self.prices.append(price)

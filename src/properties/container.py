@@ -1,3 +1,4 @@
+from properties.application.ports.description_enhancer import DescriptionEnhancer
 from properties.application.ports.document_classifier import DocumentClassifier
 from properties.application.ports.document_data_extractor import DocumentDataExtractor
 from properties.application.ports.document_parser import DocumentParser
@@ -59,6 +60,9 @@ from properties.application.use_cases.enqueue_enrich_property import EnqueueEnri
 from properties.application.use_cases.enrich_property import EnrichProperty
 from properties.application.use_cases.list_property_pois import ListPropertyPois
 from properties.application.use_cases.replace_property_pois import ReplacePropertyPois
+from properties.application.use_cases.enhance_property_description import (
+    EnhancePropertyDescription,
+)
 from properties.application.use_cases.update_property_address import (
     UpdatePropertyAddress,
 )
@@ -89,6 +93,7 @@ class Container:
         enrichment_queue_url: str = "",
         job_tracker: JobTracker | None = None,
         poi_locality_filter: PoiLocalityFilter | None = None,
+        description_enhancer: "DescriptionEnhancer | None" = None,
     ) -> None:
         self.property_repo = property_repo
         self.document_extractor = document_extractor
@@ -142,6 +147,17 @@ class Container:
         self.update_property_address = UpdatePropertyAddress(
             property_repo=property_repo,
             domain_event_publisher=domain_event_publisher,
+        )
+
+        self.description_enhancer = description_enhancer
+        self.enhance_property_description = (
+            EnhancePropertyDescription(
+                property_repo=property_repo,
+                description_enhancer=description_enhancer,
+                domain_event_publisher=domain_event_publisher,
+            )
+            if description_enhancer is not None
+            else None
         )
 
         # POI manual-entry use cases (require property_poi_repo).

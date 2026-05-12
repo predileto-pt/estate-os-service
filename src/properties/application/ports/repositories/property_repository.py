@@ -60,6 +60,12 @@ class PropertyRepository(ABC):
         ...
 
     @abstractmethod
+    async def update_description(self, property_id: UUID, description: str | None) -> None:
+        """Persist a description change on a single property. Same shape
+        as `update_address`: the version bump is driven separately."""
+        ...
+
+    @abstractmethod
     async def bump_aggregate_version(self, property_id: UUID) -> Property:
         """Atomically bump the property's aggregate_version + updated_at and
         return the refreshed aggregate.

@@ -204,9 +204,7 @@ class SupabasePropertyRepository(PropertyRepository):
     # PostgREST resource-embedding via supabase-py: one HTTP request
     # returns properties with their owners/prices/images nested. Replaces
     # the previous 1 + 3N round-trip pattern that was hitting the 10s timeout.
-    _EMBEDDED_SELECT = (
-        "*, property_owners(*), property_prices(*), property_images(*)"
-    )
+    _EMBEDDED_SELECT = "*, property_owners(*), property_prices(*), property_images(*)"
 
     def _unpack_embedded(self, row: dict) -> tuple[dict, list[dict], list[dict], list[dict]]:
         owners = sorted(
@@ -358,6 +356,21 @@ class SupabasePropertyRepository(PropertyRepository):
             .update(
                 {
                     "address": address,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            .eq("id", str(property_id))
+            .execute()
+        )
+
+    async def update_description(self, property_id: UUID, description: str | None) -> None:
+        from datetime import datetime, timezone
+
+        await (
+            self._client.table("properties")
+            .update(
+                {
+                    "description": description,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )

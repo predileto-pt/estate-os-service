@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # parish/municipality/district from a property's free-text address.
     # Overridable via env so we can roll forward without a code deploy.
     address_parser_model: str = "gpt-4o-mini"
+    # Model for the property description enhancer (LangChain + OpenAI).
+    # Overridable per env so we can swap variants without a deploy.
+    description_enhancer_model: str = "gpt-4o-mini"
 
     # Listings semantic-search embedding pipeline (spec
     # `2026-05-listing-semantic-search`, ADR-013). Gate is off by
