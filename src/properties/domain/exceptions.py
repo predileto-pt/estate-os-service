@@ -34,6 +34,11 @@ class PropertyAddressInvalidError(DomainError):
         super().__init__(message)
 
 
+class PropertyTitleInvalidError(DomainError):
+    def __init__(self, message: str = "title must not be empty") -> None:
+        super().__init__(message)
+
+
 class PropertyOwnerNotFoundError(DomainError):
     def __init__(self, identifier: str = "") -> None:
         super().__init__(

@@ -348,6 +348,21 @@ class SupabasePropertyRepository(PropertyRepository):
             .execute()
         )
 
+    async def update_title(self, property_id: UUID, title: str) -> None:
+        from datetime import datetime, timezone
+
+        await (
+            self._client.table("properties")
+            .update(
+                {
+                    "title": title,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            .eq("id", str(property_id))
+            .execute()
+        )
+
     async def update_address(self, property_id: UUID, address: str) -> None:
         from datetime import datetime, timezone
 

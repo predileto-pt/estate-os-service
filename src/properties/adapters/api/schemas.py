@@ -79,6 +79,18 @@ class UpdatePropertyAddressRequest(BaseModel):
         return cleaned
 
 
+class UpdatePropertyTitleRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200, description="New title; whitespace-only rejected")
+
+    @field_validator("title")
+    @classmethod
+    def _strip_and_require_nonempty(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("title must not be empty")
+        return cleaned
+
+
 class PropertyOwnerResponse(BaseModel):
     id: UUID
     property_id: UUID

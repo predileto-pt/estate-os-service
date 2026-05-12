@@ -314,6 +314,18 @@ class SqlAlchemyPropertyRepository(PropertyRepository):
         model.status = status
         await self._session.flush()
 
+    async def update_title(self, property_id: UUID, title: str) -> None:
+        result = await self._session.execute(
+            select(PropertyModel).where(PropertyModel.id == str(property_id))
+        )
+        model = result.scalar_one_or_none()
+        if not model:
+            from properties.domain.exceptions import PropertyNotFoundError
+
+            raise PropertyNotFoundError(str(property_id))
+        model.title = title
+        await self._session.flush()
+
     async def update_address(self, property_id: UUID, address: str) -> None:
         result = await self._session.execute(
             select(PropertyModel).where(PropertyModel.id == str(property_id))

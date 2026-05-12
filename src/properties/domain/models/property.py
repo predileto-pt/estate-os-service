@@ -9,6 +9,7 @@ from properties.domain.exceptions import (
     PropertyAddressInvalidError,
     PropertyNotPublishableError,
     PropertyNotUnpublishableError,
+    PropertyTitleInvalidError,
 )
 from properties.domain.models.property_characteristics import PropertyCharacteristics
 from properties.domain.models.property_image import PropertyImage
@@ -104,6 +105,16 @@ class Property:
                 [f"cannot_unpublish_from_status:{self.status.value}"]
             )
         self.status = PropertyStatus.DRAFT
+
+    def update_title(self, new_title: str) -> None:
+        """Replace the property's title. Strips surrounding whitespace and
+        rejects empty input. Does NOT bump aggregate_version — the use case
+        drives that via the repo's atomic bump_aggregate_version method.
+        """
+        cleaned = new_title.strip()
+        if not cleaned:
+            raise PropertyTitleInvalidError()
+        self.title = cleaned
 
     def update_address(self, new_address: str) -> None:
         """Replace the property's address. Strips surrounding whitespace and

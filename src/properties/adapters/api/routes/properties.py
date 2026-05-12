@@ -17,6 +17,7 @@ from properties.adapters.api.schemas import (
     PropertySummaryResponse,
     PublicPropertyResponse,
     UpdatePropertyAddressRequest,
+    UpdatePropertyTitleRequest,
 )
 from shared.jobs.adapters.api.schemas import JobResponse
 from shared.jobs.domain.job import JobEntityType, JobKind
@@ -261,6 +262,44 @@ async def delete_property(
         raise HTTPException(status_code=404, detail="Property not found")
 
     return None
+
+
+@router.patch(
+    "/{property_id}/title",
+    response_model=PropertyResponse,
+    summary="Update property title",
+    description=(
+        "Replace a property's `title`. Strips surrounding whitespace; "
+        "empty / whitespace-only inputs are rejected at the schema layer (422). "
+        "On no-op (new value equal to current after normalization) returns the "
+        "existing aggregate without bumping `aggregate_version` or emitting an event."
+    ),
+    responses={
+        200: {"description": "Title updated (or unchanged on no-op)"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not authorized"},
+        404: {"description": "Property not found"},
+        422: {"description": "Title failed schema validation (empty/whitespace-only)"},
+    },
+)
+async def update_property_title(
+    property_id: UUID,
+    body: UpdatePropertyTitleRequest,
+    organization_id: UUID,
+    request: Request,
+    _member: tuple[User, Membership] = Depends(require_org_member),
+):
+    update_uc = request.app.state.property_container.update_property_title
+    try:
+        prop = await update_uc.execute(
+            property_id=property_id,
+            organization_id=organization_id,
+            title=body.title,
+        )
+    except PropertyNotFoundError:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    return _property_response(prop)
 
 
 @router.patch(

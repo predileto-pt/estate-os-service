@@ -73,6 +73,14 @@ class InMemoryPropertyRepository(PropertyRepository):
             raise PropertyNotFoundError(str(property_id))
         prop.status = status
 
+    async def update_title(self, property_id: UUID, title: str) -> None:
+        prop = self._properties.get(property_id)
+        if not prop:
+            from properties.domain.exceptions import PropertyNotFoundError
+
+            raise PropertyNotFoundError(str(property_id))
+        prop.title = title
+
     async def update_address(self, property_id: UUID, address: str) -> None:
         prop = self._properties.get(property_id)
         if not prop:
