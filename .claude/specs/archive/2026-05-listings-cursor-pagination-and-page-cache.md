@@ -1,6 +1,6 @@
 # Listings cursor pagination + Redis cache (two-mode)
 
-**Status:** draft
+**Status:** shipped
 **Created:** 2026-05-11
 **ADR:** [docs/adr/016-listings-cursor-pagination-and-page-cache.md](../../docs/adr/016-listings-cursor-pagination-and-page-cache.md)
 
