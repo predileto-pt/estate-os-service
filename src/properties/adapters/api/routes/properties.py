@@ -302,6 +302,48 @@ async def update_property_address(
 
 
 @router.post(
+    "/{property_id}/enhance-description",
+    response_model=PropertyResponse,
+    summary="Rewrite the property's description via LLM",
+    description=(
+        "Sends the property's current description plus its structured facts "
+        "(title, address, listing type, typology, characteristics) to a "
+        "LangChain + GPT-4o-mini adapter that returns polished marketing copy. "
+        "The new value is persisted, `aggregate_version` is bumped, and "
+        "`PROPERTY_UPDATED.v1` is emitted so the listings projector re-indexes."
+    ),
+    responses={
+        200: {"description": "Description enhanced"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not authorized"},
+        404: {"description": "Property not found"},
+        503: {"description": "LLM adapter not configured (missing OPENAI_API_KEY)"},
+    },
+)
+async def enhance_property_description(
+    property_id: UUID,
+    organization_id: UUID,
+    request: Request,
+    _member: tuple[User, Membership] = Depends(require_org_member),
+):
+    use_case = request.app.state.property_container.enhance_property_description
+    if use_case is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Description enhancer is not configured on this deployment.",
+        )
+    try:
+        prop = await use_case.execute(
+            property_id=property_id,
+            organization_id=organization_id,
+        )
+    except PropertyNotFoundError:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    return _property_response(prop)
+
+
+@router.post(
     "/{property_id}/publish",
     response_model=PropertyResponse,
     summary="Publish a property to the public portal",

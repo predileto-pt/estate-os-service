@@ -275,6 +275,20 @@ async def get_property_container() -> PropertyContainer:
             openai_api_key=settings.openai_api_key,
         )
 
+    # Description-enhancement adapter (LangChain + GPT-4o-mini). Wired
+    # whenever the OpenAI key is set; the use case is None if absent and
+    # the route returns 503.
+    description_enhancer = None
+    if settings.openai_api_key:
+        from properties.adapters.ai.langchain_description_enhancer import (
+            LangChainDescriptionEnhancer,
+        )
+
+        description_enhancer = LangChainDescriptionEnhancer(
+            openai_api_key=settings.openai_api_key,
+            model=settings.description_enhancer_model,
+        )
+
     # Shared jobs infra is built first so its tracker can be injected.
     jobs = await get_jobs_container()
 
@@ -295,6 +309,7 @@ async def get_property_container() -> PropertyContainer:
         enrichment_queue_url=settings.sqs_property_enrichment_queue_url,
         job_tracker=jobs.job_tracker,
         poi_locality_filter=poi_locality_filter,
+        description_enhancer=description_enhancer,
     )
     return _property_container
 
