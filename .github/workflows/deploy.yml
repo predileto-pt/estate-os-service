@@ -83,6 +83,12 @@ jobs:
         # App zip: just `src/` contents at the zip root, so the handler
         # paths (`properties.entrypoints.lambda_extraction.handler`,
         # etc.) resolve correctly.
+        #
+        # 250 MB unzipped is the hard Lambda ceiling (function + all
+        # attached layers). We can't strip boto3/botocore because the
+        # app depends on aioboto3 -> aiobotocore -> a pinned botocore
+        # version distinct from the runtime's. So we focus on
+        # cache/test/metadata/locale/stub noise instead.
         run: |
           set -euo pipefail
 
@@ -91,9 +97,37 @@ jobs:
           # --- deps layer ---
           mkdir -p layer/python/lib/python3.13/site-packages
           cp -r .venv/lib/python3.13/site-packages/. layer/python/lib/python3.13/site-packages/
-          # Strip cache + tests + dist-info noise to keep under the 250 MB cap.
+
+          SITE="layer/python/lib/python3.13/site-packages"
+
+          echo "Pre-strip size:  $(du -sh "$SITE" | cut -f1)"
+
+          # Standard noise: bytecode caches + bundled test suites.
           find layer -type d -name "__pycache__" -prune -exec rm -rf {} +
           find layer -type d -name "tests" -prune -exec rm -rf {} +
+          find layer -type d -name "test"  -prune -exec rm -rf {} +
+
+          # pip / setuptools metadata - Lambda never reads it.
+          find layer -type d -name "*.dist-info" -prune -exec rm -rf {} +
+          find layer -type d -name "*.egg-info"  -prune -exec rm -rf {} +
+
+          # Type stubs - runtime doesn't need them; pyright/mypy do, but
+          # those don't run on Lambda.
+          find layer -type f -name "*.pyi" -delete
+          find layer -type d -name "py.typed.d" -prune -exec rm -rf {} + || true
+
+          # Translation source files (.po). Keep compiled .mo - some
+          # libs read those at runtime.
+          find layer -type f -name "*.po" -delete
+
+          # Debug symbols in compiled extensions. `strip` errors on
+          # already-stripped binaries are non-fatal.
+          find layer -type f -name "*.so" -exec strip --strip-unneeded {} \; 2>/dev/null || true
+
+          echo "Post-strip size: $(du -sh "$SITE" | cut -f1)"
+          echo "Top 20 packages by size:"
+          du -sh "$SITE"/*/ 2>/dev/null | sort -h | tail -20
+
           (cd layer && zip -rq9 ../lambda-deps.zip .)
           echo "Layer zip:  $(du -h lambda-deps.zip | cut -f1)"
 
