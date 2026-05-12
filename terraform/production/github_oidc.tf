@@ -111,12 +111,22 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
           aws_lambda_function.listings_events_worker.arn,
         ]
       },
-      # Layer publishing — scoped by layer name pattern. One shared
-      # deps layer for all three functions; the `*` allows successive
-      # versions (`${name}:1`, `${name}:2`, ...).
+      # Layer publishing + read - scoped by layer name pattern. One
+      # shared deps layer for all three functions; the `*` allows
+      # successive versions (`${name}:1`, `${name}:2`, ...).
+      #
+      # GetLayerVersion is required because
+      # `update-function-configuration --layers <arn>` triggers a
+      # server-side authz check against the CALLER's identity to
+      # verify they can read the layer being attached. Without it the
+      # configure step fails AccessDeniedException even though publish
+      # succeeded.
       {
-        Effect   = "Allow"
-        Action   = "lambda:PublishLayerVersion"
+        Effect = "Allow"
+        Action = [
+          "lambda:PublishLayerVersion",
+          "lambda:GetLayerVersion",
+        ]
         Resource = "arn:aws:lambda:${var.aws_region}:${local.account_id}:layer:${var.prefix_name}-deps*"
       },
       # Lambda deploy artifact upload. `publish-layer-version` +
