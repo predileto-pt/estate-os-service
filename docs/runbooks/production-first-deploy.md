@@ -215,15 +215,18 @@ Every recreation forces a new Vercel CNAME edit. If the underlying issue (CAA, n
 
 ## 4. Populate Secrets Manager
 
-The `aws_secretsmanager_secret.app_secrets` container exists after step 2, but its value is empty. Until you populate it, the EC2 boot script will write an empty `.env` and the API will run with `Settings()` defaults (which means broken Supabase/OpenAI/Pinecone/etc connections).
+The `aws_secretsmanager_secret.app_secrets` container exists after step 2, but its value is empty. Until you populate it, the EC2 boot script will write a `.env` with only the Terraform-injected infrastructure pointers and the API will run with `Settings()` defaults for everything else (which means broken Supabase/OpenAI/Pinecone/etc connections).
 
-The secret payload is a single JSON object with one key per `Settings` field. Build it from your existing local `.env` (or from `.env.example`) and seed:
+**Secrets Manager holds only true secrets — never infrastructure pointers.** Queue URLs, the SNS topic ARN prefix, the S3 bucket name, and `AWS_REGION` are injected automatically:
+
+- On EC2: via `templatefile()` rendering them into `user_data.sh`, which writes them to `.env` after the Secrets Manager merge so they always win.
+- On Lambda: via each function's `environment.variables` block in `lambda.tf`.
+
+So the secret payload is short — only the values Terraform genuinely doesn't know:
 
 ```bash
-# Example — adapt to your real values. Every field in
-# src/shared/config.py:Settings that doesn't have a sane default needs
-# a value here. See ADR-018's "Audit aws_secretsmanager_secret.app_secrets"
-# follow-up.
+# Build the JSON from your local .env values. Don't include queue URLs,
+# topic ARN, bucket name, or AWS_REGION — Terraform injects those.
 cat > /tmp/app-secrets.json <<EOF
 {
   "APP_ENV": "production",
@@ -243,12 +246,6 @@ cat > /tmp/app-secrets.json <<EOF
   "RESEND_API_KEY": "re_...",
   "STRIPE_API_KEY": "sk_live_...",
   "STRIPE_WEBHOOK_SECRET": "whsec_...",
-  "AWS_REGION": "eu-west-3",
-  "S3_BUCKET_NAME": "estate-os-service-prod-property-documents",
-  "SQS_PROPERTY_EXTRACTION_QUEUE_URL": "https://sqs.eu-west-3.amazonaws.com/...",
-  "SQS_PROPERTY_ENRICHMENT_QUEUE_URL": "https://sqs.eu-west-3.amazonaws.com/...",
-  "SQS_LISTINGS_EVENTS_QUEUE_URL": "https://sqs.eu-west-3.amazonaws.com/...",
-  "SNS_DOMAIN_EVENTS_TOPIC_ARN_PREFIX": "arn:aws:sns:eu-west-3:...:estate-os-service-prod-domain-events-",
   "SESSION_SIGNING_KEYS": "...",
   "SESSION_SIGNING_ACTIVE_KEY": "1",
   "ENCRYPTION_PUBLIC_KEY": "...",
@@ -265,7 +262,7 @@ aws secretsmanager put-secret-value \
 rm /tmp/app-secrets.json   # don't leave secrets on disk
 ```
 
-The queue URLs and SNS topic ARN prefix come from `terraform output` (step 2's capture).
+If you do include infrastructure pointers in the JSON by mistake, the boot script's templated block still overrides them — no harm done, just clutter.
 
 ---
 

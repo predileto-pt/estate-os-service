@@ -17,7 +17,21 @@ module "ec2" {
   security_groups             = [module.ec2_sg.security_group_id]
   instance_name               = "${var.prefix_name}-server"
 
-  user_data = base64encode(file("${path.module}/../../deploy/user_data.sh"))
+  # `templatefile()` injects the infrastructure pointers Terraform owns
+  # (queue URLs, topic ARN prefix, bucket name, region, ECR image) into
+  # the boot script. The script merges these on top of the Secrets
+  # Manager JSON so the operator's secret only holds true secrets.
+  user_data = base64encode(templatefile("${path.module}/../../deploy/user_data.sh.tpl", {
+    aws_region                         = var.aws_region
+    secret_name                        = aws_secretsmanager_secret.app_secrets.name
+    ecr_registry                       = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
+    ecr_image                          = local.ecr_image
+    s3_bucket_name                     = module.documents_bucket.name
+    sns_domain_events_topic_arn_prefix = local.sns_domain_events_topic_arn_prefix
+    sqs_property_extraction_queue_url  = module.extraction_queue.id
+    sqs_property_enrichment_queue_url  = module.enrichment_queue.id
+    sqs_listings_events_queue_url      = module.listings_events_queue.id
+  }))
 
   iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
 }

@@ -22,6 +22,13 @@
 locals {
   domain_event_topic_prefix = "${var.prefix_name}-domain-events-"
 
+  # ARN-shaped prefix used both as a Terraform output (consumed by EC2
+  # + Lambda env wiring) and by the per-event-type topic ARN
+  # construction. The publisher (`shared.events.adapters.sns_event_publisher`)
+  # concatenates `<prefix><event_type.replace('.', '-')>` to resolve
+  # each topic ARN at publish time.
+  sns_domain_events_topic_arn_prefix = "arn:aws:sns:${var.aws_region}:${local.account_id}:${local.domain_event_topic_prefix}"
+
   # Property write-side events emitted by the `properties` context.
   property_event_types = [
     "PROPERTY_CREATED-v1",
@@ -63,7 +70,7 @@ resource "aws_sns_topic" "listing_events" {
 # so the publisher resolves the right ARN per event type.
 output "sns_domain_events_topic_arn_prefix" {
   description = "Prefix the SNS publisher concatenates with the dash-mangled event_type to get a topic ARN. Goes in `.env` as `SNS_DOMAIN_EVENTS_TOPIC_ARN_PREFIX`."
-  value       = "arn:aws:sns:${var.aws_region}:${local.account_id}:${local.domain_event_topic_prefix}"
+  value       = local.sns_domain_events_topic_arn_prefix
 }
 
 ###############################################################################

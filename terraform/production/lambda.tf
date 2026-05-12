@@ -73,7 +73,18 @@ resource "aws_lambda_function" "extraction_worker" {
 
   environment {
     variables = {
+      # Real secrets are loaded at cold start by `lambda_bootstrap`
+      # from this Secrets Manager entry.
       SECRET_NAME = aws_secretsmanager_secret.app_secrets.name
+
+      # Infrastructure pointers - rendered by Terraform so the operator
+      # never has to copy these from `terraform output` into Secrets
+      # Manager. AWS_REGION is auto-injected by the Lambda runtime.
+      S3_BUCKET_NAME                     = module.documents_bucket.name
+      SNS_DOMAIN_EVENTS_TOPIC_ARN_PREFIX = local.sns_domain_events_topic_arn_prefix
+      SQS_PROPERTY_EXTRACTION_QUEUE_URL  = module.extraction_queue.id
+      SQS_PROPERTY_ENRICHMENT_QUEUE_URL  = module.enrichment_queue.id
+      SQS_LISTINGS_EVENTS_QUEUE_URL      = module.listings_events_queue.id
     }
   }
 
@@ -121,7 +132,18 @@ resource "aws_lambda_function" "enrichment_worker" {
 
   environment {
     variables = {
+      # Real secrets are loaded at cold start by `lambda_bootstrap`
+      # from this Secrets Manager entry.
       SECRET_NAME = aws_secretsmanager_secret.app_secrets.name
+
+      # Infrastructure pointers - rendered by Terraform so the operator
+      # never has to copy these from `terraform output` into Secrets
+      # Manager. AWS_REGION is auto-injected by the Lambda runtime.
+      S3_BUCKET_NAME                     = module.documents_bucket.name
+      SNS_DOMAIN_EVENTS_TOPIC_ARN_PREFIX = local.sns_domain_events_topic_arn_prefix
+      SQS_PROPERTY_EXTRACTION_QUEUE_URL  = module.extraction_queue.id
+      SQS_PROPERTY_ENRICHMENT_QUEUE_URL  = module.enrichment_queue.id
+      SQS_LISTINGS_EVENTS_QUEUE_URL      = module.listings_events_queue.id
     }
   }
 
@@ -165,7 +187,18 @@ resource "aws_lambda_function" "listings_events_worker" {
 
   environment {
     variables = {
+      # Real secrets are loaded at cold start by `lambda_bootstrap`
+      # from this Secrets Manager entry.
       SECRET_NAME = aws_secretsmanager_secret.app_secrets.name
+
+      # Infrastructure pointers - rendered by Terraform so the operator
+      # never has to copy these from `terraform output` into Secrets
+      # Manager. AWS_REGION is auto-injected by the Lambda runtime.
+      S3_BUCKET_NAME                     = module.documents_bucket.name
+      SNS_DOMAIN_EVENTS_TOPIC_ARN_PREFIX = local.sns_domain_events_topic_arn_prefix
+      SQS_PROPERTY_EXTRACTION_QUEUE_URL  = module.extraction_queue.id
+      SQS_PROPERTY_ENRICHMENT_QUEUE_URL  = module.enrichment_queue.id
+      SQS_LISTINGS_EVENTS_QUEUE_URL      = module.listings_events_queue.id
     }
   }
 
