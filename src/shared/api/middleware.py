@@ -27,7 +27,7 @@ PUBLIC_PREFIXES = (
     "/api/v1/billing/webhooks/",
     # Portal sessions are cookie-authed; bypass JWTAuthMiddleware + IdentityMiddleware.
     # Spec: 2026-05-portal-session-backend §9.
-    "/api/v1/session/",
+    "/api/v1/portal/session/",
 )
 
 # Registration paths bypass the `IdentityMiddleware` User-exists + membership

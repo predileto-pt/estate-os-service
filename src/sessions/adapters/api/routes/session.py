@@ -1,4 +1,11 @@
-"""Public, cookie-authed session endpoints — mounted at `/api/v1/session`."""
+"""Public, cookie-authed session endpoints — mounted at `/api/v1/portal/session`.
+
+`GET /me` is the recommended single endpoint for FE bootstrap: it auto-mints
+an anonymous session on the first hit (no cookie → set one) and returns the
+view in one round-trip. `POST /init` is preserved as an explicit-mint surface
+for middleware-mint patterns where the FE wants the cookie established by
+the time the page renders.
+"""
 
 from __future__ import annotations
 
@@ -79,18 +86,46 @@ async def init_session(request: Request, response: Response) -> SessionView:
 @router.get(
     "/me",
     response_model=SessionView,
-    summary="Return the current session view",
+    summary="Return the current session view (auto-mints anonymous if no cookie)",
 )
-async def get_session_me(
-    request: Request,
-    session: Session = Depends(load_session),
-) -> SessionView:
+async def get_session_me(request: Request, response: Response) -> SessionView:
+    """Return the session view. Behaviour by cookie state:
+
+    - **No cookie**: mint a fresh anonymous session, set the cookie, return
+      the view. One-call bootstrap for FE.
+    - **Valid cookie**: return the existing session (debounced `last_seen_at`).
+    - **Invalid cookie** (tampered/expired/orphaned row): 401 `SESSION_INVALID`.
+      We don't auto-mint here because preserving the signal helps the FE
+      detect tampering and tells callers to drop the bad cookie + retry.
+    """
     container = request.app.state.sessions_container
-    refreshed = await container.get_session_view.execute(
-        session,
+    cookie_value = read_cookie(request)
+
+    if cookie_value is not None:
+        # Cookie present — `load_session` enforces signature + row. On any
+        # failure it raises a domain exception, caught by the registered
+        # handler and returned as 401 SESSION_INVALID.
+        session = await load_session(request)
+        refreshed = await container.get_session_view.execute(
+            session,
+            debounce_seconds=container.last_seen_debounce_seconds,
+        )
+        return _view(refreshed)
+
+    # No cookie at all — mint a fresh anonymous session.
+    result = await container.init_session.execute(
+        existing=None,
         debounce_seconds=container.last_seen_debounce_seconds,
     )
-    return _view(refreshed)
+    cookie_value = container.cookie_signer.sign(result.session.id)
+    set_cookie(
+        response,
+        cookie_value,
+        domain=container.cookie_domain,
+        secure=container.cookie_secure,
+        max_age_seconds=container.cookie_max_age_seconds,
+    )
+    return _view(result.session)
 
 
 @router.patch(

@@ -209,7 +209,9 @@ def create_app(
 
     # Portal session backend (spec 2026-05-portal-session-backend).
     # Cookie-authed; whitelisted in PUBLIC_PREFIXES so JWT + Identity middleware skip it.
-    app.include_router(session_routes.router, prefix="/api/v1")
+    # Mounted under `/api/v1/portal/session/*` so it sits alongside other
+    # portal endpoints (`/api/v1/portal/auth/register`, `/api/v1/portal/bookings`).
+    app.include_router(session_routes.router, prefix="/api/v1/portal")
 
     # Auth — split across identity (portal register, /me, /profile) and
     # organizations (admin register — compound RegisterAdminAccount).
