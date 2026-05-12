@@ -68,6 +68,22 @@ class S3DocumentStorage(DocumentStorage):
         log.info("s3.presign_download", key=key)
         return url
 
+    def get_public_url(self, key: str) -> str:
+        """Return the **public**, non-presigned URL for a key.
+
+        Pure string construction — no S3 round-trip. Bucket policy must allow
+        public read for this to actually resolve in a browser (the property
+        images bucket is configured that way). For private buckets / other
+        contexts that want auth-gated downloads, use `get_download_url`.
+        """
+        endpoint = self._config.get("endpoint_url")
+        if endpoint:
+            # LocalStack / custom S3-compatible: path-style URL.
+            return f"{endpoint.rstrip('/')}/{self._bucket_name}/{key}"
+        # AWS: virtual-hosted-style URL.
+        region = self._config.get("region_name") or "us-east-1"
+        return f"https://{self._bucket_name}.s3.{region}.amazonaws.com/{key}"
+
     async def verify_exists(self, key: str) -> bool:
         async with self._session.client("s3", **self._config) as s3:
             try:

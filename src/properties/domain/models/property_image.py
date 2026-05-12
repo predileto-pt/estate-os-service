@@ -16,3 +16,7 @@ class PropertyImage:
     display_order: int
     created_at: datetime
     updated_at: datetime
+    # Public URL stored at upload time. Read path returns this directly —
+    # no S3 round-trip, no URL construction. Spec: store URL on registration.
+    # Empty string for rows created before this column existed (backfill TBD).
+    url: str = ""

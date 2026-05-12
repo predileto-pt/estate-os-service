@@ -103,6 +103,10 @@ class SupabasePropertyRepository(PropertyRepository):
             display_order=row["display_order"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            # `.get()` so rows created before the `url` column existed
+            # don't crash the read path. They return "" — the FE renders
+            # a placeholder until backfill or the next upload populates it.
+            url=row.get("url") or "",
         )
 
     def _image_to_row(self, image: PropertyImage) -> dict:
@@ -114,6 +118,7 @@ class SupabasePropertyRepository(PropertyRepository):
             "content_type": image.content_type,
             "size_bytes": image.size_bytes,
             "display_order": image.display_order,
+            "url": image.url,
         }
 
     def _to_domain(
@@ -196,47 +201,68 @@ class SupabasePropertyRepository(PropertyRepository):
         )
         return result.data
 
+    # PostgREST resource-embedding via supabase-py: one HTTP request
+    # returns properties with their owners/prices/images nested. Replaces
+    # the previous 1 + 3N round-trip pattern that was hitting the 10s timeout.
+    _EMBEDDED_SELECT = (
+        "*, property_owners(*), property_prices(*), property_images(*)"
+    )
+
+    def _unpack_embedded(self, row: dict) -> tuple[dict, list[dict], list[dict], list[dict]]:
+        owners = sorted(
+            row.pop("property_owners", None) or [],
+            key=lambda o: o.get("created_at", ""),
+            reverse=True,
+        )
+        prices = sorted(
+            row.pop("property_prices", None) or [],
+            key=lambda p: p.get("created_at", ""),
+            reverse=True,
+        )
+        images = sorted(
+            row.pop("property_images", None) or [],
+            key=lambda i: i.get("display_order", 0),
+        )
+        return row, owners, prices, images
+
     async def get_by_id(self, property_id: UUID) -> Property | None:
         result = (
-            await self._client.table("properties").select("*").eq("id", str(property_id)).execute()
+            await self._client.table("properties")
+            .select(self._EMBEDDED_SELECT)
+            .eq("id", str(property_id))
+            .execute()
         )
         if not result.data:
             return None
-        owner_rows = await self._load_owners(str(property_id))
-        price_rows = await self._load_prices(str(property_id))
-        image_rows = await self._load_images(str(property_id))
-        return self._to_domain(result.data[0], owner_rows, price_rows, image_rows)
+        row, owners, prices, images = self._unpack_embedded(result.data[0])
+        return self._to_domain(row, owners, prices, images)
 
     async def list_by_organization(self, organization_id: UUID) -> list[Property]:
         result = (
             await self._client.table("properties")
-            .select("*")
+            .select(self._EMBEDDED_SELECT)
             .eq("organization_id", str(organization_id))
             .order("created_at", desc=True)
             .execute()
         )
         props = []
-        for row in result.data:
-            owner_rows = await self._load_owners(row["id"])
-            price_rows = await self._load_prices(row["id"])
-            image_rows = await self._load_images(row["id"])
-            props.append(self._to_domain(row, owner_rows, price_rows, image_rows))
+        for raw in result.data:
+            row, owners, prices, images = self._unpack_embedded(raw)
+            props.append(self._to_domain(row, owners, prices, images))
         return props
 
     async def list_active(self) -> list[Property]:
         result = (
             await self._client.table("properties")
-            .select("*")
+            .select(self._EMBEDDED_SELECT)
             .eq("status", PropertyStatus.ACTIVE.value)
             .order("created_at", desc=True)
             .execute()
         )
         props = []
-        for row in result.data:
-            owner_rows = await self._load_owners(row["id"])
-            price_rows = await self._load_prices(row["id"])
-            image_rows = await self._load_images(row["id"])
-            props.append(self._to_domain(row, owner_rows, price_rows, image_rows))
+        for raw in result.data:
+            row, owners, prices, images = self._unpack_embedded(raw)
+            props.append(self._to_domain(row, owners, prices, images))
         return props
 
     async def save(self, prop: Property) -> Property:

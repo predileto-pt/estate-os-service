@@ -9,10 +9,7 @@ from shared.api.dependencies import (
     get_supabase_user_id,
     require_org_member,
 )
-from properties.adapters.api.routes.properties import (
-    _generate_image_download_urls,
-    _property_response,
-)
+from properties.adapters.api.routes.properties import _property_response
 from properties.adapters.api.schemas import (
     PresignImageRequest,
     PresignImageResponse,
@@ -114,8 +111,7 @@ async def record_property_image(
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    urls = await _generate_image_download_urls(request, prop)
-    return _property_response(prop, urls)
+    return _property_response(prop)
 
 
 @router.delete(
@@ -145,8 +141,7 @@ async def delete_property_image(
     except PropertyImageNotFoundError:
         raise HTTPException(status_code=404, detail="Property image not found")
 
-    urls = await _generate_image_download_urls(request, prop)
-    return _property_response(prop, urls)
+    return _property_response(prop)
 
 
 @router.put(
@@ -179,5 +174,4 @@ async def reorder_property_images(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    urls = await _generate_image_download_urls(request, prop)
-    return _property_response(prop, urls)
+    return _property_response(prop)

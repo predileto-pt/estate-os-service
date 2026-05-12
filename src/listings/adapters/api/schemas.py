@@ -2,9 +2,21 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from listings.domain.models import ListingType, Typology
+
+
+class AgencyResponse(BaseModel):
+    """Display contact for the listing's agency.
+
+    Resolved from `Organization.name` + the creating user's email/phone
+    at projection time. Spec `2026-05-listings-agency-contact`.
+    """
+
+    name: str | None = None
+    email: str | None = None
+    phone: str | None = None
 
 
 class PropertyCharacteristicsResponse(BaseModel):
@@ -98,6 +110,9 @@ class ListedPropertyResponse(BaseModel):
     pois: list[POIResponse] = []
     matched_pois: list[POIResponse] = []
     unmatched_pois: list[str] = []
+    # Agency display contact (spec `2026-05-listings-agency-contact`).
+    # Always present (regular schema), all three sub-fields nullable.
+    agency: AgencyResponse = Field(default_factory=lambda: AgencyResponse())
 
 
 class PaginatedListingResponse(BaseModel):

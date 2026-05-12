@@ -312,7 +312,9 @@ async def get_listing_container() -> ListingContainer:
     )
 
     settings = Settings()
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(
+        settings.database_url, echo=False, pool_pre_ping=True, pool_recycle=300
+    )
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     portugal_address_searcher = PortugalAddressSearcher(
@@ -365,6 +367,22 @@ async def get_listing_container() -> ListingContainer:
 
         query_extractor = IdentityQueryExtractor()
 
+    # Agency-contact resolver (spec `2026-05-listings-agency-contact`).
+    # Bridges the listings `GetAgencyContact` port to the existing
+    # OrganizationRepository (admin Supabase REST) + UserRepository
+    # (identity, admin Supabase REST).
+    from organizations.adapters.composition.agency_contact_resolver import (
+        AgencyContactResolver,
+    )
+
+    org_client = await acreate_client(settings.supabase_url, settings.supabase_service_role_key)
+    org_repo = SupabaseOrganizationRepository(org_client)
+    identity_user_repo = SupabaseUserRepository(org_client)
+    agency_contact_resolver = AgencyContactResolver(
+        organization_repo=org_repo,
+        user_repo=identity_user_repo,
+    )
+
     _listing_container = ListingContainer(
         property_listing_repo=SqlAlchemyPropertyListingRepository(session_factory),
         portugal_address_searcher=portugal_address_searcher,
@@ -379,6 +397,7 @@ async def get_listing_container() -> ListingContainer:
         page_cache_enabled=settings.listings_page_cache_enabled,
         page_cache_ttl_seconds=settings.listings_page_cache_ttl_seconds,
         redis_url=settings.redis_url,
+        get_agency_contact=agency_contact_resolver,
     )
     return _listing_container
 
@@ -396,7 +415,9 @@ async def get_screening_container() -> ApplicantScreeningContainer:
     settings = Settings()
 
     # SQLAlchemy async engine + session factory
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(
+        settings.database_url, echo=False, pool_pre_ping=True, pool_recycle=300
+    )
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     # Encryption keys
@@ -458,7 +479,9 @@ async def get_booking_container() -> BookingContainer:
 
     settings = Settings()
 
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(
+        settings.database_url, echo=False, pool_pre_ping=True, pool_recycle=300
+    )
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     uow = SqlAlchemyBookingUnitOfWork(session_factory)
@@ -483,7 +506,9 @@ async def get_contract_intelligence_container() -> ContractIntelligenceContainer
     settings = Settings()
 
     # SQLAlchemy async engine + session factory
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(
+        settings.database_url, echo=False, pool_pre_ping=True, pool_recycle=300
+    )
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     # AWS / S3 / SQS
