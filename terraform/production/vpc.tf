@@ -11,5 +11,11 @@ module "vpc" {
   presentation_subnet_tags = { Tier = "public" }
   logic_subnet_tags        = { Tier = "private" }
 
-  enable_nat_gateway = false
+  # Egress for private subnets via the NAT EC2 (see `nat.tf`). The
+  # managed `aws_nat_gateway` stays off — too expensive for v1
+  # workloads. Flip `enable_nat_gateway = true` later if availability
+  # becomes worth the price.
+  enable_nat_gateway     = false
+  enable_ec2_nat_gateway = true
+  ec2_nat_gateway_id     = module.nat_instance.primary_network_interface_id
 }

@@ -1,3 +1,23 @@
+# Production compose — API service + opt-in worker fallback services.
+#
+# By default (`docker compose up -d`), only the `api` service starts.
+# Workers (property extraction, property enrichment, listings events)
+# run as AWS Lambda functions consuming from the SQS queues provisioned
+# in `terraform/production/sqs.tf` — see `terraform/production/lambda.tf`
+# and ADR-018.
+#
+# The three worker services below sit under the `fallback` profile.
+# They are excluded from a normal `docker compose up` and are only
+# started by an operator as an explicit recovery step when Lambda is
+# disabled (e.g. `var.lambda_consumes_<queue> = false` after a
+# regression). Example:
+#
+#   docker compose --profile fallback up -d listings-events-worker
+#
+# Each fallback service uses `restart: "no"` — failing fast is the
+# correct behaviour for an emergency recovery container; the operator
+# decides whether to retry.
+
 services:
   api:
     image: ${ECR_IMAGE}
@@ -13,3 +33,23 @@ services:
       retries: 3
       start_period: 15s
 
+  extraction-worker:
+    image: ${ECR_IMAGE}
+    command: ["uv", "run", "python", "-m", "properties.entrypoints.worker", "--queue", "extraction"]
+    env_file: .env
+    restart: "no"
+    profiles: ["fallback"]
+
+  enrichment-worker:
+    image: ${ECR_IMAGE}
+    command: ["uv", "run", "python", "-m", "properties.entrypoints.worker", "--queue", "enrichment"]
+    env_file: .env
+    restart: "no"
+    profiles: ["fallback"]
+
+  listings-events-worker:
+    image: ${ECR_IMAGE}
+    command: ["uv", "run", "python", "-m", "listings.entrypoints.events_worker"]
+    env_file: .env
+    restart: "no"
+    profiles: ["fallback"]

@@ -75,6 +75,17 @@ Cross-context dependency rules:
 
 Routes access use cases through `request.app.state.<context>_container.<use_case>`. The `IdentityMiddleware` populates `request.state.user` and `request.state.memberships` (a JOIN projection including org names) before the route handler runs; downstream `require_org_member` reads these with zero DB hits.
 
+## Worker runtime
+
+Production workers (`property-extraction`, `property-enrichment`, `listings-events`) run as **AWS Lambda functions** invoked by SQS event source mappings (`batch_size = 1`). See [ADR-018](docs/adr/018-lambda-as-sqs-worker-runtime.md). The Lambda entrypoints live alongside the long-running CLI entrypoints:
+
+- `src/shared/events/lambda_handler.py` — shared `make_handler(router, build_context)` factory.
+- `src/shared/events/lambda_bootstrap.py` — cold-start Secrets Manager → `os.environ`. Imported as the first line of every Lambda entrypoint.
+- `src/properties/entrypoints/lambda_extraction.py`, `lambda_enrichment.py`
+- `src/listings/entrypoints/lambda_events.py`
+
+The corresponding `worker.py` / `events_worker.py` files (running the shared `SQSWorker` poll loop) are retained for **local development** and as an **emergency fallback** runnable on the EC2 via `docker compose --profile fallback up -d <service>`. Handler code in `adapters/workers/*` is shared between both paths.
+
 ## Key Conventions
 
 - **Async everywhere**: all repositories, services, use cases, and route handlers are async.

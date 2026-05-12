@@ -442,6 +442,12 @@ docker build -t core-api .
 docker run -p 8000:8000 --env-file .env core-api
 ```
 
+## Production deploy
+
+Day-to-day deploys are automatic — `git push origin main` triggers `.github/workflows/deploy.yml` which builds + pushes the image, updates the Lambda workers (zip + shared deps layer), and redeploys the API EC2 via SSM. Architecture is documented in [ADR-018](docs/adr/018-lambda-as-sqs-worker-runtime.md).
+
+For the **first-ever provisioning** of a fresh AWS account (state bucket, terraform apply, DNS records, Secrets Manager seeding, GitHub OIDC, enabling the Lambda consumer flags), follow the step-by-step runbook: [`docs/runbooks/production-first-deploy.md`](docs/runbooks/production-first-deploy.md).
+
 ## Running Locally
 
 ### Prerequisites

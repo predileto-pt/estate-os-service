@@ -1,7 +1,7 @@
 module "ecr" {
   source = "../modules/ecr"
 
-  repository_name      = "customers-dashboard-service"
+  repository_name      = "estate-os-service"
   image_tag_mutability = "MUTABLE"
   scan_on_push         = true
 

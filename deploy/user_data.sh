@@ -23,11 +23,11 @@ aws ecr get-login-password --region "${REGION}" | \
   docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
 # --- Pull the application image ---
-ECR_IMAGE="${ECR_REGISTRY}/customers-dashboard-service:latest"
+ECR_IMAGE="${ECR_REGISTRY}/estate-os-service:latest"
 docker pull "${ECR_IMAGE}"
 
 # --- Fetch secrets from Secrets Manager ---
-SECRET_NAME="customers-dashboard-service-prod"
+SECRET_NAME="estate-os-service-prod"
 SECRETS=$(aws secretsmanager get-secret-value \
   --secret-id "${SECRET_NAME}" \
   --region "${REGION}" \
@@ -35,7 +35,7 @@ SECRETS=$(aws secretsmanager get-secret-value \
   --output text)
 
 # Write secrets as .env file
-APP_DIR="/opt/customers-dashboard-service"
+APP_DIR="/opt/estate-os-service"
 mkdir -p "${APP_DIR}"
 echo "${SECRETS}" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > "${APP_DIR}/.env"
 
