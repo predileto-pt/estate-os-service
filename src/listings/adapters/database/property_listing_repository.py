@@ -28,6 +28,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from listings.adapters.database.property_listing_model import PropertyListingModel
+from listings.application.ports.get_agency_contact import AgencyContact
 from listings.application.ports.address_searcher import ParsedAddress
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
@@ -127,6 +128,9 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             embedding_model_version=m.embedding_model_version,
             embedded_at=m.embedded_at,
             embedding_status=m.embedding_status,
+            agency_name=m.agency_name,
+            agency_email=m.agency_email,
+            agency_phone=m.agency_phone,
         )
 
     async def get_by_id(self, property_id: UUID) -> PropertyListing | None:
@@ -198,14 +202,10 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
                         ),
                     )
                 )
-            query = (
-                query
-                .order_by(
-                    PropertyListingModel.created_at.desc(),
-                    PropertyListingModel.id.desc(),
-                )
-                .limit(limit + 1)
-            )
+            query = query.order_by(
+                PropertyListingModel.created_at.desc(),
+                PropertyListingModel.id.desc(),
+            ).limit(limit + 1)
             result = await session.execute(query)
             rows = list(result.scalars().all())
 
@@ -293,26 +293,18 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             # route wins WHEN SET. `is not None` to avoid falsy-trap on
             # Decimal('0') / int(0).
             eff_typology = (
-                route_filters.typology
-                if route_filters.typology is not None
-                else parsed.typology
+                route_filters.typology if route_filters.typology is not None else parsed.typology
             )
             if eff_typology is not None:
                 q = q.where(PropertyListingModel.typology == eff_typology.value)
             if route_filters.listing_type is not None:
-                q = q.where(
-                    PropertyListingModel.listing_type == route_filters.listing_type.value
-                )
+                q = q.where(PropertyListingModel.listing_type == route_filters.listing_type.value)
 
             eff_min_price = (
-                route_filters.min_price
-                if route_filters.min_price is not None
-                else parsed.min_price
+                route_filters.min_price if route_filters.min_price is not None else parsed.min_price
             )
             eff_max_price = (
-                route_filters.max_price
-                if route_filters.max_price is not None
-                else parsed.max_price
+                route_filters.max_price if route_filters.max_price is not None else parsed.max_price
             )
             if eff_min_price is not None:
                 q = q.where(
@@ -403,8 +395,9 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
         *,
         event_data: dict,
         source_occurred_at: datetime,
+        agency: AgencyContact | None = None,
     ) -> PropertyListing | None:
-        row = _event_to_row(event_data, source_occurred_at)
+        row = _event_to_row(event_data, source_occurred_at, agency=agency)
         async with self._session_factory() as session:
             stmt = pg_insert(PropertyListingModel).values(**row)
             # Three groups of columns are owned by *other* handlers, not
@@ -573,7 +566,11 @@ class SqlAlchemyPropertyListingRepository(PropertyListingRepository):
             return self._to_domain(model)
 
 
-def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:
+def _event_to_row(
+    data: dict,
+    source_occurred_at: datetime,
+    agency: "AgencyContact | None" = None,
+) -> dict:
     """Map a carried-state event payload to a `property_listings` row dict.
 
     Chooses the minimum `amount` across `data["prices"]` as `min_price`
@@ -657,6 +654,16 @@ def _event_to_row(data: dict, source_occurred_at: datetime) -> dict:
         "source_aggregate_version": data["aggregate_version"],
         "source_occurred_at": source_occurred_at,
     }
+
+    # Agency contact (spec `2026-05-listings-agency-contact`). Always
+    # write when provided so org renames propagate on the next property
+    # event. When omitted (e.g. legacy in-memory tests), don't touch the
+    # columns at all — keys absent from the dict are excluded from the
+    # upsert SET clause, so existing values are preserved.
+    if agency is not None:
+        row["agency_name"] = agency.name
+        row["agency_email"] = agency.email
+        row["agency_phone"] = agency.phone
 
     # POIs: snapshot key presence is meaningful. When the snapshot
     # carries `pois` (even `[]`), it's authoritative — write it. When the

@@ -195,6 +195,11 @@ class PropertyImageModel(Base):
     content_type: Mapped[str] = mapped_column(Text, nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    # Public URL stored at upload time. Read path returns it directly —
+    # no S3 round-trip. Nullable so the column add is safe on the live
+    # table; populate via the upload flow for new rows + a backfill for
+    # old rows.
+    url: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 

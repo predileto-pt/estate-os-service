@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from identity.domain.models.user import User
 from listings.adapters.api.schemas import (
+    AgencyResponse,
     CountryNode,
     CursorPageResponse,
     DistrictNode,
@@ -47,14 +48,16 @@ router = APIRouter(tags=["property-listings"])
 admin_router = APIRouter(tags=["property-listings-admin"])
 
 
-async def _generate_image_urls(request: Request, prop: PropertyListing) -> dict[str, str]:
+def _generate_image_urls(request: Request, prop: PropertyListing) -> dict[str, str]:
+    """Return `{image_id: public_url}` — public bucket, no presigning.
+
+    See `properties.adapters.api.routes.properties._generate_image_download_urls`
+    for the rationale. Sync because `get_public_url` is pure string construction.
+    """
     document_storage = getattr(request.app.state, "_listing_document_storage", None)
     if not document_storage or not prop.images:
         return {}
-    urls = {}
-    for image in prop.images:
-        urls[str(image.id)] = await document_storage.get_download_url(image.s3_key)
-    return urls
+    return {str(image.id): document_storage.get_public_url(image.s3_key) for image in prop.images}
 
 
 def _to_response(prop: PropertyListing, image_urls: dict[str, str]) -> ListedPropertyResponse:
@@ -112,6 +115,11 @@ def _to_response(prop: PropertyListing, image_urls: dict[str, str]) -> ListedPro
             )
             for img in prop.images
         ],
+        agency=AgencyResponse(
+            name=prop.agency_name,
+            email=prop.agency_email,
+            phone=prop.agency_phone,
+        ),
     )
 
 
@@ -189,8 +197,7 @@ async def list_properties(
     )
 
     is_search_mode = (
-        normalized_q is not None
-        and getattr(container, "search_listings", None) is not None
+        normalized_q is not None and getattr(container, "search_listings", None) is not None
     )
     # Each mode owns location in exactly one place: `filters` for list,
     # `LocationFilter` for search. Building `filters` mode-aware avoids
@@ -261,7 +268,7 @@ async def list_properties(
 
     items: list[ListedPropertyResponse] = []
     for prop in page.items:
-        image_urls = await _generate_image_urls(request, prop)
+        image_urls = _generate_image_urls(request, prop)
         items.append(_to_response_with_pois(prop, image_urls, requested_pois))
 
     return CursorPageResponse(items=items, next_cursor=page.next_cursor, limit=limit)
@@ -305,9 +312,7 @@ def _to_response_with_pois(
     # doesn't propagate to the JSONB projection.
     matched_pois.sort(key=lambda p: p.distance_meters)
     unmatched_pois = sorted(requested - listing_categories)
-    return base.model_copy(
-        update={"matched_pois": matched_pois, "unmatched_pois": unmatched_pois}
-    )
+    return base.model_copy(update={"matched_pois": matched_pois, "unmatched_pois": unmatched_pois})
 
 
 @router.get(
@@ -322,7 +327,7 @@ async def get_property(property_id: UUID, request: Request) -> ListedPropertyRes
     except PropertyNotFoundError:
         raise HTTPException(status_code=404, detail="Property not found")
 
-    image_urls = await _generate_image_urls(request, prop)
+    image_urls = _generate_image_urls(request, prop)
     base = _to_response(prop, image_urls)
     pois = [
         POIResponse(
@@ -436,7 +441,7 @@ async def list_org_active_listings(
 
     items = []
     for prop in properties:
-        image_urls = await _generate_image_urls(request, prop)
+        image_urls = _generate_image_urls(request, prop)
         items.append(_to_response(prop, image_urls))
 
     return PaginatedListingResponse(items=items, total=total, limit=limit, offset=offset)

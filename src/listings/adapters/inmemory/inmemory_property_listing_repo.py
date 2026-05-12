@@ -13,6 +13,7 @@ from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
 from listings.application.ports.address_searcher import ParsedAddress
+from listings.application.ports.get_agency_contact import AgencyContact
 from listings.application.ports.repositories.property_listing_repository import (
     PropertyListingRepository,
 )
@@ -88,8 +89,7 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             # Mirror the SQL: strictly past the cursor position in
             # (created_at DESC, id DESC) order.
             rows = [
-                r for r in rows
-                if (r.created_at, str(r.id)) < (cursor.created_at, str(cursor.id))
+                r for r in rows if (r.created_at, str(r.id)) < (cursor.created_at, str(cursor.id))
             ]
         page = rows[: limit + 1]
         has_more = len(page) > limit
@@ -138,14 +138,10 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             route_filters.typology if route_filters.typology is not None else parsed.typology
         )
         eff_min_price = (
-            route_filters.min_price
-            if route_filters.min_price is not None
-            else parsed.min_price
+            route_filters.min_price if route_filters.min_price is not None else parsed.min_price
         )
         eff_max_price = (
-            route_filters.max_price
-            if route_filters.max_price is not None
-            else parsed.max_price
+            route_filters.max_price if route_filters.max_price is not None else parsed.max_price
         )
 
         def _matches(row: PropertyListing) -> bool:
@@ -221,6 +217,7 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
         *,
         event_data: dict,
         source_occurred_at: datetime,
+        agency: "AgencyContact | None" = None,
     ) -> PropertyListing | None:
         property_id = UUID(event_data["id"])
         incoming_version: int = event_data["aggregate_version"]
@@ -336,6 +333,23 @@ class InMemoryPropertyListingRepository(PropertyListingRepository):
             embedding_model_version=existing.embedding_model_version if existing else None,
             embedded_at=existing.embedded_at if existing else None,
             embedding_status=existing.embedding_status if existing else "PENDING",
+            # Agency contact (spec 2026-05-listings-agency-contact). When the
+            # projector supplies `agency=...` write the three fields. When it's
+            # None (legacy paths that don't resolve), preserve whatever the
+            # existing row had.
+            agency_name=(
+                agency.name if agency is not None else (existing.agency_name if existing else None)
+            ),
+            agency_email=(
+                agency.email
+                if agency is not None
+                else (existing.agency_email if existing else None)
+            ),
+            agency_phone=(
+                agency.phone
+                if agency is not None
+                else (existing.agency_phone if existing else None)
+            ),
         )
         self._rows[property_id] = listing
         return listing

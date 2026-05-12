@@ -73,9 +73,26 @@ async def handle_property_event(event: DomainEvent, context: dict) -> None:
             )
         return
 
+    # Spec `2026-05-listings-agency-contact`: resolve agency display
+    # contact at projection time. Tolerant of a missing port (legacy test
+    # paths that build the container without the cross-context adapter)
+    # — agency columns stay NULL in that case.
+    agency = None
+    get_agency = getattr(listings, "get_agency_contact", None)
+    if get_agency is not None:
+        try:
+            agency = await get_agency.execute(UUID(data["organization_id"]))
+        except Exception:
+            log.exception(
+                "property_listings.agency_contact_lookup_failed",
+                property_id=data["id"],
+                organization_id=data["organization_id"],
+            )
+
     row = await listings.property_listing_repo.upsert_from_event(
         event_data=data,
         source_occurred_at=occurred_at,
+        agency=agency,
     )
     applied = row is not None
     log.info(

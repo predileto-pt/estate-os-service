@@ -53,6 +53,12 @@ class RecordPropertyImage:
             raise FileNotFoundError(f"File not found in storage: {s3_key}")
 
         now = datetime.now(timezone.utc)
+        # Compute the public URL once, at upload time, and persist it on
+        # the row. Read path returns it as-is — no S3 round-trip, no
+        # coupling to storage config. Property images live in a public
+        # bucket; if that ever changes, the upload flow is the single
+        # place to revisit.
+        public_url = self.document_storage.get_public_url(s3_key)
         image = PropertyImage(
             id=image_id,
             property_id=property_id,
@@ -63,6 +69,7 @@ class RecordPropertyImage:
             display_order=len(prop.images),
             created_at=now,
             updated_at=now,
+            url=public_url,
         )
 
         await self.property_repo.save_image(prop, image)

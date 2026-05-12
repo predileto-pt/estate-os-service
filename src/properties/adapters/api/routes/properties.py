@@ -31,12 +31,26 @@ router = APIRouter(prefix="/properties", tags=["properties"])
 
 
 def _property_response(prop, image_download_urls: dict | None = None) -> dict:
+    """Build the response dict.
+
+    `image_download_urls` is kept for back-compat with callers but is no
+    longer needed — the public URL is stored on `PropertyImage.url` at
+    upload time and served as-is. When the parameter is provided, its
+    values override the stored URL (legacy paths / test seams). When not
+    provided (the new default), `_image_response` reads `image.url`.
+    """
     characteristics = None
     if prop.characteristics:
         characteristics = prop.characteristics.to_dict()
     images = []
-    if prop.images and image_download_urls:
-        images = [_image_response(i, image_download_urls.get(str(i.id), "")) for i in prop.images]
+    if prop.images:
+        images = [
+            _image_response(
+                i,
+                (image_download_urls or {}).get(str(i.id)) or (i.url or ""),
+            )
+            for i in prop.images
+        ]
     return {
         "id": prop.id,
         "organization_id": prop.organization_id,
@@ -83,15 +97,9 @@ def _image_response(image, download_url: str) -> dict:
     }
 
 
-async def _generate_image_download_urls(request, prop) -> dict:
-    """Generate presigned download URLs for all images on a property."""
-    document_storage = getattr(request.app.state.property_container, "document_storage", None)
-    if not document_storage or not prop.images:
-        return {}
-    urls = {}
-    for image in prop.images:
-        urls[str(image.id)] = await document_storage.get_download_url(image.s3_key)
-    return urls
+# `_generate_image_download_urls` was removed: image URLs are stored on
+# `PropertyImage.url` at upload time and served directly from the projection.
+# Routes pass no override dict; `_property_response` falls through to `image.url`.
 
 
 def _owner_response(owner) -> dict:
@@ -124,11 +132,7 @@ def _owner_response(owner) -> dict:
 async def list_active_properties(request: Request):
     uc = request.app.state.property_container.list_active_properties
     props = await uc.execute()
-    results = []
-    for p in props:
-        urls = await _generate_image_download_urls(request, p)
-        results.append(_property_response(p, urls))
-    return results
+    return [_property_response(p) for p in props]
 
 
 @router.post(
@@ -169,11 +173,7 @@ async def list_properties(
 ):
     list_uc = request.app.state.property_container.list_properties
     props = await list_uc.execute(organization_id=str(organization_id))
-    results = []
-    for p in props:
-        urls = await _generate_image_download_urls(request, p)
-        results.append(_property_response(p, urls))
-    return results
+    return [_property_response(p) for p in props]
 
 
 @router.get(
@@ -224,8 +224,7 @@ async def get_property(
     except PropertyNotFoundError:
         raise HTTPException(status_code=404, detail="Property not found")
 
-    urls = await _generate_image_download_urls(request, prop)
-    return _property_response(prop, urls)
+    return _property_response(prop)
 
 
 @router.delete(
@@ -299,8 +298,7 @@ async def update_property_address(
     except PropertyNotFoundError:
         raise HTTPException(status_code=404, detail="Property not found")
 
-    urls = await _generate_image_download_urls(request, prop)
-    return _property_response(prop, urls)
+    return _property_response(prop)
 
 
 @router.post(
@@ -345,8 +343,7 @@ async def publish_property(
             detail={"message": "Property is not publishable", "reasons": exc.reasons},
         )
 
-    urls = await _generate_image_download_urls(request, prop)
-    return _property_response(prop, urls)
+    return _property_response(prop)
 
 
 @router.post(
@@ -394,8 +391,7 @@ async def unpublish_property(
             detail={"message": "Property is not unpublishable", "reasons": exc.reasons},
         )
 
-    urls = await _generate_image_download_urls(request, prop)
-    return _property_response(prop, urls)
+    return _property_response(prop)
 
 
 @router.post(

@@ -162,6 +162,14 @@ class PropertyListingModel(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
+    # Agency contact (spec `2026-05-listings-agency-contact`). Resolved by
+    # the projector on each PROPERTY_* event from `Organization.name` +
+    # `User(created_by).{email, phone}`. Nullable: org may be gone or
+    # owning user may carry no phone.
+    agency_name: Mapped[str | None] = mapped_column(Text)
+    agency_email: Mapped[str | None] = mapped_column(Text)
+    agency_phone: Mapped[str | None] = mapped_column(Text)
+
     __table_args__ = (
         # Supports ORDER BY created_at DESC, id DESC cursor pagination
         # needed by `listings-cursor-pagination-and-filters` (the next spec).

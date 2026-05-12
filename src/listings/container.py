@@ -7,6 +7,7 @@ from listings.adapters.cache.null_search_result_cache import NullSearchResultCac
 from listings.adapters.cache.redis_page_cache import RedisListingsPageCache
 from listings.adapters.cache.redis_search_result_cache import RedisSearchResultCache
 from listings.application.ports.address_searcher import AddressSearcher
+from listings.application.ports.get_agency_contact import GetAgencyContact
 from listings.application.ports.embedding_provider import EmbeddingProvider
 from listings.application.ports.listings_page_cache import ListingsPageCache
 from listings.application.ports.query_extractor import QueryExtractor
@@ -42,8 +43,13 @@ class Container:
         # Redis-vs-Null branch below and use these directly.
         page_cache: ListingsPageCache | None = None,
         search_cache: SearchResultCache | None = None,
+        # Spec `2026-05-listings-agency-contact`: projector calls this on
+        # each PROPERTY_* event to resolve the agency display contact.
+        # Optional so existing tests that build a bare Container keep working.
+        get_agency_contact: "GetAgencyContact | None" = None,
     ) -> None:
         self.property_listing_repo = property_listing_repo
+        self.get_agency_contact = get_agency_contact
 
         # Cache wiring. When `page_cache_enabled=False` (default) we
         # wire Null adapters so use cases' get/set calls stay

@@ -165,3 +165,11 @@ class PropertyListing:
     embedding_model_version: str | None = None
     embedded_at: datetime | None = None
     embedding_status: str = "PENDING"
+
+    # Agency contact (spec `2026-05-listings-agency-contact`). Resolved
+    # at projection time from `Organization.name` + `User(created_by)`'s
+    # email + phone — see `GetAgencyContact`. All three nullable because
+    # the orgs/users rows can be missing (deleted org) or carry no phone.
+    agency_name: str | None = None
+    agency_email: str | None = None
+    agency_phone: str | None = None
