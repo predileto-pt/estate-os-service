@@ -119,6 +119,19 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
         Action   = "lambda:PublishLayerVersion"
         Resource = "arn:aws:lambda:${var.aws_region}:${local.account_id}:layer:${var.prefix_name}-deps*"
       },
+      # Lambda deploy artifact upload. `publish-layer-version` +
+      # `update-function-code` both accept `--content S3Bucket=,S3Key=`
+      # instead of `--zip-file`, which raises the size ceiling from
+      # ~50 MB to 250 MB unzipped. CI uploads the zip to this bucket
+      # then references it by S3 key.
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+        ]
+        Resource = "${module.lambda_deploy_bucket.arn}/*"
+      },
     ]
   })
 }

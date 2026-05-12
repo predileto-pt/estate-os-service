@@ -71,6 +71,11 @@ output "s3_bucket_name" {
   value = module.documents_bucket.name
 }
 
+output "lambda_deploy_bucket_name" {
+  description = "S3 bucket the CI workflow uploads Lambda zips to before calling publish-layer-version / update-function-code with --content S3Bucket=..."
+  value       = module.lambda_deploy_bucket.name
+}
+
 output "github_actions_role_arn" {
   description = "ARN to set as the `AWS_GHA_ROLE_ARN` secret in the GitHub `production` environment."
   value       = aws_iam_role.github_actions.arn

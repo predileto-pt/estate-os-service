@@ -23,6 +23,9 @@ env:
   ECR_REPOSITORY: estate-os-service
   EC2_TAG_NAME: estate-os-service-prod-server
   APP_DIR: /opt/estate-os-service
+  # Lambda deploy bucket — direct `--zip-file` uploads cap at ~50 MB;
+  # we go via S3 to lift the ceiling to 250 MB unzipped.
+  LAMBDA_DEPLOY_BUCKET: estate-os-service-prod-lambda-deploy
 
 jobs:
   deploy:
@@ -98,13 +101,31 @@ jobs:
           (cd src && zip -rq9 ../lambda-app.zip .)
           echo "App zip:    $(du -h lambda-app.zip | cut -f1)"
 
+      - name: Upload Lambda zips to S3
+        # `--zip-file` direct upload caps at ~50 MB; S3-mediated path
+        # raises the ceiling to 250 MB unzipped. The zips live ~7 days
+        # (lifecycle rule on the bucket) — we only need the latest
+        # version, the older ones are wasted spend.
+        id: s3
+        run: |
+          set -euo pipefail
+          SHA_SHORT="${GITHUB_SHA::7}"
+          DEPS_KEY="layers/deps-${SHA_SHORT}.zip"
+          APP_KEY="functions/app-${SHA_SHORT}.zip"
+          aws s3 cp lambda-deps.zip "s3://${LAMBDA_DEPLOY_BUCKET}/${DEPS_KEY}" --region "${AWS_REGION}" --no-progress
+          aws s3 cp lambda-app.zip  "s3://${LAMBDA_DEPLOY_BUCKET}/${APP_KEY}"  --region "${AWS_REGION}" --no-progress
+          echo "deps_key=${DEPS_KEY}" >> "$GITHUB_OUTPUT"
+          echo "app_key=${APP_KEY}"   >> "$GITHUB_OUTPUT"
+
       - name: Publish Lambda deps layer
         id: layer
+        env:
+          DEPS_KEY: ${{ steps.s3.outputs.deps_key }}
         run: |
           set -euo pipefail
           LAYER_ARN=$(aws lambda publish-layer-version \
             --layer-name "estate-os-service-prod-deps" \
-            --zip-file fileb://lambda-deps.zip \
+            --content "S3Bucket=${LAMBDA_DEPLOY_BUCKET},S3Key=${DEPS_KEY}" \
             --compatible-runtimes python3.13 \
             --compatible-architectures x86_64 \
             --description "Deps for ${GITHUB_SHA::7}" \
@@ -115,13 +136,15 @@ jobs:
           echo "Published: ${LAYER_ARN}"
 
       - name: Update Lambda worker function code + layer
-        # update-function-code accepts the new zip. update-function-
+        # update-function-code reads the zip from S3 (same size-limit
+        # rationale as the layer publish step). update-function-
         # configuration points the function at the freshly-published
         # layer. Both calls are eventually consistent; `wait function-
         # updated` between them ensures the next call sees the prior
         # one's effect.
         env:
           LAYER_ARN: ${{ steps.layer.outputs.arn }}
+          APP_KEY: ${{ steps.s3.outputs.app_key }}
         run: |
           set -euo pipefail
           FUNCTIONS=(
@@ -133,7 +156,8 @@ jobs:
             echo "Updating ${fn} code..."
             aws lambda update-function-code \
               --function-name "${fn}" \
-              --zip-file fileb://lambda-app.zip \
+              --s3-bucket "${LAMBDA_DEPLOY_BUCKET}" \
+              --s3-key "${APP_KEY}" \
               --region "${{ env.AWS_REGION }}" \
               --no-cli-pager > /dev/null
 
