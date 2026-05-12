@@ -28,6 +28,7 @@ from organizations.domain.models.invitation import Invitation, InvitationStatus
 from organizations.domain.models.membership import Membership, MembershipRole
 from organizations.domain.models.notification import Notification, NotificationStatus
 from organizations.domain.models.organization import Organization
+from organizations.domain.value_objects import PhoneNumber
 
 
 # ── Organization ────────────────────────────────────────────────────────────
@@ -39,12 +40,17 @@ class SqlAlchemyOrganizationRepository(OrganizationRepository):
 
     @staticmethod
     def _to_domain(m: OrganizationModel) -> Organization:
+        phone = None
+        if m.phone_country_code and m.phone_number:
+            phone = PhoneNumber(country_code=m.phone_country_code, number=m.phone_number)
         return Organization(
             id=UUID(m.id),
             created_by=UUID(m.created_by),
             name=m.name,
             nif=m.nif,
             address=m.address,
+            email=m.email,
+            phone=phone,
             created_at=m.created_at,
             updated_at=m.updated_at,
         )
@@ -57,6 +63,9 @@ class SqlAlchemyOrganizationRepository(OrganizationRepository):
             name=o.name,
             nif=o.nif,
             address=o.address,
+            email=o.email,
+            phone_country_code=o.phone.country_code if o.phone else None,
+            phone_number=o.phone.number if o.phone else None,
         )
 
     async def get_by_id(self, organization_id: UUID) -> Organization | None:
@@ -82,6 +91,9 @@ class SqlAlchemyOrganizationRepository(OrganizationRepository):
         model.name = organization.name
         model.nif = organization.nif
         model.address = organization.address
+        model.email = organization.email
+        model.phone_country_code = organization.phone.country_code if organization.phone else None
+        model.phone_number = organization.phone.number if organization.phone else None
         await self._session.flush()
         await self._session.refresh(model)
         return self._to_domain(model)

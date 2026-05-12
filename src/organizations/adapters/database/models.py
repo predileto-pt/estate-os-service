@@ -52,6 +52,9 @@ class OrganizationModel(Base):
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
     nif: Mapped[str | None] = mapped_column(Text, nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    phone_country_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    phone_number: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 

@@ -13,6 +13,7 @@ from organizations.domain.exceptions import (
 )
 from organizations.domain.models.authorization import has_permission
 from organizations.domain.models.organization import Organization
+from organizations.domain.value_objects import PhoneNumber
 
 
 class UpdateOrganization:
@@ -34,6 +35,8 @@ class UpdateOrganization:
         name: str | None = None,
         nif: str | None = None,
         address: str | None = None,
+        email: str | None = None,
+        phone: PhoneNumber | None = None,
     ) -> Organization:
         membership = await self.membership_repo.get_by_user_and_organization(
             requester_user_id, organization_id
@@ -45,6 +48,8 @@ class UpdateOrganization:
         if not organization:
             raise OrganizationNotFoundError(str(organization_id))
 
-        organization.update(name=name, nif=nif, address=address)
+        organization.update(
+            name=name, nif=nif, address=address, email=email, phone=phone
+        )
 
         return await self.organization_repo.update(organization)

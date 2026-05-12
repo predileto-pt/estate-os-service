@@ -13,6 +13,7 @@ from organizations.domain.exceptions import (
     InsufficientPermissionError,
     OrganizationNotFoundError,
 )
+from organizations.domain.value_objects import PhoneNumber
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -20,12 +21,20 @@ router = APIRouter(prefix="/organizations", tags=["organizations"])
 def _organization_response(organization) -> dict | None:
     if not organization:
         return None
+    phone = None
+    if organization.phone is not None:
+        phone = {
+            "country_code": organization.phone.country_code,
+            "number": organization.phone.number,
+        }
     return {
         "id": organization.id,
         "created_by": organization.created_by,
         "name": organization.name,
         "nif": organization.nif,
         "address": organization.address,
+        "email": organization.email,
+        "phone": phone,
         "created_at": organization.created_at,
         "updated_at": organization.updated_at,
     }
@@ -78,6 +87,23 @@ async def update_organization(
 ):
     update_organization_uc = request.app.state.container.update_organization
 
+    # Compose the optional phone value object from the two flat patch
+    # fields. Both must be present to construct the phone; passing only
+    # one is a 422 (caller probably meant to supply both).
+    phone: PhoneNumber | None = None
+    if body.phone_country_code is not None or body.phone_number is not None:
+        if body.phone_country_code is None or body.phone_number is None:
+            raise HTTPException(
+                status_code=422,
+                detail="phone_country_code and phone_number must be provided together",
+            )
+        try:
+            phone = PhoneNumber(
+                country_code=body.phone_country_code, number=body.phone_number
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
     try:
         organization = await update_organization_uc.execute(
             organization_id=organization_id,
@@ -85,6 +111,8 @@ async def update_organization(
             name=body.name,
             nif=body.nif,
             address=body.address,
+            email=body.email,
+            phone=phone,
         )
     except (AuthorizationError, InsufficientPermissionError):
         raise HTTPException(status_code=403, detail="Not authorized")

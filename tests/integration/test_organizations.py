@@ -48,3 +48,58 @@ async def test_update_organization(client, auth_headers):
     data = response.json()
     assert data["name"] == "Nova Imobiliária"
     assert data["nif"] == "987654321"
+
+
+@pytest.mark.asyncio
+async def test_update_organization_with_email_and_phone(client, auth_headers):
+    user = await _register_user(client, auth_headers)
+    organization_id = user["organization"]["id"]
+    response = await client.patch(
+        f"/api/v1/admin/organizations/{organization_id}",
+        json={
+            "email": "contact@silva.pt",
+            "phone_country_code": "+351",
+            "phone_number": "912345678",
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["email"] == "contact@silva.pt"
+    assert data["phone"] == {"country_code": "+351", "number": "912345678"}
+
+    # GET reflects the persisted values.
+    get_response = await client.get(
+        f"/api/v1/admin/organizations/{organization_id}", headers=auth_headers
+    )
+    assert get_response.status_code == 200
+    persisted = get_response.json()
+    assert persisted["email"] == "contact@silva.pt"
+    assert persisted["phone"] == {"country_code": "+351", "number": "912345678"}
+
+
+@pytest.mark.asyncio
+async def test_update_organization_phone_requires_both_fields(client, auth_headers):
+    user = await _register_user(client, auth_headers)
+    organization_id = user["organization"]["id"]
+    response = await client.patch(
+        f"/api/v1/admin/organizations/{organization_id}",
+        json={"phone_country_code": "+351"},  # missing phone_number
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+    assert "phone_country_code and phone_number" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_update_organization_rejects_invalid_country_code(client, auth_headers):
+    user = await _register_user(client, auth_headers)
+    organization_id = user["organization"]["id"]
+    response = await client.patch(
+        f"/api/v1/admin/organizations/{organization_id}",
+        json={"phone_country_code": "351", "phone_number": "912345678"},
+        headers=auth_headers,
+    )
+    # PhoneNumber.__post_init__ rejects country codes without '+'.
+    assert response.status_code == 422
+    assert "must start with" in response.json()["detail"]

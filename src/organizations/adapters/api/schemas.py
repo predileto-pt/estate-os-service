@@ -45,6 +45,9 @@ class UpdateOrganizationRequest(BaseModel):
     name: str | None = None
     nif: str | None = Field(default=None, description="Tax identification number (NIF)")
     address: str | None = None
+    email: str | None = None
+    phone_country_code: str | None = Field(default=None, description="E.g. +351")
+    phone_number: str | None = None
 
 
 class OrganizationResponse(BaseModel):
@@ -53,6 +56,8 @@ class OrganizationResponse(BaseModel):
     name: str | None
     nif: str | None
     address: str | None
+    email: str | None = None
+    phone: PhoneResponse | None = None
     created_at: datetime
     updated_at: datetime
 

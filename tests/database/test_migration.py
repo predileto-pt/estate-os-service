@@ -5,7 +5,7 @@ async def test_current_revision_is_head(session):
     result = await session.execute(text("SELECT version_num FROM alembic_version"))
     row = result.first()
     assert row is not None
-    assert row[0] == "c2c206f0a679"
+    assert row[0] == "d6f7b2a4c8e1"
 
 
 async def test_property_listings_address_dropped_country_added(session):
