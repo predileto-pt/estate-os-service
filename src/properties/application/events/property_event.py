@@ -113,22 +113,50 @@ def build_property_snapshot(prop: Property, pois: list[PropertyPoi] | None = Non
         # Rich POI fields (`address`, `image_urls`, `reviews`) added for
         # the listings search read path (ADR-014 §13). The listings
         # projector widens `ListingPoi` to absorb them; the matched-POI
-        # response surfaces the rich data on q-set search results. The
-        # three lean fields (category/name/distance_meters) remain the
-        # same — back-compat for any consumer that doesn't read the
-        # new keys.
+        # response surfaces the rich data on q-set search results.
+        #
+        # SNS hard-caps a message at 256 KB. With ~370 POIs per property,
+        # the previous full snapshot (5 image_urls + up to 5 reviews with
+        # full text per POI) crossed 600 KB and rejected the publish with
+        # `InvalidParameter: Message too long`. Two caps keep us safe:
+        #   1. POI count: top 200 by distance ascending. Further-away
+        #      POIs are irrelevant for listing UX; the full set still
+        #      lives on `property_pois` for any future surface.
+        #   2. Per-POI bulk: reviews trimmed to 1 (300 chars max) and
+        #      image_urls capped at 2.
+        # Together this keeps each property's snapshot comfortably below
+        # 256 KB even with long addresses.
+        capped = sorted(pois, key=lambda p: p.distance_meters)[:_MAX_POIS_IN_EVENT]
         payload["pois"] = [
             {
                 "category": poi.category.value,
                 "name": poi.name,
                 "distance_meters": poi.distance_meters,
                 "address": poi.address,
-                "image_urls": list(poi.image_urls or []),
-                "reviews": poi.reviews,
+                "image_urls": list(poi.image_urls or [])[:2],
+                "reviews": _slim_reviews(poi.reviews),
             }
-            for poi in pois
+            for poi in capped
         ]
     return payload
+
+
+# See `build_property_snapshot` POI block for the rationale.
+_MAX_POIS_IN_EVENT = 200
+
+
+def _slim_reviews(reviews: list[dict] | None) -> list[dict] | None:
+    """Keep the first review only, with text truncated to 300 chars.
+
+    Reviews are the largest contributor to per-POI snapshot bulk. The
+    listings detail endpoint can re-fetch the full set from
+    `property_pois` if richer UX is required.
+    """
+    if not reviews:
+        return reviews
+    head = reviews[0]
+    text = (head.get("text") or "")[:300]
+    return [{**head, "text": text}]
 
 
 def build_deletion_payload(prop: Property) -> dict:

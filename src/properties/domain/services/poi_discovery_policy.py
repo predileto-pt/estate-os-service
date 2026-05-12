@@ -51,9 +51,13 @@ DEFAULT_POLICY = CategoryDiscoveryPolicy(radius_meters=1500, result_limit=5)
 
 # Municipality-wide breadth. PT municipalities average ~10km radius;
 # 15km comfortably contains every typical municipality. Provider's own
-# cap (Google: 50_000m) still applies. `result_limit=None` lets every
-# match surface — pagination is the adapter's responsibility.
-MUNICIPALITY_WIDE_POLICY = CategoryDiscoveryPolicy(radius_meters=15000, result_limit=None)
+# cap (Google: 50_000m) still applies. Capped at 10 per category — a
+# buyer evaluating an area needs 10 of the best/closest matches, not
+# every one in the municipality. Without this cap, lifestyle anchors
+# alone produced 300+ POIs per property, ballooning event payloads
+# beyond SNS's 256 KB limit and making Phase-2 Place Details fan-out
+# take minutes (see `2026-05-12` debug session).
+MUNICIPALITY_WIDE_POLICY = CategoryDiscoveryPolicy(radius_meters=15000, result_limit=10)
 
 
 # Categories surfaced municipality-wide for Portugal listings:

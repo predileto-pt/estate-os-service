@@ -13,6 +13,8 @@ A flaky LLM should not silently erase POIs the agent expected to see.
 
 from __future__ import annotations
 
+import asyncio
+
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -25,6 +27,12 @@ from properties.application.ports.poi_locality_filter import (
 from properties.domain.services.locality_scope import LocalityKind
 
 log = structlog.get_logger()
+
+# Cap on candidates per LLM call. ~50 POIs × ~80 chars/line ≈ 4 KB user
+# message + 1 KB system = ~5 KB requests. Comfortable below any client
+# timeout. The previous unbatched call hit `APIConnectionError` at ~600
+# candidates (43 KB) on flaky links.
+_BATCH_SIZE = 50
 
 
 _SYSTEM_PROMPT_PT = """You decide which points-of-interest (POIs) share
@@ -99,6 +107,10 @@ class OpenAiPoiLocalityFilter(PoiLocalityFilter):
             model=model,
             api_key=openai_api_key,
             temperature=0,
+            # Explicit per-request timeout: previous default let huge
+            # prompts hang for a minute+ before retrying. With batching
+            # below, no single request should need more than ~20s.
+            timeout=30,
         ).with_structured_output(_BatchVerdict)
 
     async def keep_in_locality(
@@ -117,8 +129,55 @@ class OpenAiPoiLocalityFilter(PoiLocalityFilter):
             if locality_kind is LocalityKind.MUNICIPALITY
             else _SYSTEM_PROMPT_GENERIC
         )
-        user_message = self._format_user_message(property_address, country, candidates)
 
+        # Chunk the candidate list and dispatch one LLM call per chunk
+        # concurrently. Each chunk's verdicts merge into a single dict;
+        # a chunk whose call fails contributes no verdicts (so every
+        # candidate in it defaults to KEEP via the fail-open path below).
+        chunks = [candidates[i : i + _BATCH_SIZE] for i in range(0, len(candidates), _BATCH_SIZE)]
+        results = await asyncio.gather(
+            *(
+                self._invoke_chunk(system_prompt, property_address, country, chunk)
+                for chunk in chunks
+            ),
+            return_exceptions=False,
+        )
+
+        verdicts: dict[str, bool] = {}
+        for chunk_verdicts in results:
+            verdicts.update(chunk_verdicts)
+
+        # Index by place_id so we tolerate the model reordering or
+        # dropping rows. Missing rows default to KEEP — fail-open is
+        # the same invariant as the exception path inside each chunk.
+        kept = [c for c in candidates if verdicts.get(c.place_id, True)]
+
+        log.info(
+            "poi_locality_filter.batch_done",
+            country=country,
+            locality_kind=locality_kind.value,
+            input_count=len(candidates),
+            chunks=len(chunks),
+            kept_count=len(kept),
+            dropped_count=len(candidates) - len(kept),
+        )
+        return kept
+
+    async def _invoke_chunk(
+        self,
+        system_prompt: str,
+        property_address: str,
+        country: str,
+        chunk: list[PoiCandidate],
+    ) -> dict[str, bool]:
+        """Run one LLM call over a single chunk; return verdicts or {} on failure.
+
+        Returning `{}` on failure means every candidate in this chunk
+        falls through to the KEEP default in the caller — the existing
+        fail-open invariant per ADR. Other chunks' verdicts are still
+        applied; a flaky call doesn't poison the whole property.
+        """
+        user_message = self._format_user_message(property_address, country, chunk)
         try:
             result = await self._llm.ainvoke(
                 [
@@ -128,30 +187,16 @@ class OpenAiPoiLocalityFilter(PoiLocalityFilter):
             )
         except Exception:
             log.exception(
-                "poi_locality_filter.llm_failed_keeping_all",
+                "poi_locality_filter.chunk_failed_keeping_all",
                 country=country,
-                candidate_count=len(candidates),
+                chunk_size=len(chunk),
             )
-            return list(candidates)
+            return {}
 
-        # Index by place_id so we tolerate the model reordering or
-        # dropping rows. Missing rows default to KEEP — fail-open is
-        # the same invariant as the exception path above.
-        verdicts: dict[str, bool] = {
+        return {
             v.place_id: v.is_same_locality
             for v in result.verdicts  # type: ignore[union-attr]
         }
-        kept = [c for c in candidates if verdicts.get(c.place_id, True)]
-
-        log.info(
-            "poi_locality_filter.batch_done",
-            country=country,
-            locality_kind=locality_kind.value,
-            input_count=len(candidates),
-            kept_count=len(kept),
-            dropped_count=len(candidates) - len(kept),
-        )
-        return kept
 
     @staticmethod
     def _format_user_message(

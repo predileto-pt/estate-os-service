@@ -32,8 +32,12 @@ class TestPortugalMunicipalityWideCategories:
     def test_resolves_to_municipality_wide_for_pt(self, category: PoiCategory) -> None:
         assert resolve_discovery_policy(Country.PORTUGAL, category) is MUNICIPALITY_WIDE_POLICY
 
-    def test_municipality_policy_is_unbounded(self) -> None:
-        assert MUNICIPALITY_WIDE_POLICY.result_limit is None
+    def test_municipality_policy_caps_at_ten(self) -> None:
+        # Lifestyle-anchor categories cap at 10 hits per category — a
+        # buyer needs 10 representative options, not every one in the
+        # municipality. Larger counts ballooned event payloads beyond
+        # SNS's 256 KB limit (2026-05-12 debug session).
+        assert MUNICIPALITY_WIDE_POLICY.result_limit == 10
         # Comfortably contains every typical PT municipality without
         # exceeding Google's 50_000m cap.
         assert 5000 < MUNICIPALITY_WIDE_POLICY.radius_meters <= 50_000
