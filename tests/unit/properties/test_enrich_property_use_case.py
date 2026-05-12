@@ -235,13 +235,17 @@ async def test_persisted_rows_are_auto_with_provider_metadata(property_repo, pro
     assert grocery_rows[0].metadata == {"provider": "google"}
 
 
-async def test_pt_municipality_wide_category_uses_wide_radius_and_keeps_every_result(
+async def test_pt_municipality_wide_category_uses_wide_radius_and_caps_at_ten(
     property_repo, property_poi_repo
 ):
     """For Portugal restaurants we want the municipality-wide policy:
-    a wide radius on the provider call AND no top-N truncation after
-    ranking. The property is set up in PT (the use case's default
-    country). 25 results in → 25 results stored.
+    a wide radius on the provider call AND a hard cap of 10 hits per
+    category after ranking. The property is set up in PT (the use case's
+    default country). 25 results in → 10 results stored.
+
+    The cap was added on 2026-05-12: unbounded result sets ballooned
+    event payloads beyond SNS's 256 KB limit and slowed Phase-2
+    Place Details fan-out to minutes.
     """
     from properties.application.use_cases.enrich_property import DEFAULT_COUNTRY
     from properties.domain.services.poi_discovery_policy import (
@@ -250,11 +254,12 @@ async def test_pt_municipality_wide_category_uses_wide_radius_and_keeps_every_re
     )
 
     assert DEFAULT_COUNTRY is Country.PORTUGAL  # guard the test's premise
+    assert MUNICIPALITY_WIDE_POLICY.result_limit == 10  # guard the cap
 
     prop = _property()
     await property_repo.save(prop)
 
-    # 25 restaurants — would be truncated to 5 under the old top-N.
+    # 25 restaurants — capped to 10 by the municipality-wide policy.
     restaurants = [_place(f"Tasca {i}", place_id=f"r-{i}", distance=100.0 + i) for i in range(25)]
     places = TrackingPlacesService(results_by_place_type={"restaurant": restaurants})
 
@@ -270,10 +275,11 @@ async def test_pt_municipality_wide_category_uses_wide_radius_and_keeps_every_re
     assert len(restaurant_calls) == 1
     assert restaurant_calls[0][3] == MUNICIPALITY_WIDE_POLICY.radius_meters
 
-    # Every restaurant survived to persistence — no top-N cap.
+    # Closest 10 restaurants survived to persistence; the rest were
+    # truncated by the cap.
     stored = await property_poi_repo.list_by_property(prop.id)
     restaurant_rows = [p for p in stored if p.category == PoiCategory.RESTAURANT]
-    assert len(restaurant_rows) == 25
+    assert len(restaurant_rows) == 10
 
 
 async def test_tire_shop_and_auto_shop_share_place_type_disambiguated_by_keyword(
