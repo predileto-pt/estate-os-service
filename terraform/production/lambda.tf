@@ -67,7 +67,9 @@ resource "aws_lambda_function" "extraction_worker" {
   memory_size      = var.lambda_extraction_memory
   timeout          = var.lambda_extraction_timeout
 
-  reserved_concurrent_executions = var.lambda_extraction_reserved_concurrency
+  # AWS rejects negative values on PutFunctionConcurrency. Treat -1 as
+  # "no reservation" by passing null, which omits the attribute entirely.
+  reserved_concurrent_executions = var.lambda_extraction_reserved_concurrency >= 0 ? var.lambda_extraction_reserved_concurrency : null
 
   environment {
     variables = {
@@ -115,7 +117,7 @@ resource "aws_lambda_function" "enrichment_worker" {
   memory_size      = var.lambda_enrichment_memory
   timeout          = var.lambda_enrichment_timeout
 
-  reserved_concurrent_executions = var.lambda_enrichment_reserved_concurrency
+  reserved_concurrent_executions = var.lambda_enrichment_reserved_concurrency >= 0 ? var.lambda_enrichment_reserved_concurrency : null
 
   environment {
     variables = {
@@ -159,9 +161,7 @@ resource "aws_lambda_function" "listings_events_worker" {
   memory_size      = var.lambda_listings_events_memory
   timeout          = var.lambda_listings_events_timeout
 
-  # Unreserved when the var is -1: passing -1 to AWS means "delete the
-  # reservation" rather than "cap at -1". Positive values cap.
-  reserved_concurrent_executions = var.lambda_listings_events_reserved_concurrency
+  reserved_concurrent_executions = var.lambda_listings_events_reserved_concurrency >= 0 ? var.lambda_listings_events_reserved_concurrency : null
 
   environment {
     variables = {

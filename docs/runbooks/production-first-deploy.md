@@ -13,11 +13,14 @@ These items live outside terraform and must exist before `terraform init` works.
 1. **AWS account + admin IAM** for the bootstrap operator (you). Create an access key locally for `aws configure --profile predileto-prod` or use AWS SSO.
 
 2. **S3 bucket for terraform state.** The backend in `terraform/production/_providers.tf` is hardcoded:
+
    ```
    bucket = "estate-os-service-prod-terraform-state"
    region = "eu-west-3"
    ```
+
    Create it once (encryption + versioning + public-access-block on):
+
    ```bash
    aws s3api create-bucket \
      --bucket estate-os-service-prod-terraform-state \
@@ -37,6 +40,7 @@ These items live outside terraform and must exist before `terraform init` works.
    ```
 
 3. **EC2 keypair for the API instance.** The API EC2 still uses an AWS-managed keypair (separate from the bastion's tfstate-managed one). Create it in the console (`EC2 → Key Pairs → Create`) or:
+
    ```bash
    aws ec2 create-key-pair \
      --key-name estate-os-service-prod-api \
@@ -44,11 +48,47 @@ These items live outside terraform and must exist before `terraform init` works.
      --query 'KeyMaterial' --output text > ~/.ssh/estate-os-service-prod-api.pem
    chmod 400 ~/.ssh/estate-os-service-prod-api.pem
    ```
+
    Set `key_name = "estate-os-service-prod-api"` in `production.tfvars` (step 1 below).
 
 4. **DNS control over `predileto.pt`** (currently Vercel-managed per `_outputs.tf` comments). You'll need to add two CNAMEs after the first `terraform apply` — one for the ACM cert validation, one for the API host. Have access to the DNS provider ready.
 
-5. **GitHub repo settings:**
+5. **CAA pre-check on `predileto.pt`.** This is the single biggest source of pain on a first deploy — skip it and you'll spend hours stuck in a `PENDING_VALIDATION` → `FAILED` loop with no clear error message.
+
+   CAA (Certification Authority Authorization) records are a DNS-level allowlist saying "only these CAs may issue TLS certs for this domain." If the apex has CAA records that don't include Amazon, ACM will fail every validation regardless of how perfect the CNAME is.
+
+   Check before you `apply`:
+
+   ```bash
+   dig +short CAA predileto.pt @8.8.8.8
+   ```
+
+   Three outcomes:
+
+   - **No output** → no CAA, any CA may issue. Skip the rest of this step.
+   - **Output mentions `amazon.com`, `amazontrust.com`, or `awstrust.com`** → Amazon is already authorised. Skip.
+   - **Output lists other CAs only** (e.g. `letsencrypt.org`, `pki.goog`, `sectigo.com`) → **add Amazon now**, before the first `terraform apply`. In Vercel DNS:
+
+     | Field | Value |
+     |---|---|
+     | Type | `CAA` |
+     | Name | `@` (apex; leave blank in Vercel) |
+     | Flags | `0` |
+     | Tag | `issue` |
+     | Value | `amazon.com` |
+
+     If Vercel exposes a single combined Value field instead, paste: `0 issue "amazon.com"` (literal quotes).
+
+     Verify within ~1 min:
+
+     ```bash
+     dig +short CAA predileto.pt @8.8.8.8
+     # Should now include: 0 issue "amazon.com"
+     ```
+
+   The existing CAA records you might already see (Let's Encrypt etc.) are typically added by a previous CA's setup wizard or a security-hardening checklist. Keep them — you're adding a fourth entry, not replacing.
+
+6. **GitHub repo settings:**
    - The repo is `predileto-pt/estate-os-service` (hardcoded in `github_oidc.tf`'s `:sub` claim).
    - Create a GitHub `production` environment under repo settings (Settings → Environments → New).
    - You'll add secrets to that environment after step 5 (`AWS_GHA_ROLE_ARN`, `ALB_HOST`) using the terraform outputs.
@@ -101,6 +141,7 @@ Expected high-level resources:
 - **ECR** — repository.
 
 **Capture outputs:**
+
 ```bash
 terraform output  # note: alb_dns_name, acm_validation_record_name,
                   # acm_validation_record_value, bastion_public_ip,
@@ -113,9 +154,62 @@ terraform output  # note: alb_dns_name, acm_validation_record_name,
 
 In the DNS provider (Vercel for `predileto.pt`):
 
-1. **ACM cert validation** — add a CNAME from `acm_validation_record_name` → `acm_validation_record_value`. Wait 1-10 min for the cert to flip from `PENDING_VALIDATION` to `ISSUED`. You can re-run `terraform plan` to see when it settles.
+1. **ACM cert validation** — add a CNAME with:
+   - `Name`: the **prefix only** from `acm_validation_record_name` (strip the trailing `.predileto.pt`). Vercel auto-appends the apex; pasting the full FQDN gives you `_xyz.api.predileto.pt.predileto.pt`, which silently doesn't resolve.
+   - `Value`: full string from `acm_validation_record_value` (Vercel normalises trailing dots).
+
+   Verify the record is live before waiting on ACM:
+
+   ```bash
+   dig +short CNAME _<validation-prefix>.api.predileto.pt @8.8.8.8
+   # Should return the acm-validations.aws target. Empty = Vercel didn't save the record.
+   ```
+
+   Then poll ACM (1–10 min once DNS is live + CAA is correct):
+
+   ```bash
+   aws acm describe-certificate \
+     --certificate-arn $(terraform output -raw acm_cert_arn) \
+     --region eu-west-3 --query 'Certificate.Status' --output text
+   # Expect: ISSUED
+   ```
 
 2. **API host** — add a CNAME from `api.predileto.pt` → `alb_dns_name`. After DNS propagation, HTTPS will serve from `https://api.predileto.pt` once the API container is running (step 6).
+
+### If the cert flips to `FAILED`
+
+ACM doesn't retry failed certs — once it's `FAILED`, it's dead. Recovery is a delete-and-recreate cycle. Root cause is almost always one of:
+
+- **CAA blocking Amazon** — re-check prerequisite step 5. `dig +short CAA predileto.pt` must include Amazon.
+- **CNAME `Name` field contains the full FQDN** instead of just the subdomain prefix (see step 1 above).
+- **CNAME `Value` doesn't match exactly** what ACM expected — character-for-character (trailing dot doesn't matter; the body must match).
+
+Fix the root cause **first**. Then recreate:
+
+```bash
+cd terraform/production
+
+# Drop the failed cert from state.
+terraform state list | grep acm   # find the exact resource address
+terraform state rm <that address>   # e.g. module.acm.aws_acm_certificate.this
+
+# Delete in AWS.
+aws acm delete-certificate \
+  --certificate-arn <failed-cert-arn> \
+  --region eu-west-3
+
+# Recreate via terraform — partial-failure on the listener is expected.
+terraform apply -var-file=production.tfvars
+
+# Each new cert has a NEW validation token. Read the fresh values:
+terraform output acm_validation_record_name
+terraform output acm_validation_record_value
+
+# Update (don't duplicate) the Vercel CNAME with the new Name and Value.
+# Wait for ISSUED, then final apply.
+```
+
+Every recreation forces a new Vercel CNAME edit. If the underlying issue (CAA, name format) isn't fixed, you spin in this loop forever — each cert burns 5–10 min before failing. Don't proceed to apply until both the CAA check and the DNS check from step 1 are green.
 
 ---
 
@@ -179,10 +273,10 @@ The queue URLs and SNS topic ARN prefix come from `terraform output` (step 2's c
 
 Set these in `Settings → Environments → production → Environment secrets`:
 
-| Secret | Value |
-|---|---|
-| `AWS_GHA_ROLE_ARN` | `terraform output -raw github_actions_role_arn` |
-| `ALB_HOST` | `terraform output -raw alb_dns_name` (or `api.predileto.pt` once DNS resolves) |
+| Secret             | Value                                                                          |
+| ------------------ | ------------------------------------------------------------------------------ |
+| `AWS_GHA_ROLE_ARN` | `terraform output -raw github_actions_role_arn`                                |
+| `ALB_HOST`         | `terraform output -raw alb_dns_name` (or `api.predileto.pt` once DNS resolves) |
 
 ---
 
@@ -227,6 +321,7 @@ terraform apply -var-file=production.tfvars
 ```
 
 Watch:
+
 - **CloudWatch Logs → /aws/lambda/estate-os-service-prod-listings-events-worker** — invocation logs appear when an event lands.
 - **SQS → estate-os-service-prod-listings-events** — `Messages Available` stays near 0; `Messages In Flight` spikes only briefly.
 - **DLQ depth** — should stay 0.
@@ -288,6 +383,7 @@ The fallback service runs the same handler code from the same image (different c
 
 ## 9. Things that will bite you if you skip them
 
+- **Don't skip the CAA pre-check in prerequisite step 5.** If the domain has restrictive CAA records that don't include Amazon, every ACM cert you create will `PENDING_VALIDATION` → `FAILED` regardless of DNS correctness. You'll burn an hour minimum before realising the error message ("must have a fully-qualified domain name, a supported signature, and a supported key size") doesn't actually mean what it says.
 - **Don't flip a `lambda_consumes_*` flag to `true` before CI has run.** The function still holds the placeholder code from `data.archive_file.lambda_placeholder` — every invocation raises and a few hundred messages end up in the DLQ.
 - **Don't forget step 4.** An empty Secrets Manager value means the EC2 boots with default config — broken Supabase, broken everything.
 - **Don't change `prefix_name`** after the first apply. Most resource names are derived from it; changing it forces wholesale recreation.

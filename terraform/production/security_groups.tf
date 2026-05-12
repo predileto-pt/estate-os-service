@@ -82,7 +82,7 @@ module "lambda_sg" {
   source = "../modules/security-group"
 
   security_group_name        = "${var.prefix_name}-lambda-sg"
-  security_group_description = "Security group for worker Lambdas — egress only via NAT."
+  security_group_description = "Security group for worker Lambdas - egress only via NAT."
   vpc_id                     = module.vpc.vpc_id
 
   ingress_rules = []

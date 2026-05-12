@@ -93,8 +93,8 @@ variable "lambda_extraction_timeout" {
 
 variable "lambda_extraction_reserved_concurrency" {
   type        = number
-  description = "Defends Reducto + OpenAI rate limits — cap parallel invocations."
-  default     = 10
+  description = "Set to -1 to skip reservation (default); positive integers cap concurrency. Used to defend Reducto + OpenAI rate limits. New AWS accounts have a low total Lambda concurrency limit; request a quota increase before setting > 0."
+  default     = -1
 }
 
 variable "lambda_enrichment_memory" {
@@ -110,8 +110,8 @@ variable "lambda_enrichment_timeout" {
 
 variable "lambda_enrichment_reserved_concurrency" {
   type        = number
-  description = "Defends Google Places quota — cap parallel invocations."
-  default     = 10
+  description = "Set to -1 to skip reservation (default); positive integers cap concurrency. Used to defend Google Places quota. New AWS accounts have a low total Lambda concurrency limit; request a quota increase before setting > 0."
+  default     = -1
 }
 
 variable "lambda_listings_events_memory" {

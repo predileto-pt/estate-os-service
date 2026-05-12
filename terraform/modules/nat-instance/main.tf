@@ -22,7 +22,7 @@
 
 resource "aws_security_group" "this" {
   name        = "${var.name_prefix}-nat-sg"
-  description = "Egress NAT — accepts traffic from private subnets, allows all outbound."
+  description = "Egress NAT - accepts traffic from private subnets, allows all outbound."
   vpc_id      = var.vpc_id
 
   ingress {
