@@ -17,6 +17,7 @@ from properties.adapters.api.schemas import (
     PropertySummaryResponse,
     PublicPropertyResponse,
     UpdatePropertyAddressRequest,
+    UpdatePropertyCharacteristicsRequest,
     UpdatePropertyTitleRequest,
 )
 from shared.jobs.adapters.api.schemas import JobResponse
@@ -298,6 +299,48 @@ async def update_property_title(
         )
     except PropertyNotFoundError:
         raise HTTPException(status_code=404, detail="Property not found")
+
+    return _property_response(prop)
+
+
+@router.patch(
+    "/{property_id}/characteristics",
+    response_model=PropertyResponse,
+    summary="Update property characteristics (partial)",
+    description=(
+        "Partial update of `characteristics`. Only fields explicitly present "
+        "in the request body are applied; pass `null` to clear a field. "
+        "On no-op (merged result equal to current) returns the existing "
+        "aggregate without bumping `aggregate_version` or emitting an event."
+    ),
+    responses={
+        200: {"description": "Characteristics updated (or unchanged on no-op)"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not authorized"},
+        404: {"description": "Property not found"},
+        422: {"description": "Domain validation failed (e.g. non-positive area)"},
+    },
+)
+async def update_property_characteristics(
+    property_id: UUID,
+    body: UpdatePropertyCharacteristicsRequest,
+    organization_id: UUID,
+    request: Request,
+    _member: tuple[User, Membership] = Depends(require_org_member),
+):
+    update_uc = request.app.state.property_container.update_property_characteristics
+    sent = body.model_fields_set
+    kwargs = {name: getattr(body, name) for name in sent}
+    try:
+        prop = await update_uc.execute(
+            property_id=property_id,
+            organization_id=organization_id,
+            **kwargs,
+        )
+    except PropertyNotFoundError:
+        raise HTTPException(status_code=404, detail="Property not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
     return _property_response(prop)
 

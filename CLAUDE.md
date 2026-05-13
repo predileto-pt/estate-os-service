@@ -77,11 +77,15 @@ Routes access use cases through `request.app.state.<context>_container.<use_case
 
 ## Worker runtime
 
-Workers run the long-running `EventBusWorker` poll loop (`src/shared/events/worker.py`) against a RabbitMQ transport. Each worker entrypoint opens **one** `aio_pika.connect_robust` per process (with `heartbeat=30`) and passes it to both the consumer and the bootstrap publishers; the connection closes via `try/finally` after `worker.run()` returns (i.e. after drain completes). See [ADR-008 addendum](docs/adr/008-event-bus-ports-and-fanout.md#addendum--2026-05-13-rabbitmq-as-the-active-transport) for the full topology mapping (SQS → RabbitMQ) and reliability primitives.
+Production runs on **Coolify** via `deploy/docker-compose.prod.yml`: nginx → api (internal `expose: 8000`) + three long-running workers + rabbitmq + redis. The compose file uses top-level `x-base-service` + `x-shared-env` YAML anchors so the four Python services (api + 3 workers) share image + baseline env via `<<: *…`. Nginx is the only port-bound service.
+
+Workers run the long-running `EventBusWorker` poll loop (`src/shared/events/worker.py`) against a RabbitMQ transport. Each worker entrypoint opens **one** `aio_pika.connect_robust` per process (with `heartbeat=30`) and passes it to both the consumer and the bootstrap publishers; the connection closes via `try/finally` after `worker.run()` returns (i.e. after drain completes). The api's `shared/main.py:lifespan` does the same — one connection per api process, opened on startup, threaded into `get_property_container() / get_screening_container() / get_contract_intelligence_container()`, closed on shutdown.
+
+See [ADR-008 addendum](docs/adr/008-event-bus-ports-and-fanout.md#addendum--2026-05-13-rabbitmq-as-the-active-transport) for the SQS → RabbitMQ topology mapping and reliability primitives, and [ADR-018 addendum](docs/adr/018-lambda-as-sqs-worker-runtime.md#addendum--2026-05-13-coolify-as-the-active-runtime) for the Coolify runtime decision.
 
 **Handlers must be idempotent.** RabbitMQ is at-least-once, and reconnect storms re-deliver every unacked message immediately (vs. SQS's "wait for visibility timeout"). The duplicate-processing potential is more load-bearing than under SQS.
 
-The SNS+SQS adapter classes at `src/shared/events/adapters/sns_event_publisher.py` / `sqs_command_publisher.py` / `sqs_message_consumer.py` are retained for unit tests + emergency revert but no production code path imports them after the 2026-05-13 cutover. AWS Lambda entrypoints (`src/**/lambda_*.py`) and `terraform/production/lambda*.tf` are dormant and would need bootstrap-import revert + connection plumbing to run again — see ADR-018 + the rabbitmq-transport-adapter spec for context.
+The SNS+SQS adapter classes at `src/shared/events/adapters/sns_event_publisher.py` / `sqs_command_publisher.py` / `sqs_message_consumer.py` are retained for unit tests + emergency revert but no production code path imports them after the 2026-05-13 cutover. AWS Lambda entrypoints (`src/**/lambda_*.py`) and `terraform/production/lambda*.tf` are dormant and would need bootstrap-import revert + connection plumbing to run again — see ADR-018 addendum for the revert recipe.
 
 ## Key Conventions
 

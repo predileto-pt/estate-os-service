@@ -442,9 +442,17 @@ docker run -p 8000:8000 --env-file .env core-api
 
 ## Production deploy
 
-Day-to-day deploys are automatic — `git push origin main` triggers `.github/workflows/deploy.yml` which builds + pushes the image, updates the Lambda workers (zip + shared deps layer), and redeploys the API EC2 via SSM. Architecture is documented in [ADR-018](docs/adr/018-lambda-as-sqs-worker-runtime.md).
+Production runs on **[Coolify](https://coolify.io)** via `deploy/docker-compose.prod.yml`. Seven services: `nginx` (public ingress) + `api` (internal-only) + three long-running workers (`extraction-worker`, `enrichment-worker`, `listings-events-worker`) + `rabbitmq` + `redis`. See [ADR-018 addendum](docs/adr/018-lambda-as-sqs-worker-runtime.md#addendum--2026-05-13-coolify-as-the-active-runtime) for the runtime decision and [ADR-008 addendum](docs/adr/008-event-bus-ports-and-fanout.md#addendum--2026-05-13-rabbitmq-as-the-active-transport) for the RabbitMQ topology mapping.
 
-For the **first-ever provisioning** of a fresh AWS account (state bucket, terraform apply, DNS records, Secrets Manager seeding, GitHub OIDC, enabling the Lambda consumer flags), follow the step-by-step runbook: [`docs/runbooks/production-first-deploy.md`](docs/runbooks/production-first-deploy.md).
+**Operator-side prep (one-time):**
+
+- Provision an IAM user with S3-only permissions on `${S3_BUCKET_NAME}` and `${CONTRACT_S3_BUCKET_NAME}`. The current EC2 instance-profile role is broader.
+- Set `RABBITMQ_USER` / `RABBITMQ_PASSWORD` in Coolify env config — they're interpolated at compose-render time to build `RABBITMQ_URL`.
+- Run Alembic migrations from your laptop after each deploy: `bash scripts/migrate_admin.sh upgrade head` + `bash scripts/migrate_portal.sh upgrade head`. (Captured as a Coolify pre-deploy hook follow-up.)
+
+**Per-service env vars** in `deploy/docker-compose.prod.yml`: every variable is referenced by name (no `env_file:`). Shared baseline lives in the `x-shared-env` YAML anchor; api-only vars (Stripe, portal Supabase, session signing, Redis, Resend) live on the api service.
+
+**The AWS Lambda + EC2 + Terraform path is dormant** but retained for emergency revert. SNS + SQS adapter classes stay in `src/shared/events/adapters/`; no production code path imports them after the 2026-05-13 RabbitMQ cutover. To revert, swap the bootstrap imports back and re-enable the `aws_lambda_event_source_mapping` flags. See [`docs/runbooks/production-first-deploy.md`](docs/runbooks/production-first-deploy.md) for the legacy AWS runbook (still valid for the dormant path).
 
 ## Running Locally
 

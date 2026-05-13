@@ -1,6 +1,6 @@
 # Coolify production stack — compose + nginx + Redis
 
-**Status:** in-progress
+**Status:** shipped
 **Owner:** Peter
 **Created:** 2026-05-13
 
@@ -22,6 +22,10 @@ S3 stays the file store. SNS+SQS adapter code, Lambda entrypoints, and AWS Terra
 ## Dependency
 
 Depends on **`2026-05-rabbitmq-transport-adapter`** being shipped first. That spec lands the adapters, the bootstrap switch, the dev compose RabbitMQ service, and the ADR-008 addendum. **This spec is a pure ops change once that's in.**
+
+## Prerequisites confirmed
+
+The api-side AMQP connection wiring is already in place from the hotfix commit on top of the RabbitMQ migration: `shared/main.py:lifespan` opens one `aio_pika.connect_robust(settings.rabbitmq_url, heartbeat=30)` on startup and threads it into `get_property_container() / get_screening_container() / get_contract_intelligence_container()`. The 6 command-queue settings (`property_extraction_queue` etc.) are transport-neutral Settings fields. This spec doesn't re-do that wiring — only the compose layout, nginx reverse-proxy, Redis service, and docs.
 
 ## Goal
 
@@ -81,6 +85,18 @@ x-shared-env: &shared-env
   RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
   RABBITMQ_DOMAIN_EVENTS_EXCHANGE: domain-events
   RABBITMQ_DLX: domain-events-dlx
+  # Command queue names — LITERAL values (not ${...} interpolation).
+  # Identical to the names worker entrypoints declare; api + workers
+  # publish to them via the RabbitMQ default exchange (routing-key =
+  # queue name). Without these, command publishers route to "" and the
+  # broker drops every message as unroutable. Same values everywhere
+  # means no operator config needed in Coolify for these six.
+  PROPERTY_EXTRACTION_QUEUE: property-extraction-queue
+  PROPERTY_ENRICHMENT_QUEUE: property-enrichment-queue
+  APPLICANT_EXTRACTION_QUEUE: applicant-extraction-queue
+  APPLICANT_SCREENING_QUEUE: applicant-screening-queue
+  CONTRACT_INGESTION_QUEUE: contract-ingestion-queue
+  CONTRACT_ANALYSIS_QUEUE: contract-analysis-queue
   # App + observability
   APP_ENV: ${APP_ENV}
   LOG_LEVEL: ${LOG_LEVEL}
@@ -192,7 +208,7 @@ Notes:
 - **RabbitMQ management UI (15672) is NOT exposed externally** — operators tunnel via the Coolify host.
 - **Volumes are host-persistent** (`rabbitmq-data`, `redis-data`); backups are operator-side.
 - **`AWS_ENDPOINT_URL` deliberately absent** (LocalStack-only).
-- **`SNS_*` / `SQS_*` deliberately absent** — `EVENT_BUS_BACKEND=rabbitmq` makes them unused; including them would just mislead an operator reading the file.
+- **`SNS_*` / `SQS_*` deliberately absent** — `bootstrap.py` constructs RabbitMQ publishers whenever an `amqp_connection` is passed in (no runtime flag). SNS+SQS adapter classes are retained for the Lambda fallback path, but Lambda is dormant on Coolify and no env var feeds them here.
 
 ### 2. Shared resource (anchors)
 
@@ -202,7 +218,7 @@ Top-level `x-base-service` declares `image:` + `restart:`. Top-level `x-shared-e
 
 **Three buckets, framed by what each runtime exercises** (not by what `shared.config` reads on import — `src/shared/config.py:219-225` defaults every field and sets `extra: "ignore"`, so import never fails on missing env; the worker WILL boot regardless. The cutoff is exercise-based):
 
-- **baseline** (`x-shared-env`): Supabase admin, AWS region + creds + S3 bucket, OpenAI, **Reducto API key, `DATABASE_URL`, encryption keys (`ENCRYPTION_*`)**, RabbitMQ connection + exchange + DLX, `APP_ENV`, `LOG_LEVEL`, Logfire, Langfuse. Every Python service exercises one or more of these at container-construction time — the SQLAlchemy engine builders in `get_screening_container` / `get_booking_container` / `get_contract_intelligence_container` / `get_listing_container` need `DATABASE_URL`; `get_screening_container` calls `load_private_key_from_env(settings.encryption_private_key)` and crashes on empty input; the property + screening + contract containers all construct Reducto clients.
+- **baseline** (`x-shared-env`): Supabase admin, AWS region + creds + S3 bucket, OpenAI, **Reducto API key, `DATABASE_URL`, encryption keys (`ENCRYPTION_*`), the 6 command-queue name literals (`PROPERTY_EXTRACTION_QUEUE` etc.) so any service that publishes commands can route correctly**, RabbitMQ connection + exchange + DLX, `APP_ENV`, `LOG_LEVEL`, Logfire, Langfuse. Every Python service exercises one or more of these at container-construction time — the SQLAlchemy engine builders in `get_screening_container` / `get_booking_container` / `get_contract_intelligence_container` / `get_listing_container` need `DATABASE_URL`; `get_screening_container` calls `load_private_key_from_env(settings.encryption_private_key)` and crashes on empty input; the property + screening + contract containers all construct Reducto clients; and any container that holds a `CommandPublisher` needs its destination queue names bound at construction (otherwise `command_publisher.send("", event)` is unroutable).
 - **api-only**: Stripe block, portal Supabase + portal DB + session signing, `REDIS_URL`, `LISTINGS_PAGE_CACHE_ENABLED`, `LISTINGS_SEARCH_ENABLED`, `CORS_ORIGINS`, `RESEND_API_KEY`, `APP_URL`. Exercised only by HTTP routes (or by the organizations worker via the `customer` context, which still constructs the organizations container — so `RESEND_API_KEY` would be needed there too if it actually used the email service in a handler; today it doesn't, so api-only is correct).
 - **per-worker**: `extraction-worker` adds nothing beyond baseline. `enrichment-worker` adds `GOOGLE_MAPS_API_KEY` (POI discovery). `listings-events-worker` adds Pinecone + embedding vars (`PINECONE_*`, `EMBEDDING_*`, `VECTOR_INDEX_*`, `LISTINGS_EMBEDDING_ENABLED`) gated by the embedding flag.
 
@@ -267,6 +283,7 @@ api's environment sets `REDIS_URL=redis://redis:6379/0` and `LISTINGS_PAGE_CACHE
 **Env partitioning**
 - [ ] api's env block adds api-only vars: full Stripe block, portal Supabase + portal DB + session signing, `REDIS_URL`, `LISTINGS_PAGE_CACHE_ENABLED`, `LISTINGS_SEARCH_ENABLED`, `CORS_ORIGINS`, `RESEND_API_KEY`, `APP_URL`.
 - [ ] `x-shared-env` baseline includes `DATABASE_URL`, `REDUCTO_API_KEY`, and `ENCRYPTION_PUBLIC_KEY` / `ENCRYPTION_PRIVATE_KEY` / `ENCRYPTION_HMAC_KEY` — verified by grep + by booting the screening worker (which would otherwise raise on `load_private_key_from_env("")`).
+- [ ] `x-shared-env` baseline includes the 6 command-queue name literals: `PROPERTY_EXTRACTION_QUEUE=property-extraction-queue`, `PROPERTY_ENRICHMENT_QUEUE=property-enrichment-queue`, `APPLICANT_EXTRACTION_QUEUE=applicant-extraction-queue`, `APPLICANT_SCREENING_QUEUE=applicant-screening-queue`, `CONTRACT_INGESTION_QUEUE=contract-ingestion-queue`, `CONTRACT_ANALYSIS_QUEUE=contract-analysis-queue`. Verified by booting the api and POSTing the enrich endpoint — the message lands on `property-enrichment-queue` (visible in the RabbitMQ management UI), not silently dropped.
 - [ ] Workers do NOT list Stripe vars (`STRIPE_*`), portal Supabase (`SUPABASE_PORTAL_*`), portal DB (`PORTAL_DATABASE_URL`), session signing (`SESSION_*`), `REDIS_URL`, `RESEND_API_KEY`, `APP_URL`, or `CORS_ORIGINS`. Greppable.
 - [ ] `enrichment-worker` is the only worker listing `GOOGLE_MAPS_API_KEY`.
 - [ ] `listings-events-worker` is the only worker listing Pinecone + embedding vars (`PINECONE_*`, `EMBEDDING_*`, `VECTOR_INDEX_*`, `LISTINGS_EMBEDDING_ENABLED`).

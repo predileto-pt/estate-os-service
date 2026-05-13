@@ -91,6 +91,22 @@ class UpdatePropertyTitleRequest(BaseModel):
         return cleaned
 
 
+class UpdatePropertyCharacteristicsRequest(BaseModel):
+    """Partial update — only fields explicitly present in the body are
+    applied. Pass `null` to clear a field."""
+
+    area_in_m2: float | None = None
+    num_of_bedrooms: int | None = None
+    num_of_bathrooms: int | None = None
+    built_at: int | None = None
+    energy_rating: str | None = None
+    floor: int | None = None
+    parking_spaces: int | None = None
+    has_elevator: bool | None = None
+    has_garden: bool | None = None
+    has_pool: bool | None = None
+
+
 class PropertyOwnerResponse(BaseModel):
     id: UUID
     property_id: UUID

@@ -128,9 +128,17 @@ class SupabasePropertyRepository(PropertyRepository):
         price_rows: list[dict] | None = None,
         image_rows: list[dict] | None = None,
     ) -> Property:
+        from properties.domain.models.property_characteristics import PropertyCharacteristics
+
         owners = [self._owner_to_domain(o) for o in (owner_rows or [])]
         prices = [self._price_to_domain(p) for p in (price_rows or [])]
         images = [self._image_to_domain(i) for i in (image_rows or [])]
+        characteristics_raw = row.get("characteristics")
+        characteristics = (
+            PropertyCharacteristics.from_dict(characteristics_raw)
+            if characteristics_raw
+            else None
+        )
         return Property(
             id=UUID(row["id"]),
             organization_id=UUID(row["organization_id"]),
@@ -144,6 +152,7 @@ class SupabasePropertyRepository(PropertyRepository):
             updated_at=row["updated_at"],
             latitude=row.get("latitude"),
             longitude=row.get("longitude"),
+            characteristics=characteristics,
             # Read aggregate_version from the row; without this it
             # defaults to 0 and `bump_aggregate_version` does
             # `0 + 1 = 1` on every call, perpetually. Then the
@@ -169,6 +178,7 @@ class SupabasePropertyRepository(PropertyRepository):
             "description": prop.description,
             "latitude": prop.latitude,
             "longitude": prop.longitude,
+            "characteristics": prop.characteristics.to_dict() if prop.characteristics else None,
         }
 
     async def _load_owners(self, property_id: str) -> list[dict]:
@@ -386,6 +396,23 @@ class SupabasePropertyRepository(PropertyRepository):
             .update(
                 {
                     "description": description,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            .eq("id", str(property_id))
+            .execute()
+        )
+
+    async def update_characteristics(
+        self, property_id: UUID, characteristics: dict | None
+    ) -> None:
+        from datetime import datetime, timezone
+
+        await (
+            self._client.table("properties")
+            .update(
+                {
+                    "characteristics": characteristics,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )

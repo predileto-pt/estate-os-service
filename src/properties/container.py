@@ -66,6 +66,9 @@ from properties.application.use_cases.enhance_property_description import (
 from properties.application.use_cases.update_property_address import (
     UpdatePropertyAddress,
 )
+from properties.application.use_cases.update_property_characteristics import (
+    UpdatePropertyCharacteristics,
+)
 from properties.application.use_cases.update_property_title import (
     UpdatePropertyTitle,
 )
@@ -152,6 +155,10 @@ class Container:
             domain_event_publisher=domain_event_publisher,
         )
         self.update_property_title = UpdatePropertyTitle(
+            property_repo=property_repo,
+            domain_event_publisher=domain_event_publisher,
+        )
+        self.update_property_characteristics = UpdatePropertyCharacteristics(
             property_repo=property_repo,
             domain_event_publisher=domain_event_publisher,
         )

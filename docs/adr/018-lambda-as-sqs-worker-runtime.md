@@ -220,3 +220,19 @@ Terraform points each function at `data.archive_file.lambda_placeholder` — a o
 ### Tradeoff accepted
 
 - Two deploy artifacts: Docker image for EC2, zip+layer for Lambda. They're independent paths anyway — the EC2 deploy and the Lambda deploy don't share state. The single-image goal was an "if it's free" preference, not a hard requirement; it cost too much in Dockerfile complexity.
+
+## Addendum — 2026-05-13: Coolify as the active runtime
+
+Spec `2026-05-coolify-compose-prod` (paired with `2026-05-rabbitmq-transport-adapter`) supersedes this ADR's runtime choice. **Production now runs on Coolify** via `deploy/docker-compose.prod.yml`: nginx + api + three always-on long-running workers (`extraction-worker`, `enrichment-worker`, `listings-events-worker`) + rabbitmq + redis. Workers consume from RabbitMQ via the shared `EventBusWorker` poll loop on top of `RabbitMQMessageConsumer` (see [ADR-008 addendum](008-event-bus-ports-and-fanout.md#addendum--2026-05-13-rabbitmq-as-the-active-transport)).
+
+**What's dormant but kept:**
+
+- The Lambda entrypoints in `src/**/lambda_*.py` and the shared `lambda_handler.py` / `lambda_bootstrap.py`.
+- `terraform/production/lambda*.tf`, the SQS event-source-mappings, SNS topics + per-context queues.
+- The `.github/workflows/deploy.yml` CI pipeline (zip + layer publish + EC2 SSM redeploy).
+- `deploy/user_data.sh.tpl` (EC2 boot template).
+- The SNS+SQS adapter classes at `src/shared/events/adapters/sns_event_publisher.py` / `sqs_command_publisher.py` / `sqs_message_consumer.py`.
+
+To revert to the Lambda path, the operator restores the bootstrap import swap (replace RabbitMQ imports with SNS+SQS), re-enables the `aws_lambda_event_source_mapping` `enabled` terraform vars, and stops the Coolify deploy. The reverse-revert is a single import swap.
+
+**Why move off Lambda:** single-tenant deploy, cost + ops surface of running SNS + SQS + Lambda + EC2 + ALB doesn't justify the elasticity Lambda provides at this scale. Coolify's docker-compose runtime is one host, persistent volumes for RabbitMQ + Redis, and a much smaller AWS footprint (S3 only). Lambda + EC2 + Terraform are kept as an emergency escape hatch only.

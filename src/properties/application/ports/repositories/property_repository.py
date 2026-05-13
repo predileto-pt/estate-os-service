@@ -73,6 +73,16 @@ class PropertyRepository(ABC):
         ...
 
     @abstractmethod
+    async def update_characteristics(
+        self, property_id: UUID, characteristics: dict | None
+    ) -> None:
+        """Persist a characteristics change on a single property. Pass
+        `None` to clear. The aggregate version bump is driven separately
+        by `bump_aggregate_version`, same as every other update-style
+        write on this port."""
+        ...
+
+    @abstractmethod
     async def bump_aggregate_version(self, property_id: UUID) -> Property:
         """Atomically bump the property's aggregate_version + updated_at and
         return the refreshed aggregate.

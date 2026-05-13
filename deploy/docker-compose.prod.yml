@@ -1,31 +1,122 @@
-# Production compose — API service + opt-in worker fallback services.
+# Coolify production stack (spec 2026-05-coolify-compose-prod, ADR-018
+# addendum 2026-05-13).
 #
-# By default (`docker compose up -d`), only the `api` service starts.
-# Workers (property extraction, property enrichment, listings events)
-# run as AWS Lambda functions consuming from the SQS queues provisioned
-# in `terraform/production/sqs.tf` — see `terraform/production/lambda.tf`
-# and ADR-018.
+# Seven services: nginx (public ingress) + api (internal) + three
+# always-on workers + rabbitmq + redis. No `env_file:`; Coolify injects
+# values per-service from its UI. Shared env baseline comes from the
+# top-level `x-shared-env` anchor (YAML merge key `<<:`).
 #
-# The three worker services below sit under the `fallback` profile.
-# They are excluded from a normal `docker compose up` and are only
-# started by an operator as an explicit recovery step when Lambda is
-# disabled (e.g. `var.lambda_consumes_<queue> = false` after a
-# regression). Example:
+# `image:` + `restart:` are inlined per service rather than shared via
+# anchor — compose-go validates `image` before applying service-level
+# merge keys, so a `<<: *base-service` pattern fails compose-config.
+# The env-level `<<: *shared-env` inside `environment:` blocks DOES work
+# because it merges before validation.
 #
-#   docker compose --profile fallback up -d listings-events-worker
-#
-# Each fallback service uses `restart: "no"` — failing fast is the
-# correct behaviour for an emergency recovery container; the operator
-# decides whether to retry.
+# Lambda + EC2 paths in `terraform/production/` stay dormant but
+# available for emergency revert.
+
+x-shared-env: &shared-env
+  # Supabase admin
+  SUPABASE_URL: ${SUPABASE_URL}
+  SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+  SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+  # AWS — S3 only. AWS_ENDPOINT_URL deliberately absent (LocalStack-only;
+  # setting it in prod would point S3 clients at a dev endpoint).
+  AWS_REGION: ${AWS_REGION}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+  S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+  CONTRACT_S3_BUCKET_NAME: ${CONTRACT_S3_BUCKET_NAME}
+  # OpenAI
+  OPENAI_API_KEY: ${OPENAI_API_KEY}
+  # Reducto (document OCR — exercised by api + property/screening/contract
+  # workers that build Reducto clients in their container construction).
+  REDUCTO_API_KEY: ${REDUCTO_API_KEY}
+  # Admin DB (SQLAlchemy engine — api + screening/bookings/contract/listings
+  # workers all call create_async_engine(settings.database_url, ...)).
+  DATABASE_URL: ${DATABASE_URL}
+  # Screening encryption (RSA + HMAC). The screening worker's
+  # SqlAlchemyScreeningUnitOfWork calls load_private_key_from_env() at
+  # container construction — empty keys raise. Belongs in baseline so the
+  # workers don't fail to start.
+  ENCRYPTION_PUBLIC_KEY: ${ENCRYPTION_PUBLIC_KEY}
+  ENCRYPTION_PRIVATE_KEY: ${ENCRYPTION_PRIVATE_KEY}
+  ENCRYPTION_HMAC_KEY: ${ENCRYPTION_HMAC_KEY}
+  # Event bus: RabbitMQ. SNS_*/SQS_* deliberately absent — bootstrap.py
+  # constructs RabbitMQ publishers whenever an `amqp_connection` is passed
+  # in (no flag). SNS+SQS adapter classes are retained for the Lambda
+  # fallback path (dormant on Coolify); no env var feeds them here.
+  RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+  RABBITMQ_DOMAIN_EVENTS_EXCHANGE: domain-events
+  RABBITMQ_DLX: domain-events-dlx
+  # Command queue names — LITERAL values (not ${...} interpolation).
+  # Identical to the names worker entrypoints declare; api + workers
+  # publish to them via the RabbitMQ default exchange. Without these,
+  # command publishers route to "" and the broker drops every message
+  # as unroutable.
+  PROPERTY_EXTRACTION_QUEUE: property-extraction-queue
+  PROPERTY_ENRICHMENT_QUEUE: property-enrichment-queue
+  APPLICANT_EXTRACTION_QUEUE: applicant-extraction-queue
+  APPLICANT_SCREENING_QUEUE: applicant-screening-queue
+  CONTRACT_INGESTION_QUEUE: contract-ingestion-queue
+  CONTRACT_ANALYSIS_QUEUE: contract-analysis-queue
+  # App + observability
+  APP_ENV: ${APP_ENV}
+  LOG_LEVEL: ${LOG_LEVEL}
+  LOGFIRE_TOKEN: ${LOGFIRE_TOKEN}
+  LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+  LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+  LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL}
 
 services:
+  # ─── Public ingress ─────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # ─── API ────────────────────────────────────────────────────────────
   api:
     image: ${ECR_IMAGE}
-    command: ["uv", "run", "uvicorn", "shared.main:app", "--host", "0.0.0.0", "--port", "8000"]
-    ports:
-      - "8000:8000"
-    env_file: .env
     restart: unless-stopped
+    command: ["uv", "run", "uvicorn", "shared.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    expose:
+      - "8000"
+    environment:
+      <<: *shared-env
+      # Stripe
+      STRIPE_API_KEY: ${STRIPE_API_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_PRICE_PRO_MONTHLY: ${STRIPE_PRICE_PRO_MONTHLY}
+      STRIPE_PRICE_PRO_YEARLY: ${STRIPE_PRICE_PRO_YEARLY}
+      STRIPE_PRICE_ENTERPRISE_MONTHLY: ${STRIPE_PRICE_ENTERPRISE_MONTHLY}
+      STRIPE_PRICE_ENTERPRISE_YEARLY: ${STRIPE_PRICE_ENTERPRISE_YEARLY}
+      STRIPE_TRIAL_PERIOD_DAYS: ${STRIPE_TRIAL_PERIOD_DAYS}
+      # Portal Supabase + portal DB + session signing
+      SUPABASE_PORTAL_URL: ${SUPABASE_PORTAL_URL}
+      SUPABASE_PORTAL_JWT_SECRET: ${SUPABASE_PORTAL_JWT_SECRET}
+      SUPABASE_PORTAL_AUDIENCE: ${SUPABASE_PORTAL_AUDIENCE}
+      PORTAL_DATABASE_URL: ${PORTAL_DATABASE_URL}
+      SESSION_SIGNING_KEYS: ${SESSION_SIGNING_KEYS}
+      SESSION_SIGNING_ACTIVE_KEY: ${SESSION_SIGNING_ACTIVE_KEY}
+      SESSION_COOKIE_DOMAIN: ${SESSION_COOKIE_DOMAIN}
+      # Cache + listings flags
+      REDIS_URL: redis://redis:6379/0
+      LISTINGS_PAGE_CACHE_ENABLED: "true"
+      LISTINGS_SEARCH_ENABLED: ${LISTINGS_SEARCH_ENABLED}
+      # Misc api-only
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      APP_URL: ${APP_URL}
+      # Resend (transactional email — used by api invitation flow).
+      RESEND_API_KEY: ${RESEND_API_KEY}
+    depends_on:
+      - rabbitmq
+      - redis
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
@@ -33,23 +124,70 @@ services:
       retries: 3
       start_period: 15s
 
+  # ─── Workers ────────────────────────────────────────────────────────
   extraction-worker:
     image: ${ECR_IMAGE}
+    restart: unless-stopped
     command: ["uv", "run", "python", "-m", "properties.entrypoints.worker", "--queue", "extraction"]
-    env_file: .env
-    restart: "no"
-    profiles: ["fallback"]
+    environment:
+      <<: *shared-env
+    depends_on:
+      - rabbitmq
 
   enrichment-worker:
     image: ${ECR_IMAGE}
+    restart: unless-stopped
     command: ["uv", "run", "python", "-m", "properties.entrypoints.worker", "--queue", "enrichment"]
-    env_file: .env
-    restart: "no"
-    profiles: ["fallback"]
+    environment:
+      <<: *shared-env
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
+    depends_on:
+      - rabbitmq
 
   listings-events-worker:
     image: ${ECR_IMAGE}
+    restart: unless-stopped
     command: ["uv", "run", "python", "-m", "listings.entrypoints.events_worker"]
-    env_file: .env
-    restart: "no"
-    profiles: ["fallback"]
+    environment:
+      <<: *shared-env
+      LISTINGS_EMBEDDING_ENABLED: "true"
+      PINECONE_API_KEY: ${PINECONE_API_KEY}
+      PINECONE_HOST: ${PINECONE_HOST}
+      PINECONE_INDEX: ${PINECONE_INDEX}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS}
+      VECTOR_INDEX_NAMESPACE: ${VECTOR_INDEX_NAMESPACE}
+    depends_on:
+      - rabbitmq
+
+  # ─── Infrastructure ─────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  rabbitmq-data:
+  redis-data:
