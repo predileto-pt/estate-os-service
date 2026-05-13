@@ -53,6 +53,13 @@ from properties.adapters.persistence.supabase_property_repo import (
 from properties.adapters.places.google_places_service import GooglePlacesService
 from properties.adapters.storage.s3_document_storage import S3DocumentStorage
 from properties.container import Container as PropertyContainer
+from aio_pika.abc import AbstractRobustConnection
+
+from shared.events.adapters.rabbitmq_command_publisher import RabbitMQCommandPublisher
+from shared.events.adapters.rabbitmq_event_publisher import RabbitMQEventPublisher
+# SNS+SQS publishers are retained for the Lambda fallback path. Workers + API
+# always pass an `amqp_connection` and never enter the SNS+SQS branch; Lambda
+# entrypoints call with no args and get SNS+SQS publishers wired automatically.
 from shared.events.adapters.sns_event_publisher import SNSEventPublisher
 from shared.events.adapters.sqs_command_publisher import SQSCommandPublisher
 from shared.jobs.adapters.persistence.supabase_job_repository import (
@@ -212,7 +219,16 @@ async def get_container() -> Container:
     return _container
 
 
-async def get_property_container() -> PropertyContainer:
+async def get_property_container(
+    amqp_connection: AbstractRobustConnection | None = None,
+) -> PropertyContainer:
+    """Build the property container.
+
+    `amqp_connection` is the RabbitMQ connection the caller owns (workers
+    + api on Coolify). When omitted (Lambda fallback path), publishers
+    fall back to the SNS+SQS implementation — kept functional so Lambda
+    code can run unmodified if the deploy ever pivots back to AWS.
+    """
     global _property_container
     if _property_container is not None:
         return _property_container
@@ -239,24 +255,29 @@ async def get_property_container() -> PropertyContainer:
     document_classifier = OpenAITextDocumentClassifier(settings.openai_api_key)
     document_data_extractor = OpenAIIdDocumentExtractor(settings.openai_api_key)
 
-    session = aioboto3.Session(
-        aws_access_key_id=settings.aws_access_key_id,
-        aws_secret_access_key=settings.aws_secret_access_key,
-        region_name=settings.aws_region,
-    )
-    # Shared command publisher + domain-event publisher. Properties' legacy
-    # per-context SQSEventBus is gone (ADR-008); extraction commands go out
-    # via the canonical envelope on the same shared SQSCommandPublisher every
-    # other context uses.
-    command_publisher = SQSCommandPublisher(
-        session=session,
-        endpoint_url=settings.aws_endpoint_url,
-    )
-    domain_event_publisher = SNSEventPublisher(
-        session=session,
-        topic_arn_prefix=settings.sns_domain_events_topic_arn_prefix,
-        endpoint_url=settings.aws_endpoint_url,
-    )
+    # Publishers — RabbitMQ when the caller owns an AMQP connection
+    # (workers + api); SNS+SQS fallback for the Lambda path.
+    if amqp_connection is not None:
+        command_publisher = RabbitMQCommandPublisher(connection=amqp_connection)
+        domain_event_publisher = RabbitMQEventPublisher(
+            connection=amqp_connection,
+            exchange=settings.rabbitmq_domain_events_exchange,
+        )
+    else:
+        session = aioboto3.Session(
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+            region_name=settings.aws_region,
+        )
+        command_publisher = SQSCommandPublisher(
+            session=session,
+            endpoint_url=settings.aws_endpoint_url,
+        )
+        domain_event_publisher = SNSEventPublisher(
+            session=session,
+            topic_arn_prefix=settings.sns_domain_events_topic_arn_prefix,
+            endpoint_url=settings.aws_endpoint_url,
+        )
 
     places_service = GooglePlacesService(api_key=settings.google_maps_api_key)
     property_poi_repo = SupabasePropertyPoiRepository(client)
@@ -417,7 +438,9 @@ async def get_listing_container() -> ListingContainer:
     return _listing_container
 
 
-async def get_screening_container() -> ApplicantScreeningContainer:
+async def get_screening_container(
+    amqp_connection: AbstractRobustConnection | None = None,
+) -> ApplicantScreeningContainer:
     global _screening_container
     if _screening_container is not None:
         return _screening_container
@@ -452,18 +475,24 @@ async def get_screening_container() -> ApplicantScreeningContainer:
         aws_secret_access_key=settings.aws_secret_access_key,
     )
 
-    # SQS — shared command publisher; sends canonical DomainEvent envelopes.
-    boto_session = aioboto3.Session()
-    command_publisher = SQSCommandPublisher(
-        session=boto_session, endpoint_url=settings.aws_endpoint_url
-    )
-
-    # Domain event publisher (SNS fan-out — ADR-008).
-    domain_event_publisher = SNSEventPublisher(
-        session=boto_session,
-        topic_arn_prefix=settings.sns_domain_events_topic_arn_prefix,
-        endpoint_url=settings.aws_endpoint_url,
-    )
+    # Publishers — RabbitMQ when the caller owns an AMQP connection,
+    # SNS+SQS fallback for the Lambda path.
+    if amqp_connection is not None:
+        command_publisher = RabbitMQCommandPublisher(connection=amqp_connection)
+        domain_event_publisher = RabbitMQEventPublisher(
+            connection=amqp_connection,
+            exchange=settings.rabbitmq_domain_events_exchange,
+        )
+    else:
+        boto_session = aioboto3.Session()
+        command_publisher = SQSCommandPublisher(
+            session=boto_session, endpoint_url=settings.aws_endpoint_url
+        )
+        domain_event_publisher = SNSEventPublisher(
+            session=boto_session,
+            topic_arn_prefix=settings.sns_domain_events_topic_arn_prefix,
+            endpoint_url=settings.aws_endpoint_url,
+        )
 
     # AI adapters
     extractor = ReductoDocumentExtractor(api_key=settings.reducto_api_key)
@@ -510,7 +539,9 @@ async def get_booking_container() -> BookingContainer:
     return _booking_container
 
 
-async def get_contract_intelligence_container() -> ContractIntelligenceContainer:
+async def get_contract_intelligence_container(
+    amqp_connection: AbstractRobustConnection | None = None,
+) -> ContractIntelligenceContainer:
     global _contract_intelligence_container
     if _contract_intelligence_container is not None:
         return _contract_intelligence_container
@@ -526,7 +557,7 @@ async def get_contract_intelligence_container() -> ContractIntelligenceContainer
     )
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
-    # AWS / S3 / SQS
+    # AWS / S3 (file storage stays on S3 after the RabbitMQ swap).
     boto_session = aioboto3.Session(
         aws_access_key_id=settings.aws_access_key_id,
         aws_secret_access_key=settings.aws_secret_access_key,
@@ -539,17 +570,24 @@ async def get_contract_intelligence_container() -> ContractIntelligenceContainer
         endpoint_url=settings.aws_endpoint_url,
     )
 
-    command_publisher = SQSCommandPublisher(
-        session=boto_session,
-        endpoint_url=settings.aws_endpoint_url,
-    )
-
-    # Domain event publisher (SNS fan-out — ADR-008).
-    domain_event_publisher = SNSEventPublisher(
-        session=boto_session,
-        topic_arn_prefix=settings.sns_domain_events_topic_arn_prefix,
-        endpoint_url=settings.aws_endpoint_url,
-    )
+    # Publishers — RabbitMQ when the caller owns an AMQP connection,
+    # SNS+SQS fallback for the Lambda path.
+    if amqp_connection is not None:
+        command_publisher = RabbitMQCommandPublisher(connection=amqp_connection)
+        domain_event_publisher = RabbitMQEventPublisher(
+            connection=amqp_connection,
+            exchange=settings.rabbitmq_domain_events_exchange,
+        )
+    else:
+        command_publisher = SQSCommandPublisher(
+            session=boto_session,
+            endpoint_url=settings.aws_endpoint_url,
+        )
+        domain_event_publisher = SNSEventPublisher(
+            session=boto_session,
+            topic_arn_prefix=settings.sns_domain_events_topic_arn_prefix,
+            endpoint_url=settings.aws_endpoint_url,
+        )
 
     # AI adapters
     reducto = ReductoClient(api_key=settings.reducto_api_key)

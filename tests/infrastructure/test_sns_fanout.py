@@ -25,7 +25,7 @@ from shared.events.adapters.sns_event_publisher import SNSEventPublisher
 from shared.events.adapters.sqs_message_consumer import SQSMessageConsumer
 from shared.events.base import DomainEvent
 from shared.events.router import EventRouter
-from shared.events.worker import SQSWorker
+from shared.events.worker import EventBusWorker
 
 TOPIC_SUFFIX = "PROPERTY_CREATED-v1"
 EVENT_TYPE = "PROPERTY_CREATED.v1"
@@ -68,7 +68,7 @@ def sns_client(localstack_url, aws_credentials):
 
 
 async def _run_worker_until(
-    worker: SQSWorker, condition, max_iterations: int = 20, iteration_sleep: float = 0.2
+    worker: EventBusWorker, condition, max_iterations: int = 20, iteration_sleep: float = 0.2
 ) -> None:
     """Run the worker in the background until `condition()` returns True or we give up.
 
@@ -172,7 +172,7 @@ async def test_handler_isolation_failing_queue_dlqs_succeeding_queue_unaffected(
 
     failing_router.on(EVENT_TYPE, always_fails)
 
-    failing_worker = SQSWorker(
+    failing_worker = EventBusWorker(
         consumer=SQSMessageConsumer(
             session=session, queue_url=fail_q_url, endpoint_url=localstack_url
         ),
@@ -194,7 +194,7 @@ async def test_handler_isolation_failing_queue_dlqs_succeeding_queue_unaffected(
 
     ok_router.on(EVENT_TYPE, succeeds)
 
-    ok_worker = SQSWorker(
+    ok_worker = EventBusWorker(
         consumer=SQSMessageConsumer(
             session=session, queue_url=ok_q_url, endpoint_url=localstack_url
         ),

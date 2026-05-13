@@ -8,14 +8,15 @@ Centralized backend service for the Predileto platform, handling user/company ma
 - **FastAPI** (async)
 - **Supabase** (PostgreSQL + Auth)
 - **Resend** (transactional email)
-- **SQS** (event queue, LocalStack for local dev)
+- **RabbitMQ** (event bus — active transport since 2026-05-13, see [ADR-008 addendum](docs/adr/008-event-bus-ports-and-fanout.md#addendum--2026-05-13-rabbitmq-as-the-active-transport))
+- **S3** (file storage; LocalStack for local dev)
 - **structlog** (structured logging)
 - **pytest** (unit + integration tests with in-memory adapters)
 
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
-- [Docker](https://www.docker.com/) (for LocalStack)
+- [Docker](https://www.docker.com/) (for LocalStack + RabbitMQ + Redis)
 - PostgreSQL (Supabase-hosted or local)
 
 ## Setup
@@ -41,14 +42,11 @@ Edit `.env` with your values:
 | `SUPABASE_JWT_SECRET` | JWT secret for token verification |
 | `DATABASE_URL` | PostgreSQL connection for Alembic (`postgresql+asyncpg://...`) |
 | `RESEND_API_KEY` | [Resend](https://resend.com) API key |
-| `AWS_ENDPOINT_URL` | LocalStack endpoint (default: `http://localhost:4566`) |
-| `SNS_DOMAIN_EVENTS_TOPIC_ARN_PREFIX` | SNS topic ARN prefix for domain events (ADR-008 fan-out). Publisher resolves topic ARNs as `${prefix}${event_type.replace('.', '-')}` |
-| `SQS_CUSTOMERS_EVENTS_QUEUE_URL` / `_DLQ_URL` | Per-context domain-event queue for customers (subscribed to `APPLICANT_SCREENED.v1` SNS topic) + DLQ |
-| `SQS_BOOKINGS_EVENTS_QUEUE_URL` / `_DLQ_URL` | Per-context queue for bookings + DLQ |
-| `SQS_PROPERTIES_EVENTS_QUEUE_URL` / `_DLQ_URL` | Per-context queue for properties + DLQ |
-| `SQS_PROPERTY_EXTRACTION_QUEUE_URL` / `_DLQ_URL` | Command queue for property extraction + DLQ |
-| `SQS_APPLICANT_EXTRACTION_QUEUE_URL` / `_DLQ_URL` | Command queue for applicant document extraction + DLQ |
-| `SQS_APPLICANT_SCREENING_QUEUE_URL` / `_DLQ_URL` | Command queue for applicant screening + DLQ |
+| `AWS_ENDPOINT_URL` | LocalStack endpoint (default: `http://localhost:4566`). **Never set this in production** — it points S3 clients at a dev endpoint. |
+| `RABBITMQ_URL` | AMQP URL (default dev: `amqp://guest:guest@localhost:5672/`). Active event-bus transport since 2026-05-13 (ADR-008 addendum). |
+| `RABBITMQ_DOMAIN_EVENTS_EXCHANGE` | Topic exchange name (default `domain-events`). Publishers route by `event.event_type`; consumers bind queues with routing-key patterns. |
+| `RABBITMQ_DLX` | Dead-letter exchange name (default `domain-events-dlx`). Every queue declares it via `x-dead-letter-exchange`; the `dead-letters` queue is bound to it. |
+| `SNS_*` / `SQS_*` (legacy) | SNS+SQS adapter classes are retained for unit tests + emergency revert; no production code path reads these after the RabbitMQ cutover. |
 | `GOOGLE_MAPS_API_KEY` | Google Maps API key (Places API enabled) |
 | `APP_URL` | Frontend base URL (e.g. `http://localhost:4000`) — used to build Stripe Checkout success / cancel + Customer Portal return URLs |
 | `STRIPE_API_KEY` | Stripe secret key (sandbox: `sk_test_...`, prod: `sk_live_...`) |

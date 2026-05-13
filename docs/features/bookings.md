@@ -14,7 +14,7 @@ The `bookings` bounded context manages property visit slots and applicant bookin
 
 ## Cross-context integration
 
-Bookings consume the `APPLICANT_SCREENED.v1` event from `screening`. The bookings-events-queue subscribes to the `domain-events-APPLICANT_SCREENED-v1` SNS topic (ADR-008 fan-out) and `src/bookings/entrypoints/events_worker.py` runs the shared `SQSWorker` with `handle_applicant_screened` registered. The handler creates a `BookingApplicant` (idempotent on `external_id`) unless the risk is HIGH, in which case it raises `ApplicantRiskTooHighError` and the applicant is never persisted in this context.
+Bookings consume the `APPLICANT_SCREENED.v1` event from `screening`. The bookings-events-queue is bound to the `domain-events` topic exchange with routing-key `APPLICANT_SCREENED.v1` (ADR-008 + 2026-05-13 addendum) and `src/bookings/entrypoints/events_worker.py` runs the shared `EventBusWorker` with `handle_applicant_screened` registered. The handler creates a `BookingApplicant` (idempotent on `external_id`) unless the risk is HIGH, in which case it raises `ApplicantRiskTooHighError` and the applicant is never persisted in this context.
 
 ## Feature catalog
 

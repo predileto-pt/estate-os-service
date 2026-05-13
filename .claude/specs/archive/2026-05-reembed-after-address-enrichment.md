@@ -1,6 +1,6 @@
 # Re-embed listings after address enrichment lands
 
-**Status:** draft
+**Status:** shipped
 **Created:** 2026-05-09
 
 ## Symptom

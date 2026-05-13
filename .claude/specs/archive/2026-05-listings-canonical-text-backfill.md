@@ -1,6 +1,6 @@
 # Listings canonical-text backfill CLI
 
-**Status:** draft
+**Status:** shipped
 **Created:** 2026-05-09
 
 ## Problem

@@ -1,6 +1,6 @@
 # Portal session backend (anonymous + claimable)
 
-**Status:** in-progress
+**Status:** shipped
 **Owner:** Peter
 **Created:** 2026-05-11
 **Revised:**

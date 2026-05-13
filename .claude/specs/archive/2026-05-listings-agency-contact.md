@@ -1,6 +1,6 @@
 # Listings — agency contact on the projection
 
-**Status:** in-progress
+**Status:** shipped
 **Owner:** Peter
 **Created:** 2026-05-11
 

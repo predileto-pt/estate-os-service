@@ -1,4 +1,4 @@
-"""Shared SQSWorker — ack/nack/heartbeat/drain behaviour.
+"""Shared EventBusWorker — ack/nack/heartbeat/drain behaviour.
 
 Uses `InMemoryMessageConsumer` to drive the worker deterministically.
 """
@@ -11,14 +11,14 @@ from shared.events.adapters.inmemory_event_bus import (
 )
 from shared.events.base import DomainEvent
 from shared.events.router import EventRouter
-from shared.events.worker import SQSWorker
+from shared.events.worker import EventBusWorker
 
 
 def _event(event_type: str = "X.v1") -> DomainEvent:
     return DomainEvent(event_type=event_type, data={"foo": "bar"})
 
 
-async def _run_one_loop(worker: SQSWorker) -> None:
+async def _run_one_loop(worker: EventBusWorker) -> None:
     """Stop the worker after one successful poll cycle.
 
     We use a side-channel: set `_running = False` before entering the loop so
@@ -48,7 +48,7 @@ class TestHandlerSuccess:
         router = EventRouter()
         router.on("OK.v1", handler)
 
-        worker = SQSWorker(
+        worker = EventBusWorker(
             consumer=consumer,
             router=router,
             context={},
@@ -77,7 +77,7 @@ class TestHandlerFailure:
         router = EventRouter()
         router.on("FAIL.v1", handler)
 
-        worker = SQSWorker(
+        worker = EventBusWorker(
             consumer=consumer,
             router=router,
             context={},
@@ -105,7 +105,7 @@ class TestHandlerFailure:
 
         router = EventRouter()  # no handlers registered
 
-        worker = SQSWorker(
+        worker = EventBusWorker(
             consumer=consumer,
             router=router,
             context={},
@@ -149,7 +149,7 @@ class TestHeartbeat:
             router = EventRouter()
             router.on("SLOW.v1", handler)
 
-            worker = SQSWorker(
+            worker = EventBusWorker(
                 consumer=consumer,
                 router=router,
                 context={},
@@ -177,7 +177,7 @@ class TestDrain:
     """
 
     async def test_drain_no_op_when_empty(self) -> None:
-        worker = SQSWorker(
+        worker = EventBusWorker(
             consumer=InMemoryMessageConsumer(),
             router=EventRouter(),
             context={},
@@ -201,7 +201,7 @@ class TestDrain:
                 cancel_observed.set()
                 raise
 
-        worker = SQSWorker(
+        worker = EventBusWorker(
             consumer=InMemoryMessageConsumer(),
             router=EventRouter(),
             context={},
@@ -225,7 +225,7 @@ class TestDrain:
             await asyncio.sleep(0)
             completed.set()
 
-        worker = SQSWorker(
+        worker = EventBusWorker(
             consumer=InMemoryMessageConsumer(),
             router=EventRouter(),
             context={},

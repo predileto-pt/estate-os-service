@@ -1,17 +1,17 @@
-"""Customers domain-event worker CLI.
+"""Customers/organizations domain-event worker CLI.
 
-Consumes the per-context `customers-events-queue`, subscribed to the
-APPLICANT_SCREENED.v1 SNS topic. Dispatches to
-`handle_applicant_screened`, which sends the screening-complete email
-to the org owner.
+Consumes the per-context `customers-events-queue`, bound to the
+`APPLICANT_SCREENED.v1` event on the `domain-events` topic exchange.
+Dispatches to `handle_applicant_screened`, which sends the
+screening-complete email to the org owner.
 
-Runs the shared `SQSWorker` (ADR-008).
+Runs the shared `EventBusWorker` (ADR-008).
 """
 
 import argparse
 import asyncio
 
-import aioboto3
+import aio_pika
 import structlog
 
 from organizations.adapters.workers.event_processor import handle_applicant_screened
@@ -21,10 +21,10 @@ from shared.entrypoints.bootstrap import (
     get_container,
     get_property_container,
 )
-from shared.events.adapters.sqs_message_consumer import SQSMessageConsumer
+from shared.events.adapters.rabbitmq_message_consumer import RabbitMQMessageConsumer
 from shared.events.router import EventRouter
 from shared.events.types import APPLICANT_SCREENED_V1
-from shared.events.worker import SQSWorker
+from shared.events.worker import EventBusWorker
 
 log = structlog.get_logger()
 
@@ -32,38 +32,38 @@ log = structlog.get_logger()
 async def _run_events_worker() -> None:
     settings = Settings()
     setup_logging(settings.log_level)
-    session = aioboto3.Session(
-        aws_access_key_id=settings.aws_access_key_id,
-        aws_secret_access_key=settings.aws_secret_access_key,
-        region_name=settings.aws_region,
-    )
+    connection = await aio_pika.connect_robust(settings.rabbitmq_url, heartbeat=30)
+    try:
+        router = EventRouter()
+        router.on(APPLICANT_SCREENED_V1, handle_applicant_screened)
 
-    router = EventRouter()
-    router.on(APPLICANT_SCREENED_V1, handle_applicant_screened)
+        # Context dict carries per-context containers so the handler can
+        # reach into the customers container for the email service.
+        context = {
+            "customer": await get_container(),
+            "property": await get_property_container(connection),
+            "booking": await get_booking_container(),
+        }
 
-    # Context dict carries per-context containers so the handler can reach
-    # into the customers container for the email service.
-    context = {
-        "customer": await get_container(),
-        "property": await get_property_container(),
-        "booking": await get_booking_container(),
-    }
-
-    consumer = SQSMessageConsumer(
-        session=session,
-        queue_url=settings.sqs_customers_events_queue_url,
-        endpoint_url=settings.aws_endpoint_url,
-    )
-    worker = SQSWorker(
-        consumer=consumer,
-        router=router,
-        context=context,
-        worker_name="customers_events_worker",
-        use_heartbeat=True,
-        heartbeat_interval=60,
-        heartbeat_extension=120,
-    )
-    await worker.run()
+        consumer = RabbitMQMessageConsumer(
+            connection=connection,
+            queue_name="customers-events-queue",
+            bindings=[
+                (settings.rabbitmq_domain_events_exchange, "APPLICANT_SCREENED.v1"),
+            ],
+            prefetch_count=5,
+            dlx=settings.rabbitmq_dlx,
+        )
+        worker = EventBusWorker(
+            consumer=consumer,
+            router=router,
+            context=context,
+            worker_name="customers_events_worker",
+            use_heartbeat=False,
+        )
+        await worker.run()
+    finally:
+        await connection.close()
 
 
 def main() -> None:

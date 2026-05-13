@@ -138,7 +138,7 @@ It consumes seven SNS topics via a single `listings-events-queue` — four upstr
 
 After every applied projector upsert, `handle_property_event` publishes both `PROPERTY_LISTING_NEEDS_ADDRESS_ENRICHMENT.v1` (the existing precedent) and `PROPERTY_LISTING_UPDATED.v1` (new — spec `2026-05-listing-semantic-search`). Each lands on its own SNS topic so a poisoned LLM call DLQs only the address-enrichment event, an embedding failure DLQs only the embedding event, and the projected row stays alive throughout.
 
-Worker uses the shared `SQSWorker` (ADR-008) with heartbeat-extended visibility so long LLM calls on enrichment don't trip visibility-timeout redelivery.
+Worker uses the shared `EventBusWorker` (ADR-008). On RabbitMQ, the broker-side `consumer_timeout` (default 30 min) is the upper bound for handler runtime — comfortably above today's enrichment p99. See [ADR-008 addendum](../adr/008-event-bus-ports-and-fanout.md#addendum--2026-05-13-rabbitmq-as-the-active-transport).
 
 See the shared worker pattern in the root `README.md` → *Domain events* section.
 

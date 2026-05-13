@@ -1,19 +1,17 @@
-"""Shared SQS-flavoured worker for the event bus.
+"""Shared event-bus worker.
 
-One `SQSWorker` class. Every context — domain-event consumers AND
+One `EventBusWorker` class. Every context — domain-event consumers AND
 command-queue consumers — reuses it. ADR-006 semantics: client reuse,
 batch polling, bounded concurrency, contextvars, heartbeat, drain.
 
 Failure semantics (single rule for every worker):
 
-    handler raises → worker nacks → SQS redelivers up to `maxReceiveCount`
-    → message lands in the queue's DLQ.
-
-See §Behaviour change in the spec for why this differs from today's
-command-queue workers (which ack-and-delete on error).
+    handler raises → worker nacks → broker redelivers up to the queue's
+    delivery limit → message lands in the queue's DLQ.
 """
 
 import asyncio
+import os
 import signal
 import time
 from typing import Any
@@ -47,7 +45,7 @@ async def _heartbeat(msg: Message, interval: int, extension: int) -> None:
         log.debug("heartbeat_stopped", total_extensions=extensions)
 
 
-class SQSWorker:
+class EventBusWorker:
     """Port-based worker. See module docstring for failure semantics."""
 
     def __init__(
@@ -187,5 +185,21 @@ class SQSWorker:
             clear_contextvars()
 
     def _shutdown(self) -> None:
-        log.info(f"{self._worker_name}_shutting_down")
+        # Go-style two-strike shutdown:
+        # - First SIGINT / SIGTERM: flip _running, let the poll loop drain
+        #   in-flight handlers up to drain_timeout.
+        # - Second signal: brutally kill the process via os._exit. No atexit
+        #   hooks run, no buffers flush, no drain — pid dies immediately.
+        #   Unacked broker messages stay unacked → redelivered to the next
+        #   consumer attach (safe by construction).
+        if not self._running:
+            log.warning(
+                f"{self._worker_name}_force_quit",
+                in_flight=len(self._in_flight),
+            )
+            os._exit(130)  # 128 + SIGINT
+        log.info(
+            f"{self._worker_name}_shutting_down",
+            hint="ctrl-c again to force quit",
+        )
         self._running = False

@@ -46,7 +46,7 @@ contract_intelligence → DOCUMENT_INGESTION_REQUESTED.v1 → ingestion_processo
                       → DOCUMENT_ANALYSIS_REQUESTED.v1  → analysis_processor
 ```
 
-All handlers share one signature: `(event: DomainEvent, context: Any) -> None`. All handlers run on the shared `SQSWorker` (`src/shared/events/worker.py`).
+All handlers share one signature: `(event: DomainEvent, context: Any) -> None`. All handlers run on the shared `EventBusWorker` (`src/shared/events/worker.py`).
 
 ## Reading order for new engineers
 

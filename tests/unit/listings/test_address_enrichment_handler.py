@@ -4,7 +4,7 @@ Three cases:
 - Searcher succeeds → row's parish/municipality/district patched (PT
   shape), `location_enrichment_attempts` bumped.
 - Searcher raises → handler increments attempts AND re-raises
-  `AddressParseError` so the shared SQSWorker nacks and SQS redelivers.
+  `AddressParseError` so the shared EventBusWorker nacks and broker redelivers.
 - Row already deleted (enrichment message lagged behind a DELETED event)
   → handler logs and returns without raising.
 """

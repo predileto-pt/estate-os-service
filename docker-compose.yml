@@ -1,17 +1,38 @@
 volumes:
   localstack_data:
+  rabbitmq_data:
 
 services:
   localstack:
+    # S3-only after the RabbitMQ cutover (ADR-008 addendum 2026-05-13).
+    # SNS topics + SQS queues are no longer provisioned by the init script.
     image: localstack/localstack:latest
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=sqs,sns,s3
+      - SERVICES=s3
       - DEFAULT_REGION=eu-west-1
     volumes:
       - "./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh"
       - "localstack_data:/var/lib/localstack"
+
+  rabbitmq:
+    # Active event-bus transport. The management UI at
+    # http://localhost:15672 (guest/guest) is handy for inspecting
+    # exchanges, queues, bindings, and the `dead-letters` queue during
+    # development.
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
 
   redis:
     image: redis:7-alpine

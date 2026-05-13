@@ -197,3 +197,40 @@ The foundation spec is the big hairy one. It is a breaking change to internal in
 - **Transactional outbox** to close the commit-then-publish race window.
 - **Kafka adapter** for event retention + replay, if we ever need either.
 - **Per-event-type retention tuning** (some events we want to retain for weeks, others are ephemeral).
+
+## Addendum — 2026-05-13: RabbitMQ as the active transport
+
+Spec `2026-05-rabbitmq-transport-adapter` lands three new adapters in `src/shared/events/adapters/` — `RabbitMQEventPublisher`, `RabbitMQCommandPublisher`, `RabbitMQMessageConsumer` (+ `RabbitMQMessage`) — built on `aio-pika`. The four Protocol ports are unchanged; this validates the ADR's "pluggable transport" claim.
+
+**The cutover is one-way.** `src/shared/entrypoints/bootstrap.py` now imports the RabbitMQ adapters directly — no runtime `EVENT_BUS_BACKEND` flag. The SNS+SQS adapter classes stay in the repo for unit tests + emergency revert; no production code path imports them.
+
+**Topology mapping (SQS → RabbitMQ):**
+
+| SNS/SQS concept | RabbitMQ equivalent |
+|---|---|
+| SNS topic per event_type | Topic exchange `domain-events`, routing-key = `event.event_type` |
+| Per-context SQS queue subscribed to multiple SNS topics | Queue bound to `domain-events` with multiple routing-key patterns |
+| SQS `maxReceiveCount=5` | Queue arg `x-delivery-limit=5` on a `quorum` queue |
+| Per-queue DLQ via redrive policy | Single global DLX `domain-events-dlx` (fanout), one `dead-letters` queue bound to it. `x-death` headers identify origin |
+| SNS `publish` durability | Channel-per-publish with `publisher_confirms=True` |
+| SQS visibility timeout + heartbeat | Broker-side `consumer_timeout` (default 30 min); `extend_visibility` is a no-op on the consumer |
+| Command-queue routing (point-to-point) | Default exchange (`""`), routing-key = queue name, `mandatory=True` (publisher raises on misroute) |
+
+**Reliability primitives** (all set explicitly because RabbitMQ doesn't provide them implicitly):
+
+- Publisher confirms on every channel.
+- `delivery_mode=PERSISTENT` (=2) on every publish.
+- `basic.qos(prefetch_count=max_concurrency)` on every consumer (=5, matches worker's `Semaphore(5)`).
+- `mandatory=True` on the command publisher so a misroute is loud.
+- AMQP heartbeat = 30s on `connect_robust`.
+- One channel per publish (cheap; isolates channel-level errors).
+- Internal `asyncio.Queue` buffer in the consumer adapter bridges RabbitMQ's push model to the `MessageConsumer.poll()` pull contract.
+
+**Idempotency property is now load-bearing.** RabbitMQ is at-least-once like SQS, but reconnect storms re-deliver every unacked message *immediately* (vs. SQS's "wait for visibility timeout"). Handlers must be idempotent.
+
+**Worker class renamed `SQSWorker` → `EventBusWorker`** in the same spec since it's transport-agnostic post-cutover (depends only on the `MessageConsumer` Protocol). All 6 context worker entrypoints updated to import the new name. Worker entrypoints also pass `use_heartbeat=False` on `EventBusWorker` — the `_heartbeat` task calls `extend_visibility` which is a no-op on RabbitMQ.
+
+**Operational handoff:**
+
+- Dev: `docker compose up -d` now runs `rabbitmq:3.13-management-alpine` (5672 + 15672, guest/guest). LocalStack is S3-only.
+- Prod (Coolify): handled by spec `2026-05-coolify-compose-prod`.

@@ -1,6 +1,6 @@
 # Property listing address enrichment — country-aware searcher, no exposed street
 
-**Status:** in-progress (v5 — postal_code is an event-only / LLM-input signal, never persisted on `property_listings`)
+**Status:** shipped
 **Owner:** Peter
 **Created:** 2026-05-09
 

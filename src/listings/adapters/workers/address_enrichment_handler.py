@@ -10,7 +10,7 @@ implemented.
 Runs on the listings context worker, same queue as the projector but a
 separate event type. If the searcher raises (LLM error, invalid
 output, country not yet implemented), the handler re-raises — the
-shared `SQSWorker` does not ack, SQS redelivers up to
+shared `EventBusWorker` does not ack, broker redelivers up to
 `maxReceiveCount=5`, message lands in the DLQ. Crucially, the original
 `property_listings` row already exists (projector ran successfully
 and inserted with NULL location), so users still see the listing

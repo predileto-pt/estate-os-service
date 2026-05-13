@@ -5,9 +5,9 @@ Every constant is versioned via a `.v1` suffix on the string value
 Schema evolution is "publish V2 alongside V1, migrate consumers, drop V1".
 
 Events and commands live side-by-side: both use the same `DomainEvent`
-envelope, same `SQSWorker`, same handler signature. The distinction is
-only in HOW they're published — domain events via SNS fan-out
-(`EventPublisher`), commands via direct SQS send (`CommandPublisher`).
+envelope, same `EventBusWorker`, same handler signature. The distinction is
+only in HOW they're published — domain events via topic-exchange fan-out
+(`EventPublisher`), commands via direct send (`CommandPublisher`).
 """
 
 # --- Domain events (broadcast via SNS) ---

@@ -1,4 +1,4 @@
-"""SQSWorker handler for ENRICH_PROPERTY_REQUESTED.v1.
+"""EventBusWorker handler for ENRICH_PROPERTY_REQUESTED.v1.
 
 Pulls the property_id / force / requested_by_user_id from the command
 payload and dispatches to the orchestrator (`EnrichProperty`).

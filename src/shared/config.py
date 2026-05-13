@@ -95,9 +95,15 @@ class Settings(BaseSettings):
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
 
-    # Domain events (SNS fan-out — ADR-008). The publisher resolves the topic
-    # ARN per event type: `${prefix}${event_type.replace('.', '-')}`.
-    # Example: `arn:aws:sns:eu-west-1:123:domain-events-PROPERTY_CREATED-v1`.
+    # RabbitMQ — active event-bus transport (ADR-008 addendum 2026-05-13).
+    # `bootstrap.py` imports the RabbitMQ adapters directly; SNS+SQS settings
+    # below are kept for the retained-but-unused adapter unit tests.
+    rabbitmq_url: str = ""  # e.g. amqp://guest:guest@localhost:5672/
+    rabbitmq_domain_events_exchange: str = "domain-events"
+    rabbitmq_dlx: str = "domain-events-dlx"
+
+    # Domain events (SNS fan-out — ADR-008, legacy). Kept for SNS+SQS adapter
+    # unit tests; no production code path reads it after the RabbitMQ swap.
     sns_domain_events_topic_arn_prefix: str = ""
 
     # Per-context domain-event SQS queues (each subscribed to the SNS topics

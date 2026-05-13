@@ -37,7 +37,7 @@ bash scripts/migrate_portal.sh current
 # Prune stale anonymous portal sessions (run daily via external scheduler)
 uv run python -m sessions.entrypoints.prune_stale_anonymous
 
-# Start LocalStack (SQS/S3)
+# Start LocalStack (S3) + RabbitMQ + Redis
 docker compose up -d
 ```
 
@@ -49,7 +49,7 @@ Hexagonal (ports & adapters) architecture with three layers:
 
 - **Domain** (`domain/`) — Pure business logic with no external dependencies. Contains entities, value objects (frozen dataclasses), domain events, and domain exceptions.
 - **Application** (`application/`) — Orchestration layer. **Ports** define abstract interfaces (repository ABCs, service protocols). **Use cases** are individual classes with an async `execute()` method.
-- **Adapters** (`adapters/`) — Concrete implementations. Inbound: FastAPI routes and middleware. Outbound: Supabase repositories, Resend email, SQS event bus, OpenAI document extraction. Test doubles: in-memory implementations in `adapters/inmemory/`.
+- **Adapters** (`adapters/`) — Concrete implementations. Inbound: FastAPI routes and middleware. Outbound: Supabase repositories, Resend email, RabbitMQ event bus, S3 file storage, OpenAI document extraction. Test doubles: in-memory implementations in `adapters/inmemory/`.
 
 ## Bounded Contexts
 
@@ -77,14 +77,11 @@ Routes access use cases through `request.app.state.<context>_container.<use_case
 
 ## Worker runtime
 
-Production workers (`property-extraction`, `property-enrichment`, `listings-events`) run as **AWS Lambda functions** invoked by SQS event source mappings (`batch_size = 1`). See [ADR-018](docs/adr/018-lambda-as-sqs-worker-runtime.md). The Lambda entrypoints live alongside the long-running CLI entrypoints:
+Workers run the long-running `EventBusWorker` poll loop (`src/shared/events/worker.py`) against a RabbitMQ transport. Each worker entrypoint opens **one** `aio_pika.connect_robust` per process (with `heartbeat=30`) and passes it to both the consumer and the bootstrap publishers; the connection closes via `try/finally` after `worker.run()` returns (i.e. after drain completes). See [ADR-008 addendum](docs/adr/008-event-bus-ports-and-fanout.md#addendum--2026-05-13-rabbitmq-as-the-active-transport) for the full topology mapping (SQS → RabbitMQ) and reliability primitives.
 
-- `src/shared/events/lambda_handler.py` — shared `make_handler(router, build_context)` factory.
-- `src/shared/events/lambda_bootstrap.py` — cold-start Secrets Manager → `os.environ`. Imported as the first line of every Lambda entrypoint.
-- `src/properties/entrypoints/lambda_extraction.py`, `lambda_enrichment.py`
-- `src/listings/entrypoints/lambda_events.py`
+**Handlers must be idempotent.** RabbitMQ is at-least-once, and reconnect storms re-deliver every unacked message immediately (vs. SQS's "wait for visibility timeout"). The duplicate-processing potential is more load-bearing than under SQS.
 
-The corresponding `worker.py` / `events_worker.py` files (running the shared `SQSWorker` poll loop) are retained for **local development** and as an **emergency fallback** runnable on the EC2 via `docker compose --profile fallback up -d <service>`. Handler code in `adapters/workers/*` is shared between both paths.
+The SNS+SQS adapter classes at `src/shared/events/adapters/sns_event_publisher.py` / `sqs_command_publisher.py` / `sqs_message_consumer.py` are retained for unit tests + emergency revert but no production code path imports them after the 2026-05-13 cutover. AWS Lambda entrypoints (`src/**/lambda_*.py`) and `terraform/production/lambda*.tf` are dormant and would need bootstrap-import revert + connection plumbing to run again — see ADR-018 + the rabbitmq-transport-adapter spec for context.
 
 ## Key Conventions
 

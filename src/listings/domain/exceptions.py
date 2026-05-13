@@ -22,9 +22,9 @@ class EmptyLocationFilterError(Exception):
 class AddressParseError(Exception):
     """The address parser (LLM) failed to resolve a property's address.
 
-    Raised by the enrichment handler; causes the shared `SQSWorker` to
-    nack the enrichment event so SQS redelivers it up to
-    `maxReceiveCount` before the message lands in the DLQ. The
+    Raised by the enrichment handler; causes the shared `EventBusWorker` to
+    nack the enrichment event so the broker redelivers it up to the
+    queue's delivery limit before the message lands in the DLQ. The
     `property_listings` row is left in place with NULL location.
     """
 

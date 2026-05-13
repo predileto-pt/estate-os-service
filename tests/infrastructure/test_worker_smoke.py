@@ -3,7 +3,7 @@
 Three acceptance criteria from the foundation spec:
 
 1. **Worker smoke** — publish a canonical `DomainEvent` via
-   `SQSCommandPublisher.send()`, run the shared `SQSWorker` with a
+   `SQSCommandPublisher.send()`, run the shared `EventBusWorker` with a
    handler, observe the handler is invoked and the message is ack'd.
 2. **DLQ routing** — handler always raises an unhandled `RuntimeError`.
    After `maxReceiveCount` redeliveries, the message lands in the DLQ
@@ -13,7 +13,7 @@ Three acceptance criteria from the foundation spec:
    the handler, which returns normally. The worker ack's after ONE
    attempt; the message does NOT redeliver.
 
-Tests use the shared `SQSWorker` with a short-poll consumer and a
+Tests use the shared `EventBusWorker` with a short-poll consumer and a
 redrive policy set to `maxReceiveCount=2` + `VisibilityTimeout=1s` so
 the DLQ flow completes in a few seconds instead of minutes.
 """
@@ -29,7 +29,7 @@ from shared.events.adapters.sqs_command_publisher import SQSCommandPublisher
 from shared.events.adapters.sqs_message_consumer import SQSMessageConsumer
 from shared.events.base import DomainEvent
 from shared.events.router import EventRouter
-from shared.events.worker import SQSWorker
+from shared.events.worker import EventBusWorker
 
 EVENT_TYPE = "TEST_COMMAND.v1"
 
@@ -54,7 +54,7 @@ def _create_queue_with_redrive(
 
 
 async def _run_worker_until(
-    worker: SQSWorker, condition: Callable[[], bool], timeout: float = 20.0
+    worker: EventBusWorker, condition: Callable[[], bool], timeout: float = 20.0
 ) -> None:
     """Drive the worker's run loop until `condition()` is True or `timeout` s elapse."""
     task = asyncio.create_task(worker.run())
@@ -99,7 +99,7 @@ async def test_smoke_happy_path(localstack_url, aws_credentials, sqs_client):
     router.on(EVENT_TYPE, handler)
 
     consumer = SQSMessageConsumer(session=session, queue_url=queue_url, endpoint_url=localstack_url)
-    worker = SQSWorker(
+    worker = EventBusWorker(
         consumer=consumer,
         router=router,
         context={},
@@ -138,7 +138,7 @@ async def test_dlq_routes_after_max_receive_count(localstack_url, aws_credential
     router.on(EVENT_TYPE, always_raises)
 
     consumer = SQSMessageConsumer(session=session, queue_url=queue_url, endpoint_url=localstack_url)
-    worker = SQSWorker(
+    worker = EventBusWorker(
         consumer=consumer,
         router=router,
         context={},
@@ -194,7 +194,7 @@ async def test_expected_exception_caught_in_handler_acks_after_one_attempt(
     router.on(EVENT_TYPE, handler)
 
     consumer = SQSMessageConsumer(session=session, queue_url=queue_url, endpoint_url=localstack_url)
-    worker = SQSWorker(
+    worker = EventBusWorker(
         consumer=consumer,
         router=router,
         context={},

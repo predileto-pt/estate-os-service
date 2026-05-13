@@ -1,6 +1,6 @@
 # Listing concierge — grounded conversational sales agent (ADR-017)
 
-**Status:** draft
+**Status:** shipped
 **Owner:** Peter
 **Created:** 2026-05-12
 **Revised:**

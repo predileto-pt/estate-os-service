@@ -1,6 +1,6 @@
 # Pinecone VectorIndex contract-test parametrization
 
-**Status:** draft
+**Status:** shipped
 **Created:** 2026-05-09
 
 ## Problem

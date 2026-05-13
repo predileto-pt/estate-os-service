@@ -390,7 +390,7 @@ Remove one POI. Same cross-org + cross-property defense as `UpdatePropertyPoi`. 
 
 ## Workers
 
-All three properties workers run on the shared `src/shared/events/worker.py:SQSWorker` (ADR-008). Handlers take `(event: DomainEvent, container) -> None`.
+All three properties workers run on the shared `src/shared/events/worker.py:EventBusWorker` (ADR-008). Handlers take `(event: DomainEvent, container) -> None`.
 
 | Worker | CLI | Queue / Topic | Handlers |
 |---|---|---|---|
