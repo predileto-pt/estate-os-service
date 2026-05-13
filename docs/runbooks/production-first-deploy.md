@@ -152,29 +152,57 @@ terraform output  # note: alb_dns_name, acm_validation_record_name,
 
 ## 3. DNS records — ACM validation + ALB
 
-In the DNS provider (Vercel for `predileto.pt`):
+You need to add **two CNAMEs** to Vercel's DNS for `predileto.pt`. Skipping the second is a common foot-gun — the cert validates fine but no traffic reaches the ALB because `api.predileto.pt` doesn't resolve. The 502 you'd see is misleading (it implies traffic reached *something*); the actual symptom of a missing host CNAME is `NXDOMAIN` on `dig api.predileto.pt`.
 
-1. **ACM cert validation** — add a CNAME with:
-   - `Name`: the **prefix only** from `acm_validation_record_name` (strip the trailing `.predileto.pt`). Vercel auto-appends the apex; pasting the full FQDN gives you `_xyz.api.predileto.pt.predileto.pt`, which silently doesn't resolve.
-   - `Value`: full string from `acm_validation_record_value` (Vercel normalises trailing dots).
+| # | Type | Name in Vercel | Value | Purpose |
+|---|---|---|---|---|
+| 1 | CNAME | `_<hex>.api` | `_<hex>.<region>.acm-validations.aws` | Lets ACM issue + renew the cert |
+| 2 | CNAME | `api` | `<alb-name>.elb.amazonaws.com` | Routes real HTTPS traffic to the ALB |
 
-   Verify the record is live before waiting on ACM:
+Both Name fields are **prefixes only** — Vercel auto-appends `.predileto.pt`. Pasting the full FQDN gives you `_xyz.api.predileto.pt.predileto.pt`, which silently doesn't resolve.
 
-   ```bash
-   dig +short CNAME _<validation-prefix>.api.predileto.pt @8.8.8.8
-   # Should return the acm-validations.aws target. Empty = Vercel didn't save the record.
-   ```
+### CNAME #1 — ACM cert validation
 
-   Then poll ACM (1–10 min once DNS is live + CAA is correct):
+Add a CNAME with:
 
-   ```bash
-   aws acm describe-certificate \
-     --certificate-arn $(terraform output -raw acm_cert_arn) \
-     --region eu-west-3 --query 'Certificate.Status' --output text
-   # Expect: ISSUED
-   ```
+- `Name`: the prefix-only portion of `acm_validation_record_name` (strip the trailing `.predileto.pt`).
+- `Value`: full string from `acm_validation_record_value` (Vercel normalises trailing dots).
 
-2. **API host** — add a CNAME from `api.predileto.pt` → `alb_dns_name`. After DNS propagation, HTTPS will serve from `https://api.predileto.pt` once the API container is running (step 6).
+Verify the record is live before waiting on ACM:
+
+```bash
+dig +short CNAME _<validation-prefix>.api.predileto.pt @8.8.8.8
+# Should return the acm-validations.aws target. Empty = Vercel didn't save the record.
+```
+
+Then poll ACM (1–10 min once DNS is live + CAA is correct):
+
+```bash
+aws acm describe-certificate \
+  --certificate-arn $(terraform output -raw acm_cert_arn) \
+  --region eu-west-3 --query 'Certificate.Status' --output text
+# Expect: ISSUED
+```
+
+### CNAME #2 — API host
+
+Add a CNAME with:
+
+- `Name`: `api` (just the subdomain prefix — Vercel auto-appends `.predileto.pt`).
+- `Value`: output of `terraform output -raw alb_dns_name` (looks like `estate-os-service-prod-alb-123456.eu-west-3.elb.amazonaws.com`).
+
+This is the record that actually routes traffic. Without it, the ACM cert can be perfectly valid and the ALB perfectly healthy, but `https://api.predileto.pt` returns DNS resolution failure because no public DNS entry exists for that hostname.
+
+Verify:
+
+```bash
+dig +short CNAME api.predileto.pt @8.8.8.8
+# Should return the ALB DNS name. Empty = the host CNAME isn't set up yet.
+
+# Once dig returns the ALB hostname AND the cert is ISSUED AND the API
+# container is running (step 6), this should return 2xx:
+curl -i https://api.predileto.pt/api/v1/health
+```
 
 ### If the cert flips to `FAILED`
 
