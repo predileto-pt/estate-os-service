@@ -1,10 +1,14 @@
 name: Deploy to production
 
-# Trigger: push to main. `workflow_dispatch` lets you re-run a deploy
-# without an empty commit (e.g. after rotating a Secrets Manager value).
+# DISABLED 2026-05-13: migrating to Coolify; the AWS deploy pipeline
+# (docker on EC2 + Lambda zips) is paused while that lands. The
+# workflow file is retained for reference + easy revert. Re-enable
+# by restoring the `push: branches: [main]` trigger below.
+#
+# `workflow_dispatch` stays so an operator can still manually fire
+# the existing pipeline from the Actions tab if needed (e.g. to
+# refresh a secret value before Coolify is in place).
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
