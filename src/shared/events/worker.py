@@ -75,7 +75,12 @@ class EventBusWorker:
         self._drain_timeout = drain_timeout
         self._running = True
         self._semaphore = asyncio.Semaphore(max_concurrency)
-        self._in_flight: list[asyncio.Task] = []
+        # Tasks are tracked in a set with a done-callback that discards each
+        # on completion. Continuous-spawn model: the poll loop never gathers
+        # in-flight tasks before the next poll. The Semaphore + buffer
+        # prefetch are what bound concurrency; the set is just so drain
+        # knows what's still running on shutdown.
+        self._in_flight: set[asyncio.Task] = set()
 
     async def run(self) -> None:
         log.info(
@@ -84,7 +89,7 @@ class EventBusWorker:
             max_messages_per_poll=self._max_messages_per_poll,
         )
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             try:
                 loop.add_signal_handler(sig, self._shutdown)
@@ -94,6 +99,13 @@ class EventBusWorker:
                 # `_running` is flipped externally.
                 pass
 
+        # Exponential backoff for poll-loop errors. Resets to base on every
+        # successful poll. Replaces the prior flat 5s sleep so transient
+        # broker hiccups don't add unnecessary latency.
+        backoff_base = 0.5
+        backoff_cap = 5.0
+        backoff = backoff_base
+
         async with self._consumer as consumer:
             while self._running:
                 try:
@@ -101,17 +113,23 @@ class EventBusWorker:
                         max_messages=self._max_messages_per_poll,
                         wait_seconds=self._wait_seconds,
                     )
-                    if not messages:
-                        continue
-
-                    self._in_flight = [
-                        asyncio.create_task(self._bounded_process(m)) for m in messages
-                    ]
-                    await asyncio.gather(*self._in_flight, return_exceptions=True)
-                    self._in_flight = []
+                    backoff = backoff_base
+                    for m in messages:
+                        task = asyncio.create_task(self._bounded_process(m))
+                        self._in_flight.add(task)
+                        task.add_done_callback(self._in_flight.discard)
                 except Exception:
-                    log.exception(f"{self._worker_name}_error")
-                    await asyncio.sleep(5)
+                    log.exception(
+                        f"{self._worker_name}_error", backoff_seconds=backoff
+                    )
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, backoff_cap)
+                # Defensive yield: a non-awaiting consumer (e.g. the
+                # InMemoryMessageConsumer test double, or a RabbitMQ poll
+                # that immediately drained the prefetch buffer) leaves the
+                # loop tight. Without this, just-spawned tasks never get a
+                # scheduler turn and the SIGINT/SIGTERM handlers never run.
+                await asyncio.sleep(0)
 
             await self._drain()
 
@@ -119,7 +137,10 @@ class EventBusWorker:
         if not self._in_flight:
             return
         log.info(f"{self._worker_name}_draining", in_flight=len(self._in_flight))
-        done, pending = await asyncio.wait(self._in_flight, timeout=self._drain_timeout)
+        # Snapshot the set: the done-callback removes tasks as they finish,
+        # but `asyncio.wait` mutates its own copy and expects a stable iterable.
+        in_flight = list(self._in_flight)
+        done, pending = await asyncio.wait(in_flight, timeout=self._drain_timeout)
         for task in pending:
             task.cancel()
         if pending:

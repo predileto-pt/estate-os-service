@@ -142,16 +142,34 @@ class RabbitMQMessageConsumer:
         assert self._buffer is not None
         async with self._queue.iterator() as it:
             async for raw in it:
-                await self._buffer.put(RabbitMQMessage(raw))
+                # A malformed body (bad JSON, missing DomainEvent fields,
+                # bogus SNS-envelope shape) used to crash _pump silently:
+                # the worker would then wait forever for an empty buffer
+                # with no log, no nack, no DLX routing. Now we dead-letter
+                # the poison message and keep iterating.
+                try:
+                    msg = RabbitMQMessage(raw)
+                except Exception:
+                    log.exception(
+                        "rabbitmq_message_parse_failed",
+                        delivery_tag=getattr(raw, "delivery_tag", None),
+                    )
+                    try:
+                        await raw.reject(requeue=False)
+                    except Exception:
+                        log.exception("rabbitmq_reject_failed")
+                    continue
+                await self._buffer.put(msg)
 
     async def poll(
         self, max_messages: int, wait_seconds: int
     ) -> list[RabbitMQMessage]:
         assert self._buffer is not None
         out: list[RabbitMQMessage] = []
-        deadline = asyncio.get_event_loop().time() + wait_seconds
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + wait_seconds
         while len(out) < max_messages:
-            remaining = max(0.0, deadline - asyncio.get_event_loop().time())
+            remaining = max(0.0, deadline - loop.time())
             try:
                 msg = await asyncio.wait_for(
                     self._buffer.get(), timeout=remaining

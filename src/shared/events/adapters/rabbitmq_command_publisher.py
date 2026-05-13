@@ -30,6 +30,10 @@ class RabbitMQCommandPublisher:
         self._connection = connection
 
     async def send(self, queue_url: str, event: DomainEvent) -> None:
+        # Param name `queue_url` is kept for port-compatibility with the
+        # SQS adapter; in RabbitMQ-land it's the queue name. The setting
+        # values feeding it must be plain queue names (e.g.
+        # `property-extraction-queue`), not URLs.
         async with self._connection.channel(publisher_confirms=True) as channel:
             message = Message(
                 body=event.to_json().encode("utf-8"),
@@ -37,9 +41,6 @@ class RabbitMQCommandPublisher:
                 delivery_mode=DeliveryMode.PERSISTENT,
                 content_type="application/json",
             )
-            # Default exchange routes by queue name. `mandatory=True`
-            # raises `DeliveryError` if no queue with that name exists,
-            # rather than silently dropping the message.
             await channel.default_exchange.publish(
                 message,
                 routing_key=queue_url,

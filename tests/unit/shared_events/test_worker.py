@@ -212,7 +212,7 @@ class TestDrain:
             wait_seconds=0,
             drain_timeout=0,  # cancel immediately
         )
-        worker._in_flight = [asyncio.create_task(never_finishes())]  # noqa: SLF001
+        worker._in_flight = {asyncio.create_task(never_finishes())}  # noqa: SLF001
 
         await worker._drain()  # noqa: SLF001
 
@@ -236,7 +236,7 @@ class TestDrain:
             wait_seconds=0,
             drain_timeout=5,  # plenty of time
         )
-        worker._in_flight = [asyncio.create_task(finishes_quickly())]  # noqa: SLF001
+        worker._in_flight = {asyncio.create_task(finishes_quickly())}  # noqa: SLF001
 
         await worker._drain()  # noqa: SLF001
 

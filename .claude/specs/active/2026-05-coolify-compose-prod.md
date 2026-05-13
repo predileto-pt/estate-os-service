@@ -1,6 +1,6 @@
 # Coolify production stack — compose + nginx + Redis
 
-**Status:** draft
+**Status:** in-progress
 **Owner:** Peter
 **Created:** 2026-05-13
 
@@ -15,7 +15,7 @@ We also consolidate the runtime stack while we're at it:
 
 - **Nginx** in front of api for HTTP reverse-proxy + forwarded-headers + request shaping. Api stops binding host ports.
 - **Redis** for the ADR-016 listings page cache, which has been dark in prod because no Redis was wired.
-- **RabbitMQ** as the event-bus transport. Adapters + bootstrap switch land in `2026-05-rabbitmq-transport-adapter`; this spec just sets `EVENT_BUS_BACKEND=rabbitmq` in the prod compose and runs `rabbitmq` as a service.
+- **RabbitMQ** as the event-bus transport. Adapters + bootstrap swap land in `2026-05-rabbitmq-transport-adapter`; this spec just runs `rabbitmq` as a service and points the prod compose at it (no flag — `bootstrap.py` constructs RabbitMQ publishers when given an `amqp_connection`).
 
 S3 stays the file store. SNS+SQS adapter code, Lambda entrypoints, and AWS Terraform stay in place — none of them is exercised once the prod compose flips backend.
 
@@ -25,12 +25,12 @@ Depends on **`2026-05-rabbitmq-transport-adapter`** being shipped first. That sp
 
 ## Goal
 
-A Coolify-ready production stack in `deploy/docker-compose.prod.yml`: **nginx + api + three always-on workers + rabbitmq + redis**. Every env var referenced by name; shared image + env baseline come from `x-base-service` + `x-shared-env` top-level anchors. `EVENT_BUS_BACKEND=rabbitmq` in the prod env; api uses RabbitMQ for events + commands, S3 for files, Redis for cache; nginx terminates external HTTP and proxies to api.
+A Coolify-ready production stack in `deploy/docker-compose.prod.yml`: **nginx + api + three always-on workers + rabbitmq + redis**. Every env var referenced by name; shared image + env baseline come from `x-base-service` + `x-shared-env` top-level anchors. api uses RabbitMQ for events + commands, S3 for files, Redis for cache; nginx terminates external HTTP and proxies to api.
 
 ## Non-goals
 
 - **The RabbitMQ adapters themselves.** Handled by `2026-05-rabbitmq-transport-adapter`.
-- **Removing SNS / SQS / Lambda / EC2 code.** Adapters, entrypoints, IAM, Terraform stay. `bootstrap.py` skips SQS+SNS when `EVENT_BUS_BACKEND=rabbitmq`.
+- **Removing SNS / SQS / Lambda / EC2 code.** Adapters, entrypoints, IAM, Terraform stay. `bootstrap.py` constructs RabbitMQ publishers when callers pass an `amqp_connection`; SNS+SQS adapter classes are dormant unless a Lambda entrypoint calls `get_*_container()` with no connection (the retained fallback path).
 - **Migrating S3.** Stays the file store; containers need `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` for it.
 - **RabbitMQ clustering / HA.** Single-node container, persistent volume.
 - **Cutover of in-flight messages.** Coolify cutover happens with SNS/SQS drained.
@@ -62,10 +62,22 @@ x-shared-env: &shared-env
   S3_BUCKET_NAME: ${S3_BUCKET_NAME}
   # OpenAI
   OPENAI_API_KEY: ${OPENAI_API_KEY}
+  # Reducto (document OCR — exercised by api + property/screening/contract
+  # workers that build Reducto clients in their container construction).
+  REDUCTO_API_KEY: ${REDUCTO_API_KEY}
+  # Admin DB (SQLAlchemy engine — api + screening/bookings/contract/listings
+  # workers all call create_async_engine(settings.database_url, ...)).
+  DATABASE_URL: ${DATABASE_URL}
+  # Screening encryption (RSA + HMAC). The screening worker's
+  # SqlAlchemyScreeningUnitOfWork calls load_private_key_from_env() at
+  # container construction — empty keys raise. Belongs in baseline so the
+  # workers don't fail to start.
+  ENCRYPTION_PUBLIC_KEY: ${ENCRYPTION_PUBLIC_KEY}
+  ENCRYPTION_PRIVATE_KEY: ${ENCRYPTION_PRIVATE_KEY}
+  ENCRYPTION_HMAC_KEY: ${ENCRYPTION_HMAC_KEY}
   # Event bus: RabbitMQ. SNS_*/SQS_* deliberately absent — bootstrap.py
-  # imports the RabbitMQ adapters directly after 2026-05-rabbitmq-transport-adapter
-  # ships; SNS+SQS adapter classes are retained in the repo but no code path
-  # imports them.
+  # constructs RabbitMQ publishers whenever it receives an amqp_connection;
+  # SNS+SQS adapter classes are retained for the Lambda fallback path only.
   RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
   RABBITMQ_DOMAIN_EVENTS_EXCHANGE: domain-events
   RABBITMQ_DLX: domain-events-dlx
@@ -113,9 +125,10 @@ services:
       # Misc api-only
       CORS_ORIGINS: ${CORS_ORIGINS}
       APP_URL: ${APP_URL}
-      ENCRYPTION_PUBLIC_KEY: ${ENCRYPTION_PUBLIC_KEY}
-      ENCRYPTION_PRIVATE_KEY: ${ENCRYPTION_PRIVATE_KEY}
-      ENCRYPTION_HMAC_KEY: ${ENCRYPTION_HMAC_KEY}
+      # Resend (transactional email — used by api invitation flow and
+      # by the organizations worker's handle_applicant_screened via its
+      # `customer` context dict).
+      RESEND_API_KEY: ${RESEND_API_KEY}
     depends_on: [rabbitmq, redis]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
@@ -189,8 +202,8 @@ Top-level `x-base-service` declares `image:` + `restart:`. Top-level `x-shared-e
 
 **Three buckets, framed by what each runtime exercises** (not by what `shared.config` reads on import — `src/shared/config.py:219-225` defaults every field and sets `extra: "ignore"`, so import never fails on missing env; the worker WILL boot regardless. The cutoff is exercise-based):
 
-- **baseline** (`x-shared-env`): Supabase admin, AWS region + creds + S3 bucket, OpenAI, RabbitMQ connection + exchange + DLX, `APP_ENV`, `LOG_LEVEL`, Logfire, Langfuse. Every Python service exercises these via the shared event publisher, S3 client, OpenAI clients, observability stack.
-- **api-only**: Stripe block, portal Supabase + portal DB + session signing, `REDIS_URL`, `LISTINGS_PAGE_CACHE_ENABLED`, `LISTINGS_SEARCH_ENABLED`, `CORS_ORIGINS`, encryption keys (`ENCRYPTION_*`), `APP_URL`. Exercised only by HTTP routes.
+- **baseline** (`x-shared-env`): Supabase admin, AWS region + creds + S3 bucket, OpenAI, **Reducto API key, `DATABASE_URL`, encryption keys (`ENCRYPTION_*`)**, RabbitMQ connection + exchange + DLX, `APP_ENV`, `LOG_LEVEL`, Logfire, Langfuse. Every Python service exercises one or more of these at container-construction time — the SQLAlchemy engine builders in `get_screening_container` / `get_booking_container` / `get_contract_intelligence_container` / `get_listing_container` need `DATABASE_URL`; `get_screening_container` calls `load_private_key_from_env(settings.encryption_private_key)` and crashes on empty input; the property + screening + contract containers all construct Reducto clients.
+- **api-only**: Stripe block, portal Supabase + portal DB + session signing, `REDIS_URL`, `LISTINGS_PAGE_CACHE_ENABLED`, `LISTINGS_SEARCH_ENABLED`, `CORS_ORIGINS`, `RESEND_API_KEY`, `APP_URL`. Exercised only by HTTP routes (or by the organizations worker via the `customer` context, which still constructs the organizations container — so `RESEND_API_KEY` would be needed there too if it actually used the email service in a handler; today it doesn't, so api-only is correct).
 - **per-worker**: `extraction-worker` adds nothing beyond baseline. `enrichment-worker` adds `GOOGLE_MAPS_API_KEY` (POI discovery). `listings-events-worker` adds Pinecone + embedding vars (`PINECONE_*`, `EMBEDDING_*`, `VECTOR_INDEX_*`, `LISTINGS_EMBEDDING_ENABLED`) gated by the embedding flag.
 
 ### 3. Nginx config
@@ -252,8 +265,9 @@ api's environment sets `REDIS_URL=redis://redis:6379/0` and `LISTINGS_PAGE_CACHE
 - [ ] `SNS_*` and `SQS_*` env vars do NOT appear in the prod compose.
 
 **Env partitioning**
-- [ ] api's env block adds api-only vars: full Stripe block, portal Supabase + portal DB + session signing, `REDIS_URL`, `LISTINGS_PAGE_CACHE_ENABLED`, `LISTINGS_SEARCH_ENABLED`, `CORS_ORIGINS`, encryption keys, `APP_URL`.
-- [ ] Workers do NOT list Stripe vars (`STRIPE_*`), portal Supabase (`SUPABASE_PORTAL_*`), portal DB (`PORTAL_DATABASE_URL`), session signing (`SESSION_*`), `REDIS_URL`, encryption keys (`ENCRYPTION_*`), `APP_URL`, or `CORS_ORIGINS`. Greppable.
+- [ ] api's env block adds api-only vars: full Stripe block, portal Supabase + portal DB + session signing, `REDIS_URL`, `LISTINGS_PAGE_CACHE_ENABLED`, `LISTINGS_SEARCH_ENABLED`, `CORS_ORIGINS`, `RESEND_API_KEY`, `APP_URL`.
+- [ ] `x-shared-env` baseline includes `DATABASE_URL`, `REDUCTO_API_KEY`, and `ENCRYPTION_PUBLIC_KEY` / `ENCRYPTION_PRIVATE_KEY` / `ENCRYPTION_HMAC_KEY` — verified by grep + by booting the screening worker (which would otherwise raise on `load_private_key_from_env("")`).
+- [ ] Workers do NOT list Stripe vars (`STRIPE_*`), portal Supabase (`SUPABASE_PORTAL_*`), portal DB (`PORTAL_DATABASE_URL`), session signing (`SESSION_*`), `REDIS_URL`, `RESEND_API_KEY`, `APP_URL`, or `CORS_ORIGINS`. Greppable.
 - [ ] `enrichment-worker` is the only worker listing `GOOGLE_MAPS_API_KEY`.
 - [ ] `listings-events-worker` is the only worker listing Pinecone + embedding vars (`PINECONE_*`, `EMBEDDING_*`, `VECTOR_INDEX_*`, `LISTINGS_EMBEDDING_ENABLED`).
 
@@ -272,7 +286,7 @@ api's environment sets `REDIS_URL=redis://redis:6379/0` and `LISTINGS_PAGE_CACHE
 - **AWS IAM user for S3-only access:** operator must provision an IAM user with read/write/delete on `${S3_BUCKET_NAME}` — the current `ec2_profile` role is broader. Out-of-scope to *create* the user here; captured for operator handoff.
 - **Alembic migrations on Coolify:** operator-side (same as today, from laptop) vs. Coolify pre-deploy hook vs. one-shot service. **Default: operator-side** — out-of-scope to wire automation until first Coolify deploy exercises the gap.
 - **`ECR_IMAGE` variable name:** keep for continuity or rename to `APP_IMAGE`? **Default: keep** — renaming touches `deploy/user_data.sh.tpl` and pulls the EC2 path back in. Coolify operators can ignore the name.
-- **RabbitMQ credentials provisioning:** `RABBITMQ_USER` / `RABBITMQ_PASSWORD` are set at first rabbitmq container start and persisted to the volume. Rotating means scratching the volume or running `rabbitmqctl` against the live container. Out-of-scope to wire rotation; captured for ops handoff.
+- **RabbitMQ credentials provisioning:** `RABBITMQ_USER` / `RABBITMQ_PASSWORD` are set at first rabbitmq container start and persisted to the volume. Rotating means scratching the volume or running `rabbitmqctl` against the live container. Out-of-scope to wire rotation; captured for ops handoff. (These two vars are also used at compose-render time only to build the AMQP URL string — they don't exist in `Settings` and don't need to.)
 
 ## Out of scope follow-ups
 

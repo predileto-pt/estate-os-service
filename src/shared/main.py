@@ -74,6 +74,8 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if not hasattr(app.state, "container") or app.state.container is None:
+            import aio_pika
+
             from shared.entrypoints.bootstrap import (
                 get_billing_container,
                 get_booking_container,
@@ -87,6 +89,14 @@ def create_app(
                 get_sessions_container,
             )
 
+            # One RabbitMQ connection per api process. All publishers
+            # (property / screening / contract command + event publishers)
+            # ride it via channel-per-publish; connect_robust handles
+            # reconnect transparently. See ADR-008 addendum (2026-05-13).
+            app.state.amqp_connection = await aio_pika.connect_robust(
+                settings.rabbitmq_url, heartbeat=30
+            )
+
             app.state.identity_container = await get_identity_container()
             # Billing container must be built before organizations; organizations
             # consumes billing.seed_freemium_subscription_port at construction.
@@ -98,12 +108,18 @@ def create_app(
             # Shared jobs infra (ADR-012). Built before producing-context
             # containers so its `JobTracker` port can be injected.
             app.state.jobs_container = await get_jobs_container()
-            app.state.property_container = await get_property_container()
-            app.state.screening_container = await get_screening_container()
+            app.state.property_container = await get_property_container(
+                app.state.amqp_connection
+            )
+            app.state.screening_container = await get_screening_container(
+                app.state.amqp_connection
+            )
             listing_cont = await get_listing_container()
             app.state.listing_container = listing_cont
             app.state.booking_container = await get_booking_container()
-            app.state.contract_intelligence_container = await get_contract_intelligence_container()
+            app.state.contract_intelligence_container = (
+                await get_contract_intelligence_container(app.state.amqp_connection)
+            )
             # Portal sessions: portal Supabase + portal DB. Tolerant of missing
             # env in dev — the route handlers will 500 cleanly if invoked without
             # the container, but the rest of the app still boots.
@@ -119,12 +135,18 @@ def create_app(
                 app.state.property_container, "document_storage", None
             )
         yield
-        # Shutdown — drain the listings cache's redis pool if it was wired.
+        # Shutdown — drain the listings cache's redis pool if it was wired,
+        # then close the AMQP connection (publishers stop accepting work
+        # after this; in-flight publishes complete first since the connection
+        # is per-process and shut down last).
         listing_container = getattr(app.state, "listing_container", None)
         if listing_container is not None:
             close = getattr(listing_container, "close", None)
             if close is not None:
                 await close()
+        amqp_connection = getattr(app.state, "amqp_connection", None)
+        if amqp_connection is not None:
+            await amqp_connection.close()
 
     app = FastAPI(
         title="Predileto Core API",
@@ -174,16 +196,13 @@ def create_app(
         ],
     )
 
-    # Logfire auto-instrumentation: stitches FastAPI requests, SQLAlchemy
-    # queries, outbound HTTPX calls, and OpenAI calls into a single trace
-    # tree per request. No-op if logfire_token is empty.
+    # Logfire FastAPI auto-instrumentation. `setup_logging` already wired
+    # the global SQLAlchemy / httpx / OpenAI patches so workers + api share
+    # the trace stitching; only the FastAPI binding needs the app instance.
     if settings.logfire_token:
         import logfire
 
         logfire.instrument_fastapi(app, capture_headers=False)
-        logfire.instrument_sqlalchemy()
-        logfire.instrument_httpx()
-        logfire.instrument_openai()
 
     # Middleware (order matters — outermost first).
     # Starlette middleware execution order: outermost added last runs first

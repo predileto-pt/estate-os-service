@@ -117,13 +117,13 @@ class Settings(BaseSettings):
 
     # Command queues (point-to-point via `SQSCommandPublisher`). Every queue
     # gets a DLQ with `maxReceiveCount=5`.
-    sqs_property_extraction_queue_url: str = ""
+    property_extraction_queue: str = ""
     sqs_property_extraction_dlq_url: str = ""
-    sqs_property_enrichment_queue_url: str = ""
+    property_enrichment_queue: str = ""
     sqs_property_enrichment_dlq_url: str = ""
-    sqs_applicant_extraction_queue_url: str = ""
+    applicant_extraction_queue: str = ""
     sqs_applicant_extraction_dlq_url: str = ""
-    sqs_applicant_screening_queue_url: str = ""
+    applicant_screening_queue: str = ""
     sqs_applicant_screening_dlq_url: str = ""
 
     # Applicant Screening Encryption (RSA + HMAC for NIF)
@@ -148,8 +148,8 @@ class Settings(BaseSettings):
     booking_link_url: str = "https://portal.predileto.com/book"
 
     # Contract Intelligence
-    sqs_contract_ingestion_queue_url: str = ""
-    sqs_contract_analysis_queue_url: str = ""
+    contract_ingestion_queue: str = ""
+    contract_analysis_queue: str = ""
     sqs_contract_ingestion_dlq_url: str = ""
     sqs_contract_analysis_dlq_url: str = ""
     contract_s3_bucket_name: str = "contract-intelligence-documents"
@@ -252,6 +252,15 @@ def setup_logging(log_level: str = "info") -> None:
             console=False,
         )
         processors.append(logfire.StructlogProcessor())
+        # Global library instrumentation — patches at module level so any
+        # subsequent SQLAlchemy engine / httpx client / OpenAI client gets
+        # spans. Lives in `setup_logging` so api AND worker processes share
+        # the wiring (api calls this at create_app(); worker entrypoints
+        # call it before container construction). `instrument_fastapi`
+        # stays in `main.py` because it needs the FastAPI app instance.
+        logfire.instrument_sqlalchemy()
+        logfire.instrument_httpx()
+        logfire.instrument_openai()
 
     processors.append(structlog.dev.ConsoleRenderer())
 
