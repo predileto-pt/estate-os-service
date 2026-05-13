@@ -23,7 +23,7 @@ from properties.domain.exceptions import (
     PropertyMissingCoordinatesError,
     PropertyNotFoundError,
 )
-from properties.domain.models.nearby_place import NearbyPlace
+from properties.domain.models.nearby_place import NearbyPlace, PlaceDetails
 from properties.domain.models.property import (
     ListingType,
     Property,
