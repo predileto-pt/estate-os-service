@@ -60,6 +60,13 @@ resource "aws_instance" "this" {
   source_dest_check           = false
   vpc_security_group_ids      = [aws_security_group.this.id]
 
+  # Re-create the instance whenever user_data changes. Without this,
+  # Terraform marks user_data updates as "in-place" but the script
+  # only runs on first boot - meaning a fixed script in code never
+  # actually executes on the running NAT. Forcing replacement makes
+  # `terraform apply` a real fix path.
+  user_data_replace_on_change = true
+
   user_data = base64encode(<<-EOT
     #!/bin/bash
     set -euo pipefail
@@ -68,9 +75,18 @@ resource "aws_instance" "this" {
     echo "net.ipv4.ip_forward = 1" > /etc/sysctl.d/99-nat.conf
     sysctl -p /etc/sysctl.d/99-nat.conf
 
-    # iptables MASQUERADE on the primary ENI (eth0).
+    # Detect the primary egress interface. AL2023 uses systemd
+    # predictable interface names (e.g. `ens5`), not the legacy
+    # `eth0`. Hardcoding `eth0` here silently breaks NAT - the
+    # MASQUERADE rule never matches and the private subnet's
+    # outbound packets exit with their original 10.0.x.x source,
+    # which the VPC drops as unroutable. Reading the default
+    # route's interface keeps this robust across AMI changes.
+    PRIMARY_IF=$(ip route show default | awk '/^default/ {print $5}')
+
+    # iptables MASQUERADE on the detected primary ENI.
     yum install -y iptables-services
-    iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+    iptables -t nat -A POSTROUTING -o "$PRIMARY_IF" -j MASQUERADE
     iptables -F FORWARD
     /usr/sbin/iptables-save > /etc/sysconfig/iptables
     systemctl enable iptables
