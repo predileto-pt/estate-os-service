@@ -84,7 +84,26 @@ services:
   api:
     image: ${ECR_IMAGE}
     restart: unless-stopped
-    command: ["uv", "run", "uvicorn", "shared.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    # Mirrors Dockerfile.prod CMD. Kept here so a `command:` override is
+    # explicit at the compose layer rather than relying on the image default.
+    # --workers 4: each process opens its own aio_pika connection in
+    # shared/main.py lifespan (see ADR-008 addendum). --proxy-headers +
+    # --forwarded-allow-ips '*' because nginx terminates ingress in front
+    # of this service.
+    command:
+      - uvicorn
+      - shared.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "4"
+      - --log-config
+      - /app/deploy/log_config.yaml
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - "*"
     expose:
       - "8000"
     environment:

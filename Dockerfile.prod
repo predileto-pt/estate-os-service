@@ -1,0 +1,70 @@
+# Production image for the Predileto Core API (api + workers).
+#
+# Two stages:
+#   1. builder — resolves and installs deps into /app/.venv via uv + uv.lock
+#      for reproducibility, then bakes the project package into the venv so
+#      `import shared.main` works without `uv run`.
+#   2. runtime — copies the venv + src/ into a slim base, drops root, puts
+#      the venv on PATH, and execs uvicorn directly (no `uv run` cold-start
+#      cost per container boot).
+#
+# The api command in deploy/docker-compose.prod.yml mirrors the CMD here so
+# Coolify can be pointed at either with the same result.
+
+# ---- builder ----------------------------------------------------------------
+FROM python:3.13-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
+
+WORKDIR /app
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Install deps first (cached layer) — copy lockfile + pyproject only.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+# Then copy source and install the project itself into the venv.
+COPY src/ src/
+RUN uv sync --frozen --no-dev
+
+# ---- runtime ----------------------------------------------------------------
+FROM python:3.13-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH" \
+    UVICORN_LOG_LEVEL=info
+
+# curl is used by the compose healthcheck (`curl -f http://localhost:8000/...`).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 1001 app \
+    && useradd --system --uid 1001 --gid app --home /app --shell /usr/sbin/nologin app
+
+WORKDIR /app
+
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
+COPY --chown=app:app src/ src/
+COPY --chown=app:app deploy/log_config.yaml /app/deploy/log_config.yaml
+
+USER app
+
+EXPOSE 8000
+
+# Exec form so SIGTERM reaches uvicorn (clean shutdown → lifespan close →
+# AMQP connection drained, see shared/main.py lifespan).
+# --proxy-headers + --forwarded-allow-ips '*' because nginx terminates
+# ingress and forwards X-Forwarded-* headers (deploy/docker-compose.prod.yml).
+CMD ["uvicorn", "shared.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--workers", "4", \
+     "--log-config", "/app/deploy/log_config.yaml", \
+     "--proxy-headers", \
+     "--forwarded-allow-ips", "*"]
