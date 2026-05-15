@@ -147,7 +147,7 @@ services:
   extraction-worker:
     image: ${ECR_IMAGE}
     restart: unless-stopped
-    command: ["uv", "run", "python", "-m", "properties.entrypoints.worker", "--queue", "extraction"]
+    command: ["python", "-m", "properties.entrypoints.worker", "--queue", "extraction"]
     environment:
       <<: *shared-env
     depends_on:
@@ -156,7 +156,7 @@ services:
   enrichment-worker:
     image: ${ECR_IMAGE}
     restart: unless-stopped
-    command: ["uv", "run", "python", "-m", "properties.entrypoints.worker", "--queue", "enrichment"]
+    command: ["python", "-m", "properties.entrypoints.worker", "--queue", "enrichment"]
     environment:
       <<: *shared-env
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
@@ -166,7 +166,7 @@ services:
   listings-events-worker:
     image: ${ECR_IMAGE}
     restart: unless-stopped
-    command: ["uv", "run", "python", "-m", "listings.entrypoints.events_worker"]
+    command: ["python", "-m", "listings.entrypoints.events_worker"]
     environment:
       <<: *shared-env
       LISTINGS_EMBEDDING_ENABLED: "true"
