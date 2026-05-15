@@ -27,6 +27,13 @@ x-shared-env: &shared-env
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   S3_BUCKET_NAME: ${S3_BUCKET_NAME}
   CONTRACT_S3_BUCKET_NAME: ${CONTRACT_S3_BUCKET_NAME}
+  # Property images bucket — private, fronted by CloudFront in prod.
+  # See spec property-images-bucket-cdn.
+  S3_IMAGES_BUCKET_NAME: ${S3_IMAGES_BUCKET_NAME}
+  # CDN base URL used by record_property_image to build immutable URLs
+  # without an S3 round-trip. Empty in dev (fall through to LocalStack
+  # URL); prod sets https://images.predileto.pt.
+  IMAGES_CDN_BASE_URL: ${IMAGES_CDN_BASE_URL}
   # OpenAI
   OPENAI_API_KEY: ${OPENAI_API_KEY}
   # Reducto (document OCR — exercised by api + property/screening/contract
