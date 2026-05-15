@@ -1,0 +1,86 @@
+name: Build + Push to ECR (Coolify)
+
+# Ships with `workflow_dispatch` only at first commit. After two manual
+# runs end green and Coolify shows a clean deploy, flip the trigger to
+# also fire on push:main (runbook section 11). This avoids the workflow
+# auto-firing on merge before the AWS_GHA_ROLE_ARN secret + Coolify
+# webhook are populated.
+on:
+  workflow_dispatch:
+
+concurrency:
+  # Don't kill a build mid-layer-upload — leaves the ECR layer cache
+  # in a half-state.
+  group: co-build-and-push
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # OIDC -> IAM federation
+  contents: read
+
+env:
+  AWS_REGION: eu-west-3
+  ECR_REPOSITORY: estate-os-service
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    # Required so secrets.AWS_GHA_ROLE_ARN and secrets.COOLIFY_DEPLOY_WEBHOOK
+    # (both gated by the `production` environment) resolve. Without this
+    # declaration the AWS creds step fails with an empty-role-ARN error.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # Provisioned by terraform/production-coolify/github_oidc.tf.
+          # Save the full ARN as AWS_GHA_ROLE_ARN in the `production`
+          # environment's secrets.
+          role-to-assume: ${{ secrets.AWS_GHA_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve image tags
+        id: tag
+        run: |
+          SHA_SHORT="${GITHUB_SHA::7}"
+          REGISTRY="${{ steps.ecr.outputs.registry }}"
+          IMAGE_TAG="${REGISTRY}/${{ env.ECR_REPOSITORY }}:${SHA_SHORT}"
+          LATEST_TAG="${REGISTRY}/${{ env.ECR_REPOSITORY }}:latest"
+          echo "image=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "latest=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Will push: ${IMAGE_TAG} + ${LATEST_TAG}"
+
+      - name: Build + push Docker image
+        # Explicit -f Dockerfile.prod — the repo also contains a dev
+        # Dockerfile (single-stage, has curl) that the legacy deploy.yml
+        # was building. Coolify wants the multi-stage production image.
+        run: |
+          docker build \
+            -f Dockerfile.prod \
+            -t "${{ steps.tag.outputs.image }}" \
+            -t "${{ steps.tag.outputs.latest }}" \
+            .
+          docker push "${{ steps.tag.outputs.image }}"
+          docker push "${{ steps.tag.outputs.latest }}"
+
+      - name: Trigger Coolify redeploy
+        # Project-level webhook — one URL redeploys all 6 Coolify-managed
+        # services (api + 3 workers + rabbitmq + redis), matching the
+        # unified-image semantics.
+        #
+        # Bind via env: so GitHub log-masking applies. Empty-secret guard
+        # lets the first CI run succeed before Coolify is configured.
+        env:
+          COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
+        run: |
+          if [ -z "$COOLIFY_DEPLOY_WEBHOOK" ]; then
+            echo "::warning::COOLIFY_DEPLOY_WEBHOOK not configured, skipping redeploy"
+            exit 0
+          fi
+          curl -fsS -X POST "$COOLIFY_DEPLOY_WEBHOOK"
