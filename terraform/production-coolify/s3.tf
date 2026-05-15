@@ -26,3 +26,44 @@ resource "aws_s3_bucket_public_access_block" "documents_bucket" {
 # adds browser-direct PUT uploads, enable `enable_cors = true` on the
 # module call and populate `cors_rules` with the production Vercel
 # origins.
+
+###############################################################################
+# Property images bucket — private, fronted by CloudFront.
+#
+# Reads happen exclusively via the CloudFront distribution in `cloudfront.tf`
+# using Origin Access Control (OAC); the bucket policy in that file locks
+# `s3:GetObject` to the distribution's source ARN. Direct
+# `<bucket>.s3.amazonaws.com` URLs return 403.
+#
+# Writes happen from the api container via the `app_s3` IAM user
+# (`iam.tf`) using presigned PUT URLs handed to the browser.
+###############################################################################
+
+module "images_bucket" {
+  source = "../modules/s3"
+
+  bucket_name                  = "${var.prefix_name}-property-images"
+  enable_encryption_and_policy = true
+}
+
+# Same defense-in-depth as documents_bucket — block all public-access
+# vectors at the bucket level. The bucket policy in cloudfront.tf grants
+# read access only to the specific CloudFront distribution via OAC.
+resource "aws_s3_bucket_public_access_block" "images_bucket" {
+  bucket = module.images_bucket.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Disable ACLs entirely. AWS-recommended for new buckets — all access
+# control flows through bucket policy + IAM, never object ACLs.
+resource "aws_s3_bucket_ownership_controls" "images_bucket" {
+  bucket = module.images_bucket.id
+
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}

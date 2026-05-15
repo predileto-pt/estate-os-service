@@ -18,6 +18,11 @@ output "documents_bucket_name" {
   value       = module.documents_bucket.name
 }
 
+output "images_bucket_name" {
+  description = "Set as the Coolify project-level `S3_IMAGES_BUCKET_NAME` env var. Bucket is private; reads go through CloudFront only."
+  value       = module.images_bucket.name
+}
+
 output "github_actions_role_arn" {
   description = "Save as the `AWS_GHA_ROLE_ARN` secret in the GitHub `production` environment."
   value       = aws_iam_role.github_actions.arn
