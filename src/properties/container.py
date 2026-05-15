@@ -86,6 +86,8 @@ class Container:
         property_repo: PropertyRepository,
         document_extractor: DocumentDataExtractor,
         document_storage: DocumentStorage | None = None,
+        image_storage: DocumentStorage | None = None,
+        images_cdn_base_url: str = "",
         property_extractor: PropertyExtractorService | None = None,
         extraction_job_repo: ExtractionJobRepository | None = None,
         command_publisher: CommandPublisher | None = None,
@@ -104,6 +106,11 @@ class Container:
         self.property_repo = property_repo
         self.document_extractor = document_extractor
         self.document_storage = document_storage
+        # Property images live in a private S3 bucket fronted by
+        # CloudFront in prod (spec property-images-bucket-cdn). Same
+        # storage adapter shape, different bucket name + endpoint.
+        self.image_storage = image_storage
+        self.images_cdn_base_url = images_cdn_base_url
         self.property_extractor = property_extractor
         self.extraction_job_repo = extraction_job_repo
         self.command_publisher = command_publisher
@@ -248,15 +255,18 @@ class Container:
             domain_event_publisher=domain_event_publisher,
         )
 
-        # Image use cases (require document_storage)
-        if document_storage:
+        # Image use cases — require the dedicated image_storage adapter
+        # (private bucket fronted by CloudFront in prod) NOT
+        # document_storage (extraction PDFs / screening docs).
+        if image_storage:
             self.generate_image_upload_urls = GenerateImageUploadUrls(
-                document_storage=document_storage,
+                image_storage=image_storage,
                 property_repo=property_repo,
             )
             self.record_property_image = RecordPropertyImage(
                 property_repo=property_repo,
-                document_storage=document_storage,
+                image_storage=image_storage,
+                images_cdn_base_url=images_cdn_base_url,
                 domain_event_publisher=domain_event_publisher,
             )
 
@@ -275,13 +285,13 @@ class Container:
                 job_tracker=job_tracker,
             )
 
-        # Property hard delete (requires document_storage to delete S3 images
-        # and extraction_job_repo to cascade jobs).
-        if document_storage and extraction_job_repo:
+        # Property hard delete cascades image deletes only (extraction
+        # PDFs aren't on the aggregate). Needs image_storage.
+        if image_storage and extraction_job_repo:
             self.delete_property = DeleteProperty(
                 property_repo=property_repo,
                 extraction_job_repo=extraction_job_repo,
-                document_storage=document_storage,
+                image_storage=image_storage,
                 domain_event_publisher=domain_event_publisher,
             )
 

@@ -24,11 +24,18 @@ class RecordPropertyImage:
     def __init__(
         self,
         property_repo: PropertyRepository,
-        document_storage: DocumentStorage,
+        image_storage: DocumentStorage,
+        images_cdn_base_url: str = "",
         domain_event_publisher: EventPublisher | None = None,
     ) -> None:
         self.property_repo = property_repo
-        self.document_storage = document_storage
+        self.image_storage = image_storage
+        # When non-empty, `execute` derives the public URL by concatenating
+        # this base with the s3_key (skipping any S3 round-trip). Empty
+        # is the LocalStack dev path — fall through to image_storage's
+        # `get_public_url` which returns the LocalStack endpoint URL.
+        # Wiring happens in a follow-up commit.
+        self.images_cdn_base_url = images_cdn_base_url
         self.domain_event_publisher = domain_event_publisher
 
     async def execute(
@@ -48,7 +55,7 @@ class RecordPropertyImage:
         if len(prop.images) >= MAX_IMAGES:
             raise ValueError(f"Property already has {MAX_IMAGES} images (maximum)")
 
-        exists = await self.document_storage.verify_exists(s3_key)
+        exists = await self.image_storage.verify_exists(s3_key)
         if not exists:
             raise FileNotFoundError(f"File not found in storage: {s3_key}")
 
@@ -58,7 +65,7 @@ class RecordPropertyImage:
         # coupling to storage config. Property images live in a public
         # bucket; if that ever changes, the upload flow is the single
         # place to revisit.
-        public_url = self.document_storage.get_public_url(s3_key)
+        public_url = self.image_storage.get_public_url(s3_key)
         image = PropertyImage(
             id=image_id,
             property_id=property_id,
