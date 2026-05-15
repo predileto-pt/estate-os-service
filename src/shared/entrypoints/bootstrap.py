@@ -244,6 +244,17 @@ async def get_property_container(
         aws_secret_access_key=settings.aws_secret_access_key,
     )
 
+    # Property images use a separate bucket (private, fronted by
+    # CloudFront in prod). Same boto session shape — only the bucket
+    # name + endpoint_url plumbing differs.
+    image_storage = S3DocumentStorage(
+        bucket_name=settings.s3_images_bucket_name,
+        region=settings.aws_region,
+        endpoint_url=settings.aws_endpoint_url,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+    )
+
     document_parser = ReductoDocumentParser(
         reducto_api_key=settings.reducto_api_key,
     )
@@ -317,6 +328,8 @@ async def get_property_container(
         property_repo=SupabasePropertyRepository(client),
         document_extractor=document_data_extractor,
         document_storage=document_storage,
+        image_storage=image_storage,
+        images_cdn_base_url=settings.images_cdn_base_url,
         property_extractor=property_extractor,
         extraction_job_repo=SupabaseExtractionJobRepository(client),
         command_publisher=command_publisher,

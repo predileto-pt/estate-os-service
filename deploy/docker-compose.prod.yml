@@ -27,6 +27,13 @@ x-shared-env: &shared-env
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   S3_BUCKET_NAME: ${S3_BUCKET_NAME}
   CONTRACT_S3_BUCKET_NAME: ${CONTRACT_S3_BUCKET_NAME}
+  # Property images bucket — private, fronted by CloudFront in prod.
+  # See spec property-images-bucket-cdn.
+  S3_IMAGES_BUCKET_NAME: ${S3_IMAGES_BUCKET_NAME}
+  # CDN base URL used by record_property_image to build immutable URLs
+  # without an S3 round-trip. Empty in dev (fall through to LocalStack
+  # URL); prod sets https://images.predileto.pt.
+  IMAGES_CDN_BASE_URL: ${IMAGES_CDN_BASE_URL}
   # OpenAI
   OPENAI_API_KEY: ${OPENAI_API_KEY}
   # Reducto (document OCR — exercised by api + property/screening/contract
@@ -79,6 +86,28 @@ services:
     depends_on:
       - api
     restart: unless-stopped
+
+  # ─── Migrations (one-shot) ──────────────────────────────────────────
+  # Runs alembic for both admin + portal DBs on every deploy. api and
+  # the three workers `depends_on: { migrations: condition:
+  # service_completed_successfully }` so they refuse to start if the
+  # migrations container exits non-zero. Alembic `upgrade head` is
+  # idempotent — subsequent deploys re-run and no-op past HEAD.
+  #
+  # `restart: "no"` keeps this a one-shot; expect Coolify to show it as
+  # `exited (0)` in steady state (that's healthy).
+  migrations:
+    image: ${ECR_IMAGE}
+    restart: "no"
+    command:
+      - bash
+      - -c
+      - bash scripts/migrate_admin.sh upgrade head && bash scripts/migrate_portal.sh upgrade head
+    environment:
+      <<: *shared-env
+      # PORTAL_DATABASE_URL isn't in x-shared-env (api-only consumer
+      # today). Migrations needs both DBs, so overlay here.
+      PORTAL_DATABASE_URL: ${PORTAL_DATABASE_URL}
 
   # ─── API ────────────────────────────────────────────────────────────
   api:
@@ -134,8 +163,12 @@ services:
       # Resend (transactional email — used by api invitation flow).
       RESEND_API_KEY: ${RESEND_API_KEY}
     depends_on:
-      - rabbitmq
-      - redis
+      migrations:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_started
+      redis:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
@@ -151,7 +184,10 @@ services:
     environment:
       <<: *shared-env
     depends_on:
-      - rabbitmq
+      migrations:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_started
 
   enrichment-worker:
     image: ${ECR_IMAGE}
@@ -161,7 +197,10 @@ services:
       <<: *shared-env
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
     depends_on:
-      - rabbitmq
+      migrations:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_started
 
   listings-events-worker:
     image: ${ECR_IMAGE}
@@ -177,7 +216,10 @@ services:
       EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS}
       VECTOR_INDEX_NAMESPACE: ${VECTOR_INDEX_NAMESPACE}
     depends_on:
-      - rabbitmq
+      migrations:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_started
 
   # ─── Infrastructure ─────────────────────────────────────────────────
   rabbitmq:

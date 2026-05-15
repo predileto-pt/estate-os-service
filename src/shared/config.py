@@ -139,6 +139,17 @@ class Settings(BaseSettings):
 
     # S3
     s3_bucket_name: str = "property-documents"
+    # Property images live in a dedicated private bucket, fronted by
+    # CloudFront in production. Default name matches the LocalStack
+    # init script bucket; prod is `estate-os-service-prod-property-images`
+    # set via Coolify project-level env. See spec
+    # `property-images-bucket-cdn`.
+    s3_images_bucket_name: str = "property-images"
+    # CDN base URL for property images. Empty in dev → backend falls
+    # back to `S3DocumentStorage.get_public_url` (returns the LocalStack
+    # URL). Prod sets `https://images.predileto.pt` via Coolify env so
+    # `record_property_image` builds CDN URLs without an S3 round-trip.
+    images_cdn_base_url: str = ""
 
     # Reducto
     reducto_api_key: str = ""

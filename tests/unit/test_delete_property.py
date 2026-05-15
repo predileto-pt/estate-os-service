@@ -74,7 +74,7 @@ def use_case(property_repo, extraction_job_repo, storage):
     return DeleteProperty(
         property_repo=property_repo,
         extraction_job_repo=extraction_job_repo,
-        document_storage=storage,
+        image_storage=storage,
     )
 
 
@@ -164,7 +164,7 @@ class TestDeleteProperty:
         uc = DeleteProperty(
             property_repo=property_repo,
             extraction_job_repo=extraction_job_repo,
-            document_storage=storage,
+            image_storage=storage,
         )
 
         prop = _make_property(num_images=2)

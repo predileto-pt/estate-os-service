@@ -28,10 +28,10 @@ class PresignedImageFile:
 class GenerateImageUploadUrls:
     def __init__(
         self,
-        document_storage: DocumentStorage,
+        image_storage: DocumentStorage,
         property_repo: PropertyRepository,
     ) -> None:
-        self.document_storage = document_storage
+        self.image_storage = image_storage
         self.property_repo = property_repo
 
     async def execute(
@@ -52,7 +52,7 @@ class GenerateImageUploadUrls:
             ext = PurePosixPath(filename).suffix or ".jpg"
             s3_key = f"properties/{property_id}/images/{image_id}{ext}"
 
-            upload_url = await self.document_storage.get_upload_url(
+            upload_url = await self.image_storage.get_upload_url(
                 key=s3_key,
                 content_type=content_type,
             )

@@ -35,12 +35,12 @@ class DeleteProperty:
         self,
         property_repo: PropertyRepository,
         extraction_job_repo: ExtractionJobRepository,
-        document_storage: DocumentStorage,
+        image_storage: DocumentStorage,
         domain_event_publisher: EventPublisher | None = None,
     ) -> None:
         self.property_repo = property_repo
         self.extraction_job_repo = extraction_job_repo
-        self.document_storage = document_storage
+        self.image_storage = image_storage
         self.domain_event_publisher = domain_event_publisher
 
     async def execute(self, *, property_id: UUID, organization_id: UUID) -> None:
@@ -55,7 +55,7 @@ class DeleteProperty:
         # 1. Delete S3 image objects
         for image in prop.images:
             try:
-                await self.document_storage.delete(image.s3_key)
+                await self.image_storage.delete(image.s3_key)
             except Exception as exc:
                 log.warning(
                     "delete_property.s3_delete_failed",

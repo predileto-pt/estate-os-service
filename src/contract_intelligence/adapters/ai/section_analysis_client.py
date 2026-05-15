@@ -26,21 +26,21 @@ together with structured field evidence already extracted from that document.
 
 For each section you must determine:
 1. **section_type** – classify the section content:
-   - \`static\`: boilerplate that rarely changes across contracts of the same type.
-   - \`parameterized\`: contains placeholders that vary per contract (names, dates, amounts …).
-   - \`conditional\`: included only when certain conditions apply (e.g. guarantor clause).
-   - \`generative\`: needs AI drafting because the language varies significantly.
+   - `static`: boilerplate that rarely changes across contracts of the same type.
+   - `parameterized`: contains placeholders that vary per contract (names, dates, amounts …).
+   - `conditional`: included only when certain conditions apply (e.g. guarantor clause).
+   - `generative`: needs AI drafting because the language varies significantly.
 2. **reasoning** – a short explanation of why you chose this classification.
 3. **risk_level** – how risky it would be to render this section incorrectly:
-   - \`low\`, \`medium\`, or \`high\`.
+   - `low`, `medium`, or `high`.
 4. **recommended_strategy** – how the template engine should handle this section:
-   - \`literal\`: copy verbatim.
-   - \`template\`: use a Jinja template with field placeholders.
-   - \`template_variant\`: like \`template\` but with conditional blocks.
-   - \`ai_draft\`: let an LLM draft the section from context.
+   - `literal`: copy verbatim.
+   - `template`: use a Jinja template with field placeholders.
+   - `template_variant`: like `template` but with conditional blocks.
+   - `ai_draft`: let an LLM draft the section from context.
 5. **references** – which extracted fields or conditions this section depends on.
 
-Return **one analysis per section**, keyed by \`source_section_id\`.
+Return **one analysis per section**, keyed by `source_section_id`.
 """
 
 
