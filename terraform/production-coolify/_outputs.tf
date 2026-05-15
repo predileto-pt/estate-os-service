@@ -22,3 +22,14 @@ output "github_actions_role_arn" {
   description = "Save as the `AWS_GHA_ROLE_ARN` secret in the GitHub `production` environment."
   value       = aws_iam_role.github_actions.arn
 }
+
+output "coolify_ecr_reader_access_key_id" {
+  description = "Access key id for the VM host's `/root/.aws/credentials` profile `coolify-ecr-reader` (used by the systemd timer to refresh `docker login`)."
+  value       = aws_iam_access_key.coolify_ecr_reader.id
+}
+
+output "coolify_ecr_reader_secret_access_key" {
+  description = "Secret for the VM host's `coolify-ecr-reader` profile. Retrieve with `terraform output -raw coolify_ecr_reader_secret_access_key`."
+  value       = aws_iam_access_key.coolify_ecr_reader.secret
+  sensitive   = true
+}
