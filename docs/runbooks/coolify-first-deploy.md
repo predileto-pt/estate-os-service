@@ -208,7 +208,7 @@ Set in `Settings → Environments → production → Environment secrets`:
 `Actions → Build + Push to ECR (Coolify) → Run workflow → main`.
 
 The workflow ships with `workflow_dispatch`-only trigger initially
-(no `push: branches: [main]` yet — see section 11 for the flip). One
+(no `push: branches: [main]` yet — see section 12 for the flip). One
 run does:
 
 1. OIDC → assume `github_actions` role.
@@ -326,7 +326,7 @@ and require **no Coolify config**.
 | `AWS_ACCESS_KEY_ID` | `terraform output -raw app_s3_access_key_id` | y |
 | `AWS_SECRET_ACCESS_KEY` | `terraform output -raw app_s3_secret_access_key` | y |
 | `S3_BUCKET_NAME` | `terraform output -raw documents_bucket_name` | n |
-| `CONTRACT_S3_BUCKET_NAME` | leave at Settings default `contract-intelligence-documents` (no bucket yet — see section 12) | n |
+| `CONTRACT_S3_BUCKET_NAME` | leave at Settings default `contract-intelligence-documents` (no bucket yet — see section 13) | n |
 | `OPENAI_API_KEY` | OpenAI dashboard → API keys | y |
 | `REDUCTO_API_KEY` | Reducto dashboard → API keys | y |
 | `DATABASE_URL` | Supabase admin project → Connection string (URI mode, +asyncpg) | y |
@@ -666,7 +666,178 @@ Common failures:
 
 ---
 
-## 10. Operator workflows
+## 10. Property images CDN bring-up
+
+Adds the private S3 images bucket + CloudFront distribution + ACM cert
+provisioned by `terraform/production-coolify/{s3,cloudfront,acm}.tf`
+and wires the api/workers to upload to the new bucket and serve via
+`https://images.predileto.pt`. Spec: `property-images-bucket-cdn`.
+
+### 10.1 Re-init Terraform and apply
+
+The spec adds a second AWS provider alias (`aws.us_east_1` for the
+ACM cert — CloudFront's TLS requirement). `terraform apply` alone
+won't pick that up; you must re-init:
+
+```bash
+cd terraform/production-coolify
+terraform init
+terraform plan -out=tfplan
+terraform apply tfplan
+```
+
+Expected resources created:
+  - 1 S3 bucket (`*-property-images`) + SSE config + public-access-block + ownership-controls + bucket policy
+  - 1 CloudFront OAC + 1 CloudFront distribution + 1 response-headers policy
+  - 1 ACM cert + 1 ACM validation (in `us-east-1`)
+  - In-place update to the `app_s3` IAM user's inline policy (extends Resource list to include the new bucket)
+
+Capture the outputs you'll need:
+
+```bash
+terraform output -raw images_bucket_name
+terraform output -raw images_cdn_domain               # *.cloudfront.net hostname for the DNS step
+terraform output -raw acm_validation_record_name
+terraform output -raw acm_validation_record_value
+```
+
+### 10.2 Add the images CNAME in Vercel DNS
+
+In Vercel for the `predileto.pt` zone:
+
+| Field | Value |
+|---|---|
+| Type | `CNAME` |
+| Name | `images` (Vercel auto-appends `.predileto.pt`) |
+| Value | output of `terraform output -raw images_cdn_domain` (looks like `d1xyzabc123.cloudfront.net`) |
+
+Verify:
+
+```bash
+dig +short CNAME images.predileto.pt @8.8.8.8
+# expect the CloudFront hostname
+```
+
+### 10.3 Add the ACM validation CNAME
+
+ACM issued the cert in `PENDING_VALIDATION` state and Terraform is
+blocked on validation. Add the CNAME it wants:
+
+| Field | Value |
+|---|---|
+| Type | `CNAME` |
+| Name | `terraform output -raw acm_validation_record_name` (strip the trailing `.predileto.pt.`) |
+| Value | `terraform output -raw acm_validation_record_value` |
+
+Validation typically completes in 1–10 minutes after the CNAME
+propagates. The `aws_acm_certificate_validation.images` resource that
+was waiting will unblock and `terraform apply` will report it
+completed. Re-run `terraform apply` if you'd already moved on — it
+will pick up the now-completed validation.
+
+### 10.4 CAA verification
+
+The apex CAA must include both `letsencrypt.org` (for the api domain
+in section 9) **and** `amazon.com` (for ACM/CloudFront here). Both
+should already be present from earlier setup — verify:
+
+```bash
+dig +short CAA predileto.pt @8.8.8.8
+# expect output including:
+#   0 issue "letsencrypt.org"
+#   0 issue "amazon.com"
+```
+
+If either is missing, add the missing record in Vercel before the
+validation step in 10.3 — otherwise ACM will reject the validation
+with `urn:ietf:params:acme:error:caa` even with the correct CNAME in
+place.
+
+### 10.5 Wait for distribution + verify routing
+
+CloudFront distributions take 5–20 minutes to deploy globally.
+
+- **10.5a.** Check status:
+  ```bash
+  aws cloudfront get-distribution \
+    --id $(terraform output -raw images_cdn_distribution_id) \
+    --query 'Distribution.Status' --output text
+  # expect: Deployed   (until then it returns: InProgress)
+  ```
+- **10.5b.** Verify DNS resolves at the edge:
+  ```bash
+  dig +short CNAME images.predileto.pt @8.8.8.8
+  # should return the same hostname as `terraform output -raw images_cdn_domain`
+  ```
+- **10.5c.** Verify TLS + routing end-to-end with a known-missing key:
+  ```bash
+  curl -I https://images.predileto.pt/this-key-does-not-exist
+  # expect: HTTP/2 403   (or 404 — both prove CloudFront answered)
+  ```
+  A `curl: (6) Could not resolve host` means DNS hasn't propagated.
+  An `SSL_ERROR_BAD_CERT_DOMAIN` means the cert didn't attach (re-do
+  10.3). A 502 means the distribution is still deploying (re-do 10.5a).
+
+### 10.6 Coolify env vars
+
+Add to the Coolify project-level "Environment Variables" panel (NOT
+per-service — compose interpolates `${VAR}` at parse time):
+
+| Key | Value |
+|---|---|
+| `S3_IMAGES_BUCKET_NAME` | `terraform output -raw images_bucket_name` |
+| `IMAGES_CDN_BASE_URL` | `https://images.predileto.pt` |
+
+Also **verify `PORTAL_DATABASE_URL` is present at the project level**
+(should already be there from the original Coolify bring-up). If it's
+missing or scoped to the `api` service only, the new `migrations`
+service from `deploy/docker-compose.prod.yml` will fail with
+`PORTAL_DATABASE_URL not set` and block every deploy.
+
+### 10.7 Trigger a Coolify redeploy
+
+`workflow_dispatch` the `co-build-and-push.yml` workflow (or push a
+commit to `main` if you already flipped section 12's trigger).
+This pulls the new image, restarts the stack, and runs the new
+`migrations` service first.
+
+### 10.8 Verify migrations ran clean
+
+In the Coolify UI → `migrations` service → Logs. Expect:
+
+- `migrate_admin.sh` output ending with `INFO ... Will assume non-transactional DDL.` and similar alembic completion lines.
+- The `e1f8c5a2b6d7_clear_legacy_property_images` revision applied (look for the revision id in the alembic output).
+- `migrate_portal.sh` output the same shape.
+- Container status: `exited (0)`.
+
+If the migrations service shows `exited (1)` or `exited (137)`, the
+api + workers will be stuck in `Created` (not `Running`). Most common
+cause: `PORTAL_DATABASE_URL` not set at project level (see 10.6).
+Fix and re-trigger the deploy.
+
+### 10.9 Verify image upload + render end-to-end
+
+From the dashboard frontend:
+
+1. Open a property → upload a new image.
+2. Confirm the image renders in the browser. The `<img src="">` should
+   point at `https://images.predileto.pt/properties/<id>/images/<uuid>.<ext>`.
+3. In the browser dev tools Network tab, confirm:
+   - The request resolves over HTTP/2 to a `*.cloudfront.net` server.
+   - Response includes `Cache-Control: public, max-age=31536000, immutable`.
+4. Confirm the bucket-direct URL is blocked:
+   ```bash
+   curl -I https://$(terraform output -raw images_bucket_name).s3.eu-west-3.amazonaws.com/properties/<id>/images/<uuid>.<ext>
+   # expect: HTTP/1.1 403 Forbidden
+   ```
+
+If image rendering 403s through `images.predileto.pt`: most likely
+the bucket policy doesn't include the distribution's ARN — check
+`aws_s3_bucket_policy.images` in Terraform.
+
+---
+
+## 11. Operator workflows
 
 ### SSH into the VM
 
@@ -725,7 +896,7 @@ terraform apply
 
 ---
 
-## 11. Enable push-to-main trigger
+## 12. Enable push-to-main trigger
 
 Once two manual `workflow_dispatch` runs have ended green and
 Coolify shows a clean deploy, edit
@@ -744,7 +915,7 @@ pushes + redeploys automatically.
 
 ---
 
-## 12. Things that will bite you
+## 13. Things that will bite you
 
 - **`ecr-login.timer` not enabled** → pulls 401 after 12h with no
   obvious symptom in the Coolify UI. Check
