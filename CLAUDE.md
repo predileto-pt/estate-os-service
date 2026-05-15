@@ -77,7 +77,7 @@ Routes access use cases through `request.app.state.<context>_container.<use_case
 
 ## Worker runtime
 
-Production runs on **Coolify** via `deploy/docker-compose.prod.yml`: nginx → api (internal `expose: 8000`) + three long-running workers + rabbitmq + redis. The compose file uses top-level `x-base-service` + `x-shared-env` YAML anchors so the four Python services (api + 3 workers) share image + baseline env via `<<: *…`. Nginx is the only port-bound service.
+Production runs on **Coolify** (Hetzner VM) via `deploy/docker-compose.prod.yml`. Coolify manages **6 services**: api (`expose: 8000`) + three long-running workers + rabbitmq + redis. Coolify's built-in **Traefik** handles public ingress and Let's Encrypt TLS, fronting api directly on `api.predileto.pt`. The `nginx` entry in the compose file is intentionally NOT deployed — kept as dev-time scaffolding only. The compose file uses top-level `x-shared-env` YAML anchors so the four Python services share baseline env via `<<: *…`.
 
 Workers run the long-running `EventBusWorker` poll loop (`src/shared/events/worker.py`) against a RabbitMQ transport. Each worker entrypoint opens **one** `aio_pika.connect_robust` per process (with `heartbeat=30`) and passes it to both the consumer and the bootstrap publishers; the connection closes via `try/finally` after `worker.run()` returns (i.e. after drain completes). The api's `shared/main.py:lifespan` does the same — one connection per api process, opened on startup, threaded into `get_property_container() / get_screening_container() / get_contract_intelligence_container()`, closed on shutdown.
 
@@ -86,6 +86,8 @@ See [ADR-008 addendum](docs/adr/008-event-bus-ports-and-fanout.md#addendum--2026
 **Handlers must be idempotent.** RabbitMQ is at-least-once, and reconnect storms re-deliver every unacked message immediately (vs. SQS's "wait for visibility timeout"). The duplicate-processing potential is more load-bearing than under SQS.
 
 The SNS+SQS adapter classes at `src/shared/events/adapters/sns_event_publisher.py` / `sqs_command_publisher.py` / `sqs_message_consumer.py` are retained for unit tests + emergency revert but no production code path imports them after the 2026-05-13 cutover. AWS Lambda entrypoints (`src/**/lambda_*.py`) and `terraform/production/lambda*.tf` are dormant and would need bootstrap-import revert + connection plumbing to run again — see ADR-018 addendum for the revert recipe.
+
+**Two parallel Terraform stacks.** `terraform/production-coolify/` is the active AWS surface for the Coolify path — owns the ECR repo, the `documents` S3 bucket, the GitHub OIDC role for CI image push, and two IAM users (one for the VM host's `docker login` refresh, one for the api container's S3 calls). `terraform/production/` is the dormant Lambda/EC2/ALB/VPC code retained as the emergency revert path; its AWS resources are deleted. CI lives in `.github/workflows/co-build-and-push.yml` (OIDC → ECR → project-level Coolify webhook); the legacy `deploy.yml` is `workflow_dispatch`-only. The VM pulls from ECR via a systemd timer (`ecr-login.timer`) that refreshes `docker login` every 8h using the static keys of the `coolify-ecr-reader` IAM user — Coolify uses the host's docker daemon, so no registry credentials live in the Coolify UI. Bring-up walkthrough: `docs/runbooks/coolify-first-deploy.md`.
 
 ## Key Conventions
 
