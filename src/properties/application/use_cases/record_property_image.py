@@ -60,12 +60,17 @@ class RecordPropertyImage:
             raise FileNotFoundError(f"File not found in storage: {s3_key}")
 
         now = datetime.now(timezone.utc)
-        # Compute the public URL once, at upload time, and persist it on
-        # the row. Read path returns it as-is — no S3 round-trip, no
-        # coupling to storage config. Property images live in a public
-        # bucket; if that ever changes, the upload flow is the single
-        # place to revisit.
-        public_url = self.image_storage.get_public_url(s3_key)
+        # Compute the URL once at upload time and persist it on the row.
+        # Read path returns it as-is — no S3 round-trip, no coupling to
+        # storage config. In production the URL points at the CloudFront
+        # CDN (https://images.predileto.pt/<key>); in dev it points at
+        # LocalStack (http://localhost:4566/property-images/<key>). The
+        # underlying S3 bucket is private in both environments. If the
+        # CDN domain ever changes, run a one-shot UPDATE on this column.
+        if self.images_cdn_base_url:
+            public_url = f"{self.images_cdn_base_url.rstrip('/')}/{s3_key}"
+        else:
+            public_url = self.image_storage.get_public_url(s3_key)
         image = PropertyImage(
             id=image_id,
             property_id=property_id,
