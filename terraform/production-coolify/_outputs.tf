@@ -42,6 +42,16 @@ output "acm_validation_record_type" {
   value       = tolist(aws_acm_certificate.images.domain_validation_options)[0].resource_record_type
 }
 
+output "images_cdn_distribution_id" {
+  description = "CloudFront distribution id (useful for `aws cloudfront get-distribution` status checks + cache invalidations)."
+  value       = aws_cloudfront_distribution.images.id
+}
+
+output "images_cdn_domain" {
+  description = "CloudFront `*.cloudfront.net` hostname. Operator adds this as the CNAME target for `images.predileto.pt` in Vercel DNS."
+  value       = aws_cloudfront_distribution.images.domain_name
+}
+
 output "github_actions_role_arn" {
   description = "Save as the `AWS_GHA_ROLE_ARN` secret in the GitHub `production` environment."
   value       = aws_iam_role.github_actions.arn
