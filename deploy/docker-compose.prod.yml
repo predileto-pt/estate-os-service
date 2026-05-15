@@ -115,10 +115,17 @@ services:
         set -euo pipefail
         : "${DATABASE_URL:?DATABASE_URL must be set at Coolify project level}"
         : "${PORTAL_DATABASE_URL:?PORTAL_DATABASE_URL must be set at Coolify project level}"
-        echo "→ admin migrations…"
-        alembic upgrade head
+        # cd /app + absolute -c paths: defensive against Coolify
+        # launching the container with WORKDIR=/ (some versions
+        # ignore Dockerfile WORKDIR). Without this, alembic searches
+        # for alembic.ini in $PWD and fails with "No 'script_location'
+        # key found in configuration" — a confusing message that just
+        # means "wrong working directory."
+        cd /app
+        echo "→ admin migrations… (cwd=$(pwd))"
+        alembic -c /app/alembic.ini upgrade head
         echo "→ portal migrations…"
-        alembic -c alembic-portal.ini upgrade head
+        alembic -c /app/alembic-portal.ini upgrade head
         echo "✓ both schemas at head"
     environment:
       <<: *shared-env
