@@ -1,0 +1,35 @@
+terraform {
+  required_version = ">= 1.10, < 2.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.50"
+    }
+  }
+
+  # Separate state file from `terraform/production/` (which owns the dormant
+  # Lambda/EC2 revert path) — same state bucket, distinct key. S3-native
+  # locking via `use_lockfile` (AWS provider 5.50+ / TF 1.10+).
+  backend "s3" {
+    bucket       = "estate-os-service-prod-terraform-state"
+    key          = "coolify/terraform.tfstate"
+    region       = "eu-west-3"
+    use_lockfile = true
+    encrypt      = true
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+
+  default_tags {
+    tags = {
+      Project     = "estate-os-service"
+      ManagedBy   = "terraform"
+      Owner       = "predileto"
+      Environment = "production"
+      Stack       = "coolify"
+    }
+  }
+}
