@@ -239,6 +239,14 @@ class Settings(BaseSettings):
         # Tolerate stale env vars from previous schema versions (e.g. when
         # we drop a setting, ops .env files take a beat to catch up).
         "extra": "ignore",
+        # Treat empty-string env values as "not set" → use the typed
+        # field default. Without this, compose interpolation of an unset
+        # variable (e.g. `STRIPE_TRIAL_PERIOD_DAYS: ${STRIPE_TRIAL_PERIOD_DAYS}`
+        # in deploy/docker-compose.prod.yml when the Coolify project env
+        # doesn't have a value) passes `""` to Pydantic, which crashes
+        # at startup on any non-str field (int, float, bool). Every
+        # typed field in this class is at-risk without this flag.
+        "env_ignore_empty": True,
     }
 
 
