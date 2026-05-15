@@ -10,6 +10,7 @@ set -euo pipefail
 echo "Creating S3 buckets..."
 awslocal s3 mb s3://property-documents
 awslocal s3 mb s3://contract-intelligence-documents
+awslocal s3 mb s3://property-images
 
 echo "Configuring S3 bucket CORS..."
 awslocal s3api put-bucket-cors --bucket property-documents --cors-configuration '{
@@ -24,6 +25,22 @@ awslocal s3api put-bucket-cors --bucket property-documents --cors-configuration 
 }'
 
 awslocal s3api put-bucket-cors --bucket contract-intelligence-documents --cors-configuration '{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["*"],
+      "AllowedMethods": ["GET", "PUT", "POST"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["ETag"]
+    }
+  ]
+}'
+
+# Property images bucket — CORS for browser presigned PUTs (uploads).
+# Browser GETs on `<img>` tags don't require CORS preflight. Production
+# doesn't need this CORS rule at all (uploads go via presigned PUT to
+# the private S3 bucket; reads go through CloudFront which serves
+# without CORS for image tags).
+awslocal s3api put-bucket-cors --bucket property-images --cors-configuration '{
   "CORSRules": [
     {
       "AllowedOrigins": ["*"],
