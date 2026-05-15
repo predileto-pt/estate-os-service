@@ -24,6 +24,23 @@ resource "aws_cloudfront_origin_access_control" "images" {
   signing_protocol                  = "sigv4"
 }
 
+# Inject `Cache-Control: public, max-age=31536000, immutable` on every
+# response. Image keys include UUIDs — the same URL never points at
+# different bytes — so browsers can cache aggressively. `override =
+# true` so this wins over any (currently absent) Cache-Control header
+# the S3 object might set.
+resource "aws_cloudfront_response_headers_policy" "images_long_cache" {
+  name = "${var.prefix_name}-images-long-cache"
+
+  custom_headers_config {
+    items {
+      header   = "Cache-Control"
+      value    = "public, max-age=31536000, immutable"
+      override = true
+    }
+  }
+}
+
 resource "aws_cloudfront_distribution" "images" {
   enabled         = true
   is_ipv6_enabled = true
@@ -50,10 +67,11 @@ resource "aws_cloudfront_distribution" "images" {
 
     # AWS-managed CachingOptimized policy — Cache-Control / Etag honored,
     # gzip + brotli compression on text payloads, sensible default TTLs.
-    # (S3 image objects don't include Cache-Control on PUT today; the
-    # response-headers policy in the follow-up commit overrides this so
-    # browsers cache for a year.)
-    cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+    # Browser-side caching is driven by the response-headers policy
+    # below, which overrides any (currently absent) Cache-Control on
+    # the S3 object.
+    cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.images_long_cache.id
   }
 
   restrictions {
