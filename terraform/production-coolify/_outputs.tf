@@ -17,3 +17,8 @@ output "documents_bucket_name" {
   description = "Set as the Coolify project-level `S3_BUCKET_NAME` env var (consumed by api + all 3 workers)."
   value       = module.documents_bucket.name
 }
+
+output "github_actions_role_arn" {
+  description = "Save as the `AWS_GHA_ROLE_ARN` secret in the GitHub `production` environment."
+  value       = aws_iam_role.github_actions.arn
+}
