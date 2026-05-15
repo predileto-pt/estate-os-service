@@ -12,3 +12,8 @@ output "ecr_repository_arn" {
   description = "ARN of the ECR repo; referenced by IAM policies in github_oidc.tf and iam.tf."
   value       = module.ecr.repository_arn
 }
+
+output "documents_bucket_name" {
+  description = "Set as the Coolify project-level `S3_BUCKET_NAME` env var (consumed by api + all 3 workers)."
+  value       = module.documents_bucket.name
+}
