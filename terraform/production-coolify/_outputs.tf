@@ -23,6 +23,25 @@ output "images_bucket_name" {
   value       = module.images_bucket.name
 }
 
+# ACM DNS validation record. Operator adds this CNAME in Vercel for the
+# `predileto.pt` zone — `acm_validation_record_name` → `acm_validation_record_value`.
+# Once propagated (~1-10 min), `aws_acm_certificate_validation.images` flips
+# to ISSUED and CloudFront can attach the cert.
+output "acm_validation_record_name" {
+  description = "Vercel DNS: CNAME name to add for ACM validation of cdn_domain_name."
+  value       = tolist(aws_acm_certificate.images.domain_validation_options)[0].resource_record_name
+}
+
+output "acm_validation_record_value" {
+  description = "Vercel DNS: CNAME value for the ACM validation record."
+  value       = tolist(aws_acm_certificate.images.domain_validation_options)[0].resource_record_value
+}
+
+output "acm_validation_record_type" {
+  description = "Vercel DNS: record type for the ACM validation (always CNAME for DNS-validated certs)."
+  value       = tolist(aws_acm_certificate.images.domain_validation_options)[0].resource_record_type
+}
+
 output "github_actions_role_arn" {
   description = "Save as the `AWS_GHA_ROLE_ARN` secret in the GitHub `production` environment."
   value       = aws_iam_role.github_actions.arn
