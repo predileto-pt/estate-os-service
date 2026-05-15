@@ -53,6 +53,15 @@ COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --chown=app:app src/ src/
 COPY --chown=app:app deploy/log_config.yaml /app/deploy/log_config.yaml
 
+# Alembic config + migration scripts. Needed by the `migrations` one-shot
+# service in deploy/docker-compose.prod.yml — that container runs
+# `alembic upgrade head` against both admin and portal DBs before api +
+# workers come up. Two configs because there are two databases (see
+# `bash scripts/migrate_*.sh` for the dev equivalents).
+COPY --chown=app:app alembic/ alembic/
+COPY --chown=app:app alembic-portal/ alembic-portal/
+COPY --chown=app:app alembic.ini alembic-portal.ini ./
+
 USER app
 
 EXPOSE 8000
