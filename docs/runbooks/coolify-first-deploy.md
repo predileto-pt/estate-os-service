@@ -433,6 +433,107 @@ start_period — that's fine).
 
 ## 9. DNS + TLS
 
+### How the request reaches `api` (architecture primer)
+
+Before the step-by-step: understand the full request path so the
+config below makes sense. **Nginx is not involved** — we intentionally
+didn't deploy the in-compose `nginx` service (section 5a). Coolify's
+own Traefik proxy is the entry point.
+
+```
+                    Browser
+                       │  https://api.predileto.pt
+                       ▼
+              [ DNS: api.predileto.pt → VM public IP ]   (your Vercel A record, section 9a)
+                       │
+                       ▼
+        ┌─────────────────────────────────┐
+        │  Hetzner VM (the host)          │
+        │                                 │
+        │  ┌───────────────────────────┐  │
+        │  │ Coolify Traefik (proxy)   │  │
+        │  │  - binds :80 + :443       │  │ ← installed by Coolify on day 0
+        │  │  - TLS termination        │  │
+        │  │  - Let's Encrypt ACME     │  │
+        │  │  - routes by Host header  │  │
+        │  └───────────┬───────────────┘  │
+        │              │ HTTP (plain)     │
+        │              │ via docker net   │
+        │              ▼                  │
+        │  ┌───────────────────────────┐  │
+        │  │ api container             │  │
+        │  │  uvicorn :8000            │  │ ← compose `expose: 8000`
+        │  │  (NOT mapped to host)     │  │   (internal-only port)
+        │  └───────────────────────────┘  │
+        └─────────────────────────────────┘
+```
+
+**What Coolify does when you set a domain on a service.** Behind the
+scenes, when you configure `api.predileto.pt` on the api service in
+section 9c, Coolify writes Docker labels onto the api container, like:
+
+```
+traefik.enable=true
+traefik.http.routers.<router-id>.rule=Host(`api.predileto.pt`)
+traefik.http.routers.<router-id>.entrypoints=websecure
+traefik.http.routers.<router-id>.tls.certresolver=letsencrypt
+traefik.http.services.<svc-id>.loadbalancer.server.port=8000
+```
+
+Traefik watches the Docker daemon (via `/var/run/docker.sock`),
+notices the labels, and:
+
+1. **Adds a router** matching `Host(api.predileto.pt)` to its config.
+2. **Sees `tls.certresolver=letsencrypt`** → triggers an ACME
+   request to Let's Encrypt for a cert covering `api.predileto.pt`.
+3. **Solves the HTTP-01 challenge** automatically (see TLS flow below).
+4. **Stores the cert** in its `acme.json` (Coolify-managed Docker
+   volume on the VM, persists across restarts).
+5. **Auto-renews** ~30 days before expiry (Let's Encrypt cert lifetime
+   is 90 days).
+
+You don't run any of this — it's automatic the moment you save the
+domain in the Coolify UI. The pre-conditions (sections 9a, 9b) just
+need to be in place first.
+
+**The TLS flow in plain English.**
+
+- *Cert issuance (one-shot, ~30s–2min):*
+  - Traefik calls Let's Encrypt's ACME endpoint: "issue a cert for
+    `api.predileto.pt`."
+  - LE responds: "prove you control this domain by serving the file
+    `/.well-known/acme-challenge/<token>` over HTTP on port 80."
+  - Traefik on the VM (which holds :80) responds to that path
+    automatically when the challenge fires.
+  - LE checks: `GET http://api.predileto.pt/.well-known/acme-challenge/<token>`
+    → reaches Traefik via the A record from 9a → matches the
+    expected token. Validation passes.
+  - LE returns the signed cert. Traefik stores it.
+- *Steady-state traffic:*
+  - Browser opens `https://api.predileto.pt`.
+  - DNS resolves → VM IP.
+  - TLS handshake terminates at Traefik (using the LE cert).
+  - Traefik proxies the **decrypted** request to `api:8000` over the
+    Coolify project's docker bridge network.
+  - api returns the response. Traefik wraps it in TLS and sends back.
+- *Auto-renewal:*
+  - Traefik checks cert expiry continuously.
+  - ~30 days before expiry, it re-runs the HTTP-01 challenge.
+  - **Port 80 must stay open** to the internet for this to work
+    (don't firewall it off thinking you only need :443).
+
+**Why nginx isn't here.** Traefik already does TLS termination,
+host-header routing, and cert auto-management. Adding nginx between
+Traefik and api would just add a hop with no behavior change — and
+double TLS termination if you wanted nginx to also do HTTPS. The
+in-compose nginx is dev-only scaffolding.
+
+**Why api uses `expose: 8000` instead of `ports: 80:8000`.** Because
+api shouldn't be reachable from the internet directly — only via
+Traefik. `expose:` makes the port reachable from other containers
+on the same docker network (Traefik) but NOT from the VM host or
+the internet. This is correct.
+
 ### 9a. A record
 
 Add an `A` record in Vercel DNS for `predileto.pt`:
@@ -450,10 +551,16 @@ dig +short A api.predileto.pt @8.8.8.8
 # should return the VM IP
 ```
 
+DNS propagation is usually 1–5 minutes. If `dig` returns nothing,
+wait and try again — don't proceed to 9c until this resolves.
+
 ### 9b. CAA pre-check
 
-Same gotcha as in `production-first-deploy.md` Section 0 prereq
-step 5, but pointed at Let's Encrypt instead of Amazon:
+CAA records on the apex domain restrict which Certificate Authorities
+may issue certs. If `predileto.pt` has restrictive CAA records that
+don't include Let's Encrypt, the HTTP-01 challenge will succeed but
+Let's Encrypt will refuse to issue the cert ("CAA record check
+failed"). Pre-check:
 
 ```bash
 dig +short CAA predileto.pt @8.8.8.8
@@ -465,7 +572,7 @@ Three outcomes:
 - **Output includes `letsencrypt.org`** → already authorized. Skip
   to 9c.
 - **Output lists other CAs only** (e.g. `amazon.com`, `pki.goog`) →
-  add Let's Encrypt now. In Vercel DNS:
+  add Let's Encrypt now, before continuing. In Vercel DNS:
 
   | Field | Value |
   |---|---|
@@ -483,24 +590,79 @@ Three outcomes:
   # should now include: 0 issue "letsencrypt.org"
   ```
 
+You're adding a new CAA entry alongside any existing ones, not
+replacing them — keep whatever else is already there.
+
 ### 9c. Configure the api domain in Coolify
 
-Coolify UI: api service → Domains. Enter `https://api.predileto.pt`.
-Toggle "Generate Domain" off (use the custom domain). Enable "Force
-HTTPS". Save.
+Now Coolify takes over.
 
-Coolify's built-in Traefik issues a Let's Encrypt cert via the
-HTTP-01 challenge against the A record from 9a. Cert issuance is
-typically 30s–2min.
+1. Coolify UI → your project → `api` service → Domains.
+2. Enter `https://api.predileto.pt` (note: **https**, not http —
+   this is what tells Coolify to wire `tls.certresolver=letsencrypt`).
+3. If there's a "Generate Domain" toggle (Coolify-managed
+   auto-subdomain), turn it OFF — you're using a custom domain.
+4. Enable "Force HTTPS" (or "Redirect HTTP → HTTPS", depending on
+   Coolify version). This adds a Traefik middleware that 301s any
+   plain-HTTP request to https://.
+5. Save.
+
+What happens immediately after Save:
+
+- Coolify writes the Traefik labels onto the api container
+  (Docker label update, no restart needed).
+- Traefik picks up the new router via its Docker provider.
+- ACME request fires automatically.
+- Cert issuance takes typically 30s–2min.
+
+Watch the Coolify api service log tab; you may see a brief 502 or
+"cert issuance pending" while ACME completes, then green.
 
 ### 9d. Verify TLS end-to-end
 
 ```bash
 curl -fsS https://api.predileto.pt/api/v1/health
-# expect 2xx
-curl -vIs https://api.predileto.pt/api/v1/health 2>&1 | grep "issuer"
-# expect: issuer: ... CN=R10 / Let's Encrypt ...
+# expect 2xx (JSON body, e.g. {"status":"ok"})
+
+curl -vIs https://api.predileto.pt/api/v1/health 2>&1 | grep -E "issuer:|subject:"
+# expect:
+#   subject: CN=api.predileto.pt
+#   issuer: CN=R10, O=Let's Encrypt, C=US   (or similar LE issuer)
 ```
+
+Also verify the HTTP→HTTPS redirect:
+
+```bash
+curl -sI http://api.predileto.pt/api/v1/health | head -3
+# expect:
+#   HTTP/1.1 308 Permanent Redirect
+#   Location: https://api.predileto.pt/api/v1/health
+```
+
+### 9e. If cert issuance fails
+
+Check Traefik's logs on the VM. In a Coolify-default setup the
+Traefik container is named `coolify-proxy` (verify with
+`docker ps --filter "name=proxy"`):
+
+```bash
+docker logs coolify-proxy 2>&1 | grep -i "acme\|certificate\|api.predileto.pt" | tail -30
+```
+
+Common failures:
+
+- **`urn:ietf:params:acme:error:caa`** — CAA record blocks LE. Re-do 9b.
+- **`urn:ietf:params:acme:error:connection`** or `DNS problem: NXDOMAIN`
+  — DNS hasn't propagated yet, or the A record points at the wrong IP.
+  Re-do 9a, wait, retry.
+- **`unauthorized: ... 80 timeout`** — port 80 is firewalled off
+  the VM. Open it (Hetzner firewall / `ufw allow 80/tcp`); Traefik
+  needs :80 for both initial issuance and renewal.
+- **Cert issued but `curl` still times out** — check that Traefik
+  is actually fronting the request: `curl -v https://api.predileto.pt/api/v1/health 2>&1 | head -30` should show a TLS handshake completing with the LE
+  cert. If it 404s with a Traefik default page, the labels on the
+  api container didn't get written — check Coolify api service
+  → Domains is saved correctly.
 
 ---
 
@@ -596,6 +758,12 @@ pushes + redeploys automatically.
   it's LocalStack-only. If anything (a stale `.env.local`
   copy-paste) injects it in prod, every S3 call goes to the dev
   endpoint and 404s.
+- **Port 80 firewalled off.** Tempting after the cert is issued
+  ("we only need 443 now"). Don't — Traefik solves the Let's Encrypt
+  HTTP-01 challenge on :80, and it does this *every renewal* (~60
+  days). Block :80 and the cert silently expires in ~90 days. Hetzner
+  firewall (if used) + the VM's `ufw` must both allow tcp/80 inbound
+  from the world.
 - **Env vars set per-service instead of project-level.** Compose
   interpolates `${VAR}` references at parse time, before per-service
   env applies. Set everything in the section-6 table at
