@@ -51,14 +51,15 @@ resource "aws_iam_access_key" "coolify_ecr_reader" {
 ###############################################################################
 # API S3 client.
 #
-# Used by the api container at runtime to read/write `documents_bucket`.
-# Credentials surface as AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in the
-# api + worker containers (set at the Coolify project level so compose's
-# `${AWS_ACCESS_KEY_ID}` interpolation in x-shared-env resolves).
+# Used by the api container at runtime to read/write `documents_bucket`
+# AND `images_bucket`. Credentials surface as AWS_ACCESS_KEY_ID /
+# AWS_SECRET_ACCESS_KEY in the api + worker containers (set at the
+# Coolify project level so compose's `${AWS_ACCESS_KEY_ID}` interpolation
+# in x-shared-env resolves).
 #
-# Permissions scoped to documents_bucket only:
-#   - GetObject (presigned download URLs, document fetch)
-#   - PutObject (document uploads from the api)
+# Permissions scoped to both bucket prefixes only:
+#   - GetObject (presigned download URLs, document fetch, image fetch)
+#   - PutObject (document + image uploads from the api)
 #   - DeleteObject (confirmed at src/shared/adapters/s3_document_storage.py:98)
 #
 # No ListBucket — no list_objects calls in the codebase today; add if a
@@ -84,7 +85,10 @@ resource "aws_iam_user_policy" "app_s3" {
           "s3:PutObject",
           "s3:DeleteObject",
         ]
-        Resource = "${module.documents_bucket.arn}/*"
+        Resource = [
+          "${module.documents_bucket.arn}/*",
+          "${module.images_bucket.arn}/*",
+        ]
       }
     ]
   })
