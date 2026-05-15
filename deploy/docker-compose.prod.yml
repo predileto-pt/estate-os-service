@@ -99,10 +99,27 @@ services:
   migrations:
     image: ${ECR_IMAGE}
     restart: "no"
+    # Calls `alembic` directly rather than via scripts/migrate_*.sh —
+    # the wrapper scripts use `uv run alembic`, but uv isn't in the
+    # runtime image (only the builder stage carries it). The venv has
+    # `alembic` on PATH so we hit it directly.
+    #
+    # `:?` makes bash fail immediately with a clear error if either DB
+    # URL is unset, instead of letting alembic emit an obscure connect
+    # failure later. Stops a stale Coolify env from blocking deploys
+    # quietly.
     command:
       - bash
       - -c
-      - bash scripts/migrate_admin.sh upgrade head && bash scripts/migrate_portal.sh upgrade head
+      - |
+        set -euo pipefail
+        : "${DATABASE_URL:?DATABASE_URL must be set at Coolify project level}"
+        : "${PORTAL_DATABASE_URL:?PORTAL_DATABASE_URL must be set at Coolify project level}"
+        echo "→ admin migrations…"
+        alembic upgrade head
+        echo "→ portal migrations…"
+        alembic -c alembic-portal.ini upgrade head
+        echo "✓ both schemas at head"
     environment:
       <<: *shared-env
       # PORTAL_DATABASE_URL isn't in x-shared-env (api-only consumer
