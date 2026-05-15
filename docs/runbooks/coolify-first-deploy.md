@@ -79,30 +79,50 @@ These items live outside terraform and must exist before
 cd terraform/production-coolify
 terraform init
 terraform plan -out=tfplan
-# review the plan — should be ~13 resources created
+# review the plan — should be ~23 resources created
 terraform apply tfplan
 ```
 
 Expected resources:
 
-- 1 ECR repo + 1 lifecycle policy
-- 1 S3 bucket + 1 SSE config + 1 public-access-block
-- 1 IAM role + 1 inline policy (GitHub OIDC)
-- 2 IAM users + 2 inline policies + 2 access keys
-  (Coolify ECR reader + app S3 client)
-- Data lookups for caller identity + OIDC provider (no resources)
+- **ECR (2 resources)** — 1 repo + 1 lifecycle policy.
+- **Documents S3 bucket (3)** — 1 bucket + 1 SSE config + 1 public-access-block. AES256 only, no bucket policy.
+- **Property-images S3 bucket (5)** — 1 bucket + 1 SSE + 1 public-access-block + 1 ownership-controls (`BucketOwnerEnforced`) + 1 bucket policy locking reads to the CloudFront distribution.
+- **CloudFront (3)** — 1 Origin Access Control (sigv4) + 1 distribution (alias `images.predileto.pt`) + 1 response-headers policy (`Cache-Control: max-age=31536000, immutable`).
+- **ACM (2, in `us-east-1`)** — 1 cert for `images.predileto.pt` + 1 DNS validation resource. CloudFront's TLS requirement.
+- **GitHub OIDC role (2)** — 1 IAM role assumable from the `estate-os-service` repo's `production` env + 1 inline policy scoped to ECR push.
+- **IAM users (6)** — Coolify ECR reader (user + read-only ECR inline policy + access key) and app S3 client (user + R/W/D inline policy on both buckets + access key).
+- **Data sources (no resources)** — caller identity + GitHub OIDC provider lookup.
 
-**Capture outputs.** You'll reference them in every subsequent
-section:
+**Expected partial-failure on first apply.** The `aws_acm_certificate_validation.images` resource has a 20-minute create timeout and will fail if DNS isn't wired before it expires — that's normal on the very first apply because the validation CNAME comes from this apply's outputs (chicken-and-egg). Sections 2–9 proceed independently; section 10 wires the DNS and re-applies to pick up the validation.
+
+If you want to avoid the partial-failure shape entirely, run a `-target`'d apply that skips the validation resource:
+
+```bash
+terraform apply tfplan -target='module.ecr' -target='module.documents_bucket' \
+  -target='module.images_bucket' -target='aws_cloudfront_origin_access_control.images' \
+  -target='aws_cloudfront_distribution.images' -target='aws_cloudfront_response_headers_policy.images_long_cache' \
+  -target='aws_acm_certificate.images' -target='aws_s3_bucket_policy.images' \
+  -target='aws_iam_role.github_actions' -target='aws_iam_user.coolify_ecr_reader' \
+  -target='aws_iam_user.app_s3'
+```
+
+Either pattern reaches the same end state — section 10's re-apply completes the cert validation either way.
+
+**Capture outputs.** You'll reference them in every subsequent section:
 
 ```bash
 terraform output ecr_repository_url
 terraform output github_actions_role_arn
 terraform output documents_bucket_name
+terraform output images_bucket_name
+terraform output images_cdn_domain                            # CNAME target for images.predileto.pt
+terraform output -raw acm_validation_record_name              # CNAME name for ACM DNS validation
+terraform output -raw acm_validation_record_value             # CNAME value
 terraform output coolify_ecr_reader_access_key_id
-terraform output -raw coolify_ecr_reader_secret_access_key  # write this somewhere safe
+terraform output -raw coolify_ecr_reader_secret_access_key    # write this somewhere safe
 terraform output app_s3_access_key_id
-terraform output -raw app_s3_secret_access_key              # ditto
+terraform output -raw app_s3_secret_access_key                # ditto
 ```
 
 ---
@@ -326,6 +346,8 @@ and require **no Coolify config**.
 | `AWS_ACCESS_KEY_ID` | `terraform output -raw app_s3_access_key_id` | y |
 | `AWS_SECRET_ACCESS_KEY` | `terraform output -raw app_s3_secret_access_key` | y |
 | `S3_BUCKET_NAME` | `terraform output -raw documents_bucket_name` | n |
+| `S3_IMAGES_BUCKET_NAME` | `terraform output -raw images_bucket_name` | n |
+| `IMAGES_CDN_BASE_URL` | literal `https://images.predileto.pt` (consumed by `record_property_image` to build CDN URLs; empty in dev to fall back to `S3DocumentStorage.get_public_url`) | n |
 | `CONTRACT_S3_BUCKET_NAME` | leave at Settings default `contract-intelligence-documents` (no bucket yet — see section 13) | n |
 | `OPENAI_API_KEY` | OpenAI dashboard → API keys | y |
 | `REDUCTO_API_KEY` | Reducto dashboard → API keys | y |
@@ -668,38 +690,32 @@ Common failures:
 
 ## 10. Property images CDN bring-up
 
-Adds the private S3 images bucket + CloudFront distribution + ACM cert
-provisioned by `terraform/production-coolify/{s3,cloudfront,acm}.tf`
-and wires the api/workers to upload to the new bucket and serve via
-`https://images.predileto.pt`. Spec: `property-images-bucket-cdn`.
+Wires DNS, completes the ACM cert validation that section 1's apply
+left hanging, and configures Coolify for the new private S3 images
+bucket + CloudFront distribution at `https://images.predileto.pt`.
+Spec: `property-images-bucket-cdn` (archive).
 
-### 10.1 Re-init Terraform and apply
+The Terraform resources themselves were already provisioned in section 1
+(or are pending validation). This section is mostly operator-side DNS
++ Coolify config + a re-apply to pick up the validation.
 
-The spec adds a second AWS provider alias (`aws.us_east_1` for the
-ACM cert — CloudFront's TLS requirement). `terraform apply` alone
-won't pick that up; you must re-init:
+### 10.1 CAA pre-check (apex)
 
-```bash
-cd terraform/production-coolify
-terraform init
-terraform plan -out=tfplan
-terraform apply tfplan
-```
-
-Expected resources created:
-  - 1 S3 bucket (`*-property-images`) + SSE config + public-access-block + ownership-controls + bucket policy
-  - 1 CloudFront OAC + 1 CloudFront distribution + 1 response-headers policy
-  - 1 ACM cert + 1 ACM validation (in `us-east-1`)
-  - In-place update to the `app_s3` IAM user's inline policy (extends Resource list to include the new bucket)
-
-Capture the outputs you'll need:
+Before adding DNS records, confirm the apex CAA permits Amazon Trust
+Services to issue the cert. Both `letsencrypt.org` (api domain,
+section 9) and `amazon.com` (ACM/CloudFront here) should already be
+present from earlier setup — verify:
 
 ```bash
-terraform output -raw images_bucket_name
-terraform output -raw images_cdn_domain               # *.cloudfront.net hostname for the DNS step
-terraform output -raw acm_validation_record_name
-terraform output -raw acm_validation_record_value
+dig +short CAA predileto.pt @8.8.8.8
+# expect output including:
+#   0 issue "letsencrypt.org"
+#   0 issue "amazon.com"
 ```
+
+If `amazon.com` is missing, add `0 issue "amazon.com"` in Vercel DNS
+at the apex before 10.3 — otherwise ACM will reject validation with
+`urn:ietf:params:acme:error:caa` even with the correct CNAME in place.
 
 ### 10.2 Add the images CNAME in Vercel DNS
 
@@ -720,8 +736,9 @@ dig +short CNAME images.predileto.pt @8.8.8.8
 
 ### 10.3 Add the ACM validation CNAME
 
-ACM issued the cert in `PENDING_VALIDATION` state and Terraform is
-blocked on validation. Add the CNAME it wants:
+The ACM cert from section 1 is in `PENDING_VALIDATION` (or its
+`aws_acm_certificate_validation.images` resource timed out and is
+errored). Wire the validation CNAME so ACM can issue:
 
 | Field | Value |
 |---|---|
@@ -729,40 +746,40 @@ blocked on validation. Add the CNAME it wants:
 | Name | `terraform output -raw acm_validation_record_name` (strip the trailing `.predileto.pt.`) |
 | Value | `terraform output -raw acm_validation_record_value` |
 
-Validation typically completes in 1–10 minutes after the CNAME
-propagates. The `aws_acm_certificate_validation.images` resource that
-was waiting will unblock and `terraform apply` will report it
-completed. Re-run `terraform apply` if you'd already moved on — it
-will pick up the now-completed validation.
+Validation typically completes within 1–10 minutes after DNS
+propagates.
 
-### 10.4 CAA verification
+### 10.4 Re-apply Terraform to complete cert validation
 
-The apex CAA must include both `letsencrypt.org` (for the api domain
-in section 9) **and** `amazon.com` (for ACM/CloudFront here). Both
-should already be present from earlier setup — verify:
+With both CNAMEs in place and the CAA records confirmed, re-apply so
+`aws_acm_certificate_validation.images` succeeds:
 
 ```bash
-dig +short CAA predileto.pt @8.8.8.8
-# expect output including:
-#   0 issue "letsencrypt.org"
-#   0 issue "amazon.com"
+cd terraform/production-coolify
+terraform plan -out=tfplan
+terraform apply tfplan
 ```
 
-If either is missing, add the missing record in Vercel before the
-validation step in 10.3 — otherwise ACM will reject the validation
-with `urn:ietf:params:acme:error:caa` even with the correct CNAME in
-place.
+- If section 1 used the `-target`'d first-apply pattern, this run is
+  where the validation resource gets created for the first time.
+- If section 1 did the full apply and timed out on validation, this
+  run retries it.
+
+Either way the end state is identical: cert ISSUED, distribution
+ready to attach it.
 
 ### 10.5 Wait for distribution + verify routing
 
-CloudFront distributions take 5–20 minutes to deploy globally.
+The CloudFront distribution was created in section 1's apply and is
+likely already `Deployed` by the time you get here. Verify the
+end-to-end path:
 
-- **10.5a.** Check status:
+- **10.5a.** Check distribution status:
   ```bash
   aws cloudfront get-distribution \
     --id $(terraform output -raw images_cdn_distribution_id) \
     --query 'Distribution.Status' --output text
-  # expect: Deployed   (until then it returns: InProgress)
+  # expect: Deployed   (until then it returns: InProgress; takes 5-20min from first apply)
   ```
 - **10.5b.** Verify DNS resolves at the edge:
   ```bash
@@ -775,22 +792,22 @@ CloudFront distributions take 5–20 minutes to deploy globally.
   # expect: HTTP/2 403   (or 404 — both prove CloudFront answered)
   ```
   A `curl: (6) Could not resolve host` means DNS hasn't propagated.
-  An `SSL_ERROR_BAD_CERT_DOMAIN` means the cert didn't attach (re-do
-  10.3). A 502 means the distribution is still deploying (re-do 10.5a).
+  An `SSL_ERROR_BAD_CERT_DOMAIN` means the cert didn't attach (the
+  validation in 10.4 didn't actually complete — `terraform plan`
+  should be clean before reaching here). A 502 means the distribution
+  is still deploying (re-do 10.5a).
 
 ### 10.6 Coolify env vars
 
-Add to the Coolify project-level "Environment Variables" panel (NOT
-per-service — compose interpolates `${VAR}` at parse time):
+`S3_IMAGES_BUCKET_NAME` and `IMAGES_CDN_BASE_URL` should already be
+in the Coolify project-level env panel — they're rows in the
+section 6b table that the operator runs through during initial
+bring-up. If you skipped them (e.g. this is an add-CDN-to-existing-stack
+run, not a from-scratch first deploy), add them now. NOT per-service —
+compose interpolates `${VAR}` at parse time.
 
-| Key | Value |
-|---|---|
-| `S3_IMAGES_BUCKET_NAME` | `terraform output -raw images_bucket_name` |
-| `IMAGES_CDN_BASE_URL` | `https://images.predileto.pt` |
-
-Also **verify `PORTAL_DATABASE_URL` is present at the project level**
-(should already be there from the original Coolify bring-up). If it's
-missing or scoped to the `api` service only, the new `migrations`
+Also **verify `PORTAL_DATABASE_URL` is present at the project level**.
+If it's missing or scoped to the `api` service only, the `migrations`
 service from `deploy/docker-compose.prod.yml` will fail with
 `PORTAL_DATABASE_URL not set` and block every deploy.
 
