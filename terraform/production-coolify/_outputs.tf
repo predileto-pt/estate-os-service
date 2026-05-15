@@ -33,3 +33,14 @@ output "coolify_ecr_reader_secret_access_key" {
   value       = aws_iam_access_key.coolify_ecr_reader.secret
   sensitive   = true
 }
+
+output "app_s3_access_key_id" {
+  description = "Access key id for the api/worker containers' AWS_ACCESS_KEY_ID env (set at the Coolify project level)."
+  value       = aws_iam_access_key.app_s3.id
+}
+
+output "app_s3_secret_access_key" {
+  description = "Secret for the api/worker containers' AWS_SECRET_ACCESS_KEY env. Retrieve with `terraform output -raw app_s3_secret_access_key`."
+  value       = aws_iam_access_key.app_s3.secret
+  sensitive   = true
+}

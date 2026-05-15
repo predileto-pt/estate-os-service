@@ -47,3 +47,49 @@ resource "aws_iam_user_policy" "coolify_ecr_reader" {
 resource "aws_iam_access_key" "coolify_ecr_reader" {
   user = aws_iam_user.coolify_ecr_reader.name
 }
+
+###############################################################################
+# API S3 client.
+#
+# Used by the api container at runtime to read/write `documents_bucket`.
+# Credentials surface as AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in the
+# api + worker containers (set at the Coolify project level so compose's
+# `${AWS_ACCESS_KEY_ID}` interpolation in x-shared-env resolves).
+#
+# Permissions scoped to documents_bucket only:
+#   - GetObject (presigned download URLs, document fetch)
+#   - PutObject (document uploads from the api)
+#   - DeleteObject (confirmed at src/shared/adapters/s3_document_storage.py:98)
+#
+# No ListBucket — no list_objects calls in the codebase today; add if a
+# reconciliation workflow needs it. The contracts bucket would join this
+# policy when the follow-up spec lands.
+###############################################################################
+
+resource "aws_iam_user" "app_s3" {
+  name = "${var.prefix_name}-app-s3"
+}
+
+resource "aws_iam_user_policy" "app_s3" {
+  name = "${var.prefix_name}-app-s3"
+  user = aws_iam_user.app_s3.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+        ]
+        Resource = "${module.documents_bucket.arn}/*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_access_key" "app_s3" {
+  user = aws_iam_user.app_s3.name
+}
