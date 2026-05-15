@@ -70,17 +70,33 @@ jobs:
           docker push "${{ steps.tag.outputs.latest }}"
 
       - name: Trigger Coolify redeploy
-        # Project-level webhook — one URL redeploys all 6 Coolify-managed
-        # services (api + 3 workers + rabbitmq + redis), matching the
-        # unified-image semantics.
+        # Project-level webhook — one URL redeploys all Coolify-managed
+        # services in the application, matching the unified-image
+        # semantics.
         #
-        # Bind via env: so GitHub log-masking applies. Empty-secret guard
-        # lets the first CI run succeed before Coolify is configured.
+        # Auth: Coolify v4's /api/v1/deploy endpoint requires a Bearer
+        # token (the UUID in the URL identifies the resource but is NOT
+        # a credential). Generate a token in Coolify UI → Keys & Tokens
+        # → API Tokens and store it as the COOLIFY_API_TOKEN secret.
+        #
+        # Method: GET is the documented method for this endpoint;
+        # POST returns 401 on current Coolify versions.
+        #
+        # Both secrets bound via env: so GitHub log-masking applies.
+        # Empty-webhook guard lets the very first CI run succeed before
+        # Coolify is configured.
         env:
           COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
         run: |
           if [ -z "$COOLIFY_DEPLOY_WEBHOOK" ]; then
             echo "::warning::COOLIFY_DEPLOY_WEBHOOK not configured, skipping redeploy"
             exit 0
           fi
-          curl -fsS -X POST "$COOLIFY_DEPLOY_WEBHOOK"
+          if [ -z "$COOLIFY_API_TOKEN" ]; then
+            echo "::error::COOLIFY_DEPLOY_WEBHOOK is set but COOLIFY_API_TOKEN is empty — Coolify v4 requires Bearer auth on /api/v1/deploy"
+            exit 1
+          fi
+          curl -fsS -X GET \
+            -H "Authorization: Bearer $COOLIFY_API_TOKEN" \
+            "$COOLIFY_DEPLOY_WEBHOOK"
