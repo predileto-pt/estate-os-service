@@ -19,6 +19,7 @@ import structlog
 from aio_pika import DeliveryMode, ExchangeType, Message
 from aio_pika.abc import AbstractRobustConnection
 
+from shared.events.adapters._publish_retry import publish_with_retry
 from shared.events.base import DomainEvent
 
 log = structlog.get_logger()
@@ -34,21 +35,29 @@ class RabbitMQEventPublisher:
         self._exchange_name = exchange
 
     async def publish(self, event: DomainEvent) -> None:
-        # Channel-per-publish isolates channel-level errors. AMQP channels
-        # are cheap — orders of magnitude lighter than a TCP connection.
-        async with self._connection.channel(publisher_confirms=True) as channel:
-            exchange = await channel.declare_exchange(
-                self._exchange_name,
-                ExchangeType.TOPIC,
-                durable=True,
-            )
-            message = Message(
-                body=event.to_json().encode("utf-8"),
-                message_id=event.event_id,
-                delivery_mode=DeliveryMode.PERSISTENT,
-                content_type="application/json",
-            )
-            await exchange.publish(message, routing_key=event.event_type)
+        async def body() -> None:
+            # Channel-per-publish isolates channel-level errors. AMQP channels
+            # are cheap — orders of magnitude lighter than a TCP connection.
+            async with self._connection.channel(publisher_confirms=True) as channel:
+                exchange = await channel.declare_exchange(
+                    self._exchange_name,
+                    ExchangeType.TOPIC,
+                    durable=True,
+                )
+                message = Message(
+                    body=event.to_json().encode("utf-8"),
+                    message_id=event.event_id,
+                    delivery_mode=DeliveryMode.PERSISTENT,
+                    content_type="application/json",
+                )
+                await exchange.publish(message, routing_key=event.event_type)
+
+        await publish_with_retry(
+            body,
+            event_id=event.event_id,
+            event_type=event.event_type,
+            sink=self._exchange_name,
+        )
         log.info(
             "domain_event_published",
             event_type=event.event_type,
