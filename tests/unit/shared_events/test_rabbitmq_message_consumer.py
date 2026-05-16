@@ -69,9 +69,7 @@ def _connection_with_channel() -> tuple[MagicMock, AsyncMock, AsyncMock, AsyncMo
 
 async def test_aenter_sets_basic_qos_prefetch() -> None:
     connection, channel, _queue, _dlx = _connection_with_channel()
-    consumer = RabbitMQMessageConsumer(
-        connection, queue_name="q", prefetch_count=5
-    )
+    consumer = RabbitMQMessageConsumer(connection, queue_name="q", prefetch_count=5)
     async with consumer:
         pass
 
@@ -90,9 +88,7 @@ async def test_aenter_declares_queue_with_quorum_and_delivery_limit() -> None:
     # the global `dead-letters` queue bound to the DLX. Verify the consumer
     # queue declare carries the SQS-parity retry profile.
     consumer_queue_call = next(
-        c
-        for c in channel.declare_queue.await_args_list
-        if c.args[0] == "listings-events-queue"
+        c for c in channel.declare_queue.await_args_list if c.args[0] == "listings-events-queue"
     )
     assert consumer_queue_call.kwargs == {
         "durable": True,
@@ -106,9 +102,7 @@ async def test_aenter_declares_queue_with_quorum_and_delivery_limit() -> None:
 
 async def test_aenter_declares_dlx_idempotently() -> None:
     connection, channel, _queue, _dlx = _connection_with_channel()
-    consumer = RabbitMQMessageConsumer(
-        connection, queue_name="q", dlx="custom-dlx"
-    )
+    consumer = RabbitMQMessageConsumer(connection, queue_name="q", dlx="custom-dlx")
     async with consumer:
         pass
 
@@ -178,9 +172,7 @@ async def test_poll_short_returns_when_buffer_empty() -> None:
         assert elapsed < 0.1
 
 
-def _raw_message(
-    body: bytes, message_id: str | None = None, delivery_tag: int = 1
-) -> MagicMock:
+def _raw_message(body: bytes, message_id: str | None = None, delivery_tag: int = 1) -> MagicMock:
     raw = MagicMock()
     raw.body = body
     raw.message_id = message_id

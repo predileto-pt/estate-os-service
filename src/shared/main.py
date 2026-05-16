@@ -132,17 +132,13 @@ def create_app(
             # Shared jobs infra (ADR-012). Built before producing-context
             # containers so its `JobTracker` port can be injected.
             app.state.jobs_container = await get_jobs_container()
-            app.state.property_container = await get_property_container(
-                app.state.amqp_connection
-            )
-            app.state.screening_container = await get_screening_container(
-                app.state.amqp_connection
-            )
+            app.state.property_container = await get_property_container(app.state.amqp_connection)
+            app.state.screening_container = await get_screening_container(app.state.amqp_connection)
             listing_cont = await get_listing_container()
             app.state.listing_container = listing_cont
             app.state.booking_container = await get_booking_container()
-            app.state.contract_intelligence_container = (
-                await get_contract_intelligence_container(app.state.amqp_connection)
+            app.state.contract_intelligence_container = await get_contract_intelligence_container(
+                app.state.amqp_connection
             )
             # Portal sessions: portal Supabase + portal DB. Tolerant of missing
             # env in dev — the route handlers will 500 cleanly if invoked without

@@ -42,9 +42,7 @@ class RabbitMQMessage:
         # emit this shape via the old code path) and raw DomainEvent JSON.
         body = json.loads(raw.body.decode("utf-8"))
         event_json = (
-            json.loads(body["Message"])
-            if isinstance(body, dict) and "Message" in body
-            else body
+            json.loads(body["Message"]) if isinstance(body, dict) and "Message" in body else body
         )
         self._event = DomainEvent.from_dict(event_json)
 
@@ -111,9 +109,7 @@ class RabbitMQMessageConsumer:
         dlx_exchange = await self._channel.declare_exchange(
             self._dlx, ExchangeType.FANOUT, durable=True
         )
-        dead_letters_queue = await self._channel.declare_queue(
-            "dead-letters", durable=True
-        )
+        dead_letters_queue = await self._channel.declare_queue("dead-letters", durable=True)
         await dead_letters_queue.bind(dlx_exchange)
         # Queue with the SQS-equivalent retry profile.
         self._queue = await self._channel.declare_queue(
@@ -161,9 +157,7 @@ class RabbitMQMessageConsumer:
                     continue
                 await self._buffer.put(msg)
 
-    async def poll(
-        self, max_messages: int, wait_seconds: int
-    ) -> list[RabbitMQMessage]:
+    async def poll(self, max_messages: int, wait_seconds: int) -> list[RabbitMQMessage]:
         assert self._buffer is not None
         out: list[RabbitMQMessage] = []
         loop = asyncio.get_running_loop()
@@ -171,9 +165,7 @@ class RabbitMQMessageConsumer:
         while len(out) < max_messages:
             remaining = max(0.0, deadline - loop.time())
             try:
-                msg = await asyncio.wait_for(
-                    self._buffer.get(), timeout=remaining
-                )
+                msg = await asyncio.wait_for(self._buffer.get(), timeout=remaining)
                 out.append(msg)
             except asyncio.TimeoutError:
                 break

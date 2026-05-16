@@ -117,10 +117,71 @@ async def test_publish_channel_is_closed_per_call() -> None:
 
 async def test_publish_propagates_broker_nack_as_exception() -> None:
     """When the broker basic.nack's the publish, aio-pika raises.
-    Our publisher does not swallow it — caller sees the failure."""
+    Our publisher does not swallow it — caller sees the failure.
+    The retry helper re-raises immediately because the message
+    doesn't match the "Connection was not opened" marker."""
     connection, _channel, exchange = _make_connection_mock()
     exchange.publish = AsyncMock(side_effect=RuntimeError("broker nacked"))
     publisher = RabbitMQEventPublisher(connection)
 
     with pytest.raises(RuntimeError, match="broker nacked"):
         await publisher.publish(DomainEvent(event_type="X.v1", data={}))
+
+
+async def test_publish_retries_transient_connection_not_opened(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On the cold-start race the spec is closing, the first channel()
+    call raises `Connection was not opened`. The publisher should retry
+    and succeed on the second attempt."""
+
+    # Skip the real sleep.
+    async def _noop(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("asyncio.sleep", _noop)
+
+    connection, channel, _exchange = _make_connection_mock()
+    # First channel() invocation raises on __aenter__; second succeeds.
+    failing_ctx = AsyncMock()
+    failing_ctx.__aenter__ = AsyncMock(side_effect=RuntimeError("Connection was not opened"))
+    failing_ctx.__aexit__ = AsyncMock(return_value=None)
+    success_ctx = connection.channel.return_value  # the original happy-path ctx
+    connection.channel = MagicMock(side_effect=[failing_ctx, success_ctx])
+
+    publisher = RabbitMQEventPublisher(connection)
+    await publisher.publish(DomainEvent(event_type="X.v1", data={}))
+
+    assert connection.channel.call_count == 2
+    # The second (successful) channel got the real declare + publish flow.
+    channel.declare_exchange.assert_awaited()
+
+
+async def test_publish_raises_publish_failed_after_retry_on_exhaustion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When all three attempts trip the retriable error, the publisher
+    raises PublishFailedAfterRetry with the event/sink metadata so callers
+    have a structured terminal signal."""
+    from shared.events.adapters._publish_retry import PublishFailedAfterRetry
+
+    async def _noop(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("asyncio.sleep", _noop)
+
+    connection = MagicMock()
+    failing_ctx = AsyncMock()
+    failing_ctx.__aenter__ = AsyncMock(side_effect=RuntimeError("Connection was not opened"))
+    failing_ctx.__aexit__ = AsyncMock(return_value=None)
+    connection.channel = MagicMock(return_value=failing_ctx)
+
+    publisher = RabbitMQEventPublisher(connection, exchange="domain-events")
+
+    with pytest.raises(PublishFailedAfterRetry) as exc_info:
+        await publisher.publish(DomainEvent(event_type="PROPERTY_UPDATED.v1", data={}))
+
+    err = exc_info.value
+    assert err.event_type == "PROPERTY_UPDATED.v1"
+    assert err.sink == "domain-events"
+    assert err.attempts == 3
