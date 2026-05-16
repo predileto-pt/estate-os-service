@@ -31,6 +31,7 @@ class SessionModel(Base):
     )
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    cookies_consent: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         Index(

@@ -18,7 +18,7 @@ from sessions.domain.exceptions import (
     FavoriteLimitExceeded,
     PrefsTooLarge,
 )
-from sessions.domain.value_objects import SessionId
+from sessions.domain.value_objects import CookiesConsent, SessionId
 
 
 class SessionKind(str, enum.Enum):
@@ -37,6 +37,7 @@ class Session:
     last_seen_at: datetime
     claimed_at: datetime | None
     revoked: bool
+    cookies_consent: CookiesConsent | None = None
 
     # ── Favorites ───────────────────────────────────────────────────────
 
@@ -60,6 +61,13 @@ class Session:
         if size > max_bytes:
             raise PrefsTooLarge(f"prefs serialized to {size} bytes; cap is {max_bytes}")
         return replace(self, prefs=merged)
+
+    # ── Cookies consent ────────────────────────────────────────────────
+
+    def with_cookies_consent(self, value: CookiesConsent | None) -> "Session":
+        if value == self.cookies_consent:
+            return self
+        return replace(self, cookies_consent=value)
 
     # ── Auth state ──────────────────────────────────────────────────────
 

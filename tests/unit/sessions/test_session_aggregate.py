@@ -7,7 +7,7 @@ import pytest
 
 from sessions.domain.exceptions import FavoriteLimitExceeded, PrefsTooLarge
 from sessions.domain.models.session import Session, SessionKind
-from sessions.domain.value_objects import SessionId
+from sessions.domain.value_objects import CookiesConsent, SessionId
 
 
 def _make(**overrides) -> Session:
@@ -105,3 +105,27 @@ def test_touched_updates_only_last_seen_at():
     assert s2.favorites == s.favorites
     assert s2.prefs == s.prefs
     assert s2.kind == s.kind
+
+
+def test_cookies_consent_defaults_to_none():
+    assert _make().cookies_consent is None
+
+
+def test_with_cookies_consent_sets_value():
+    s = _make()
+    s2 = s.with_cookies_consent(CookiesConsent.ACCEPTED)
+    assert s2.cookies_consent is CookiesConsent.ACCEPTED
+    assert s.cookies_consent is None
+
+
+def test_with_cookies_consent_is_idempotent():
+    s = _make(cookies_consent=CookiesConsent.DECLINED)
+    assert s.with_cookies_consent(CookiesConsent.DECLINED) is s
+
+
+def test_logout_does_not_clear_cookies_consent():
+    # Consent is device/browser-scoped under GDPR; logging out should leave
+    # the decision intact so the banner doesn't re-appear on the same device.
+    s = _make(cookies_consent=CookiesConsent.ACCEPTED)
+    s2 = s.logged_out(now=datetime(2026, 6, 1, tzinfo=timezone.utc))
+    assert s2.cookies_consent is CookiesConsent.ACCEPTED
