@@ -1,12 +1,16 @@
 name: Build + Push to ECR (Coolify)
 
-# Ships with `workflow_dispatch` only at first commit. After two manual
-# runs end green and Coolify shows a clean deploy, flip the trigger to
-# also fire on push:main (runbook section 11). This avoids the workflow
-# auto-firing on merge before the AWS_GHA_ROLE_ARN secret + Coolify
-# webhook are populated.
+# Triggers:
+# - `workflow_dispatch`: manual fire from the Actions tab (kept for
+#   one-off rebuilds and the dispatch-only smoke test).
+# - `push: main`: every merge to main builds + pushes + redeploys via
+#   the Coolify webhook. Gating turned on 2026-05-16 after smoke runs
+#   ended green and Coolify reported clean deploys (runbook §12).
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 concurrency:
   # Don't kill a build mid-layer-upload — leaves the ECR layer cache
