@@ -234,3 +234,26 @@ Spec `2026-05-rabbitmq-transport-adapter` lands three new adapters in `src/share
 
 - Dev: `docker compose up -d` now runs `rabbitmq:3.13-management-alpine` (5672 + 15672, guest/guest). LocalStack is S3-only.
 - Prod (Coolify): handled by spec `2026-05-coolify-compose-prod`.
+
+## Addendum — 2026-05-16: publish-side reliability contract
+
+After the SNS→RabbitMQ cutover, production surfaced a class of failures the original spec's "channel-per-publish + publisher_confirms" primitives didn't cover: **transient `RuntimeError("Connection was not opened")` during reconnect windows**. The trigger is a back-to-back redeploy (Coolify rolling the api container while RabbitMQ is mid-restart), but the same race exists for any heartbeat-driven reconnect, network blip, or broker brownout.
+
+The original design treated publish failures as best-effort with caller-side `try/except Exception: log.exception(...)` — so the user-facing operation completed, but downstream consumers (listings projection, search index) silently missed the event.
+
+**Resolution:** spec `rabbitmq-publish-reliability` (2026-05-16) added a bounded retry layer to both `RabbitMQEventPublisher.publish` and `RabbitMQCommandPublisher.send`, plus a startup readiness probe.
+
+**Contract:**
+
+- **Retry budget:** 3 attempts, 0.5s / 1.0s / 2.0s backoff. Total worst case ~3.5s blocking time per publish. Deliberately bounded — during a true broker outage we'd rather surface event-publish failure logs than amplify it into user-facing P99 latency.
+- **Retriable errors** (the retry layer absorbs these): `RuntimeError("Connection was not opened")` (message-matched), `aio_pika.exceptions.AMQPConnectionError`, `aio_pika.exceptions.ChannelInvalidStateError`.
+- **Non-retriable errors** (re-raised immediately, no retry, no `event_publish_attempt_failed` log): `aio_pika.exceptions.DeliveryError` (mandatory-publish unroutable — permanent routing-key misconfiguration), `aio_pika.exceptions.AMQPChannelError` on declare (broker rejected declaration — permanent), `aio_pika.exceptions.ProbableAuthenticationError`, any non-AMQP exception (caller bug, not transport problem).
+- **Terminal log line** (fires from inside the adapter, not from `emit_*` wrappers, so direct-publish callers get the rich signal too): `event_publish_failed` at error level with `event_id`, `event_type`, `sink` (exchange or queue name), `attempts`, `error_class`, `error` structured fields.
+- **Terminal exception**: `PublishFailedAfterRetry` subclassing `aio_pika.exceptions.AMQPError` (so `except AMQPError` and `except Exception` both catch). Last underlying exception chained via `__cause__`.
+- **Startup probe**: lifespan opens one channel with a 5s timeout after `connect_robust`. Non-fatal — a failed probe logs `amqp_readiness_probe_failed` (warning) and the api continues to boot in degraded "publish-retry" mode. Read endpoints unaffected.
+
+**Why this isn't an outbox.** A transactional outbox (events written in the same DB transaction as the aggregate, drained by a publisher worker) is the next reliability tier and would give us true at-least-once delivery across api crashes — not just reconnect windows. We deliberately deferred it: the retry layer covers ~99% of observed failure modes for ~150 lines of code; the outbox is justified once retry-isn't-enough evidence emerges (e.g., RabbitMQ outage durations consistently exceeding the budget, persistent gaps in the listings projection).
+
+**When to escalate to an outbox.** If `event_publish_failed` count over 1h ever exceeds (say) 0.1% of write-path use-case invocations, or if reconciliation jobs against the listings projection show persistent drift that maps back to publish failures, open a new spec. Until then, retry + structured logs are the active contract.
+
+**Consumer side stays as-is** (out of scope for this addendum). The `EventBusWorker` poll loop already wraps `consumer.poll()` in `try/except Exception` with exponential backoff (`src/shared/events/worker.py:121-126`), and aio_pika's `RobustChannel` auto-recovers the underlying channel through a reconnect. If consumer-side bugs surface, open a separate `rabbitmq-consumer-reliability` spec.
