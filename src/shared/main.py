@@ -74,7 +74,10 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if not hasattr(app.state, "container") or app.state.container is None:
+            import asyncio
+
             import aio_pika
+            import structlog
 
             from shared.entrypoints.bootstrap import (
                 get_billing_container,
@@ -89,6 +92,8 @@ def create_app(
                 get_sessions_container,
             )
 
+            _lifespan_log = structlog.get_logger()
+
             # One RabbitMQ connection per api process. All publishers
             # (property / screening / contract command + event publishers)
             # ride it via channel-per-publish; connect_robust handles
@@ -96,6 +101,25 @@ def create_app(
             app.state.amqp_connection = await aio_pika.connect_robust(
                 settings.rabbitmq_url, heartbeat=30
             )
+
+            # Probe a channel-open before yielding. `connect_robust` returns
+            # once the handshake completes, but the first `channel()` call
+            # can still race the AMQP `connection.start-ok` flow on slow
+            # brokers — that's the bug the rabbitmq-publish-reliability
+            # spec is closing. Probing forces the api to wait for genuine
+            # readiness or proceed knowing RabbitMQ is unhealthy. Non-fatal:
+            # the publisher-side retry layer handles the degraded case if
+            # this probe times out.
+            try:
+                async with asyncio.timeout(5):
+                    async with app.state.amqp_connection.channel(publisher_confirms=True):
+                        pass
+            except (TimeoutError, RuntimeError, aio_pika.exceptions.AMQPError) as e:
+                _lifespan_log.warning(
+                    "amqp_readiness_probe_failed",
+                    error_class=type(e).__name__,
+                    error=str(e),
+                )
 
             app.state.identity_container = await get_identity_container()
             # Billing container must be built before organizations; organizations
