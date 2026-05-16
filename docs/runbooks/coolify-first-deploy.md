@@ -915,9 +915,10 @@ terraform apply
 
 ## 12. Enable push-to-main trigger
 
-Once two manual `workflow_dispatch` runs have ended green and
-Coolify shows a clean deploy, edit
-`.github/workflows/co-build-and-push.yml`:
+**Status: enabled 2026-05-16.** Every merge to `main` now builds +
+pushes + redeploys automatically via the Coolify webhook.
+
+The trigger in `.github/workflows/co-build-and-push.yml` is:
 
 ```yaml
 on:
@@ -927,8 +928,9 @@ on:
       - main
 ```
 
-Commit + push. From that point on, every merge to `main` builds +
-pushes + redeploys automatically.
+To temporarily disable auto-deploy (e.g. for a freeze window), remove
+the `push:` block and re-merge. `workflow_dispatch` continues to work
+for manual rebuilds.
 
 ---
 
