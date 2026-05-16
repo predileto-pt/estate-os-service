@@ -20,6 +20,7 @@ import structlog
 from aio_pika import DeliveryMode, Message
 from aio_pika.abc import AbstractRobustConnection
 
+from shared.events.adapters._publish_retry import publish_with_retry
 from shared.events.base import DomainEvent
 
 log = structlog.get_logger()
@@ -34,18 +35,26 @@ class RabbitMQCommandPublisher:
         # SQS adapter; in RabbitMQ-land it's the queue name. The setting
         # values feeding it must be plain queue names (e.g.
         # `property-extraction-queue`), not URLs.
-        async with self._connection.channel(publisher_confirms=True) as channel:
-            message = Message(
-                body=event.to_json().encode("utf-8"),
-                message_id=event.event_id,
-                delivery_mode=DeliveryMode.PERSISTENT,
-                content_type="application/json",
-            )
-            await channel.default_exchange.publish(
-                message,
-                routing_key=queue_url,
-                mandatory=True,
-            )
+        async def body() -> None:
+            async with self._connection.channel(publisher_confirms=True) as channel:
+                message = Message(
+                    body=event.to_json().encode("utf-8"),
+                    message_id=event.event_id,
+                    delivery_mode=DeliveryMode.PERSISTENT,
+                    content_type="application/json",
+                )
+                await channel.default_exchange.publish(
+                    message,
+                    routing_key=queue_url,
+                    mandatory=True,
+                )
+
+        await publish_with_retry(
+            body,
+            event_id=event.event_id,
+            event_type=event.event_type,
+            sink=queue_url,
+        )
         log.info(
             "command_sent",
             event_type=event.event_type,
