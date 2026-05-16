@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,6 +19,7 @@ class PrefsPatchRequest(BaseModel):
 class SessionPatchRequest(BaseModel):
     favorites: FavoritesPatchRequest | None = None
     prefs: PrefsPatchRequest | None = None
+    cookies_consent: Literal["accepted", "declined"] | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -29,3 +30,4 @@ class SessionView(BaseModel):
     capabilities: list[str]
     prefs: Mapping[str, Any]
     favorites: list[str]
+    cookies_consent: Literal["accepted", "declined"] | None = None

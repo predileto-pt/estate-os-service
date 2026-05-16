@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sessions.adapters.database.models import SessionModel
 from sessions.application.ports.session_repository import SessionRepository
 from sessions.domain.models.session import Session, SessionKind
-from sessions.domain.value_objects import SessionId
+from sessions.domain.value_objects import CookiesConsent, SessionId
 
 
 class SqlAlchemySessionRepository(SessionRepository):
@@ -46,6 +46,9 @@ class SqlAlchemySessionRepository(SessionRepository):
             row.last_seen_at = session.last_seen_at
             row.claimed_at = session.claimed_at
             row.revoked = session.revoked
+            row.cookies_consent = (
+                session.cookies_consent.value if session.cookies_consent is not None else None
+            )
             await db.commit()
             return session
 
@@ -73,6 +76,7 @@ def _to_domain(row: SessionModel) -> Session:
         last_seen_at=row.last_seen_at,
         claimed_at=row.claimed_at,
         revoked=row.revoked,
+        cookies_consent=CookiesConsent(row.cookies_consent) if row.cookies_consent else None,
     )
 
 
@@ -87,4 +91,7 @@ def _to_row(session: Session) -> SessionModel:
         last_seen_at=session.last_seen_at,
         claimed_at=session.claimed_at,
         revoked=session.revoked,
+        cookies_consent=(
+            session.cookies_consent.value if session.cookies_consent is not None else None
+        ),
     )

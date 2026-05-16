@@ -179,3 +179,43 @@ async def test_logout_is_idempotent_on_anonymous_session(client):
     assert r2.status_code == 200
     assert r1.json()["kind"] == "ANONYMOUS"
     assert r2.json()["kind"] == "ANONYMOUS"
+
+
+async def test_init_view_starts_with_null_cookies_consent(client):
+    r = await client.post("/api/v1/portal/session/init")
+    assert r.json()["cookies_consent"] is None
+
+
+async def test_patch_records_cookies_consent(client):
+    await client.post("/api/v1/portal/session/init")
+    r = await client.patch(
+        "/api/v1/portal/session/me",
+        json={"cookies_consent": "accepted"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["cookies_consent"] == "accepted"
+
+    # `/me` should round-trip the value back from the DB on the next read.
+    me = await client.get("/api/v1/portal/session/me")
+    assert me.json()["cookies_consent"] == "accepted"
+
+
+async def test_patch_rejects_unknown_cookies_consent_value(client):
+    await client.post("/api/v1/portal/session/init")
+    r = await client.patch(
+        "/api/v1/portal/session/me",
+        json={"cookies_consent": "maybe"},
+    )
+    # Pydantic Literal validation -> 422 before the use case runs.
+    assert r.status_code == 422
+
+
+async def test_logout_preserves_cookies_consent(client):
+    await client.post("/api/v1/portal/session/init")
+    await client.patch(
+        "/api/v1/portal/session/me",
+        json={"cookies_consent": "declined"},
+    )
+    r = await client.post("/api/v1/portal/session/logout")
+    assert r.status_code == 200
+    assert r.json()["cookies_consent"] == "declined"

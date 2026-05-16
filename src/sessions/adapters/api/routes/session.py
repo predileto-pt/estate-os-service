@@ -33,6 +33,7 @@ from sessions.domain.exceptions import (
 )
 from sessions.domain.models.capability import capabilities_of
 from sessions.domain.models.session import Session
+from sessions.domain.value_objects import CookiesConsent
 
 router = APIRouter(prefix="/session", tags=["session"])
 
@@ -46,6 +47,7 @@ def _view(session: Session) -> SessionView:
         ],
         prefs=dict(session.prefs),
         favorites=[str(pid) for pid in sorted(session.favorites, key=str)],
+        cookies_consent=session.cookies_consent.value if session.cookies_consent else None,
     )
 
 
@@ -146,7 +148,14 @@ async def patch_session_me(
             remove=parse_favorite_ids(body.favorites.remove),
         )
     prefs_patch = PrefsPatch(merge=body.prefs.merge) if body.prefs is not None else None
-    patch = SessionPatch(favorites=favorites_patch, prefs=prefs_patch)
+    cookies_consent = (
+        CookiesConsent(body.cookies_consent) if body.cookies_consent is not None else None
+    )
+    patch = SessionPatch(
+        favorites=favorites_patch,
+        prefs=prefs_patch,
+        cookies_consent=cookies_consent,
+    )
     updated = await container.update_session_slice.execute(session, patch)
     return _view(updated)
 
