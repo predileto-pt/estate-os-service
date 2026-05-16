@@ -44,6 +44,33 @@ module "images_bucket" {
 
   bucket_name                  = "${var.prefix_name}-property-images"
   enable_encryption_and_policy = true
+
+  # Browser-direct PUTs via presigned URLs require CORS. The api
+  # generates a presigned PUT, the dashboard's <input type="file">
+  # handler uploads straight to s3.<region>.amazonaws.com, and the
+  # browser issues an OPTIONS preflight first. Without these rules
+  # S3 returns 403 on the preflight and the upload never starts.
+  enable_cors = true
+  cors_rules = [
+    {
+      allowed_methods = ["GET", "PUT", "HEAD"]
+      allowed_origins = [
+        "https://predileto.pt",
+        "https://imobiliarias.predileto.pt",
+        "http://localhost:3000",
+        "http://localhost:4000",
+      ]
+      # `*` covers Content-Type (signed in the presigned URL) plus any
+      # x-amz-* headers the SDK might add. Tightening to an explicit
+      # list buys nothing — the URL signature is the actual auth boundary.
+      allowed_headers = ["*"]
+      # FE doesn't need much back, but ETag is the standard signal that
+      # the object landed; exposing it lets the dashboard confirm the
+      # upload before calling the api's "image-recorded" endpoint.
+      expose_headers  = ["ETag"]
+      max_age_seconds = 3600
+    },
+  ]
 }
 
 # Same defense-in-depth as documents_bucket — block all public-access
