@@ -19,37 +19,13 @@ output "documents_bucket_name" {
 }
 
 output "images_bucket_name" {
-  description = "Set as the Coolify project-level `S3_IMAGES_BUCKET_NAME` env var. Bucket is private; reads go through CloudFront only."
+  description = "Set as the Coolify project-level `S3_IMAGES_BUCKET_NAME` env var. Public-read for objects; reads happen over https://images.predileto.pt (Cloudflare-proxied CNAME with Host header rewrite)."
   value       = module.images_bucket.name
 }
 
-# ACM DNS validation record. Operator adds this CNAME in Vercel for the
-# `predileto.pt` zone — `acm_validation_record_name` → `acm_validation_record_value`.
-# Once propagated (~1-10 min), `aws_acm_certificate_validation.images` flips
-# to ISSUED and CloudFront can attach the cert.
-output "acm_validation_record_name" {
-  description = "Vercel DNS: CNAME name to add for ACM validation of cdn_domain_name."
-  value       = tolist(aws_acm_certificate.images.domain_validation_options)[0].resource_record_name
-}
-
-output "acm_validation_record_value" {
-  description = "Vercel DNS: CNAME value for the ACM validation record."
-  value       = tolist(aws_acm_certificate.images.domain_validation_options)[0].resource_record_value
-}
-
-output "acm_validation_record_type" {
-  description = "Vercel DNS: record type for the ACM validation (always CNAME for DNS-validated certs)."
-  value       = tolist(aws_acm_certificate.images.domain_validation_options)[0].resource_record_type
-}
-
-output "images_cdn_distribution_id" {
-  description = "CloudFront distribution id (useful for `aws cloudfront get-distribution` status checks + cache invalidations)."
-  value       = aws_cloudfront_distribution.images.id
-}
-
-output "images_cdn_domain" {
-  description = "CloudFront `*.cloudfront.net` hostname. Operator adds this as the CNAME target for `images.predileto.pt` in Vercel DNS."
-  value       = aws_cloudfront_distribution.images.domain_name
+output "images_bucket_s3_host" {
+  description = "Bucket's S3 virtual-host hostname. Used as the Cloudflare CNAME target for `images.predileto.pt` AND as the Cloudflare Origin Rule's Host-header override value."
+  value       = "${module.images_bucket.name}.s3.${var.aws_region}.amazonaws.com"
 }
 
 output "github_actions_role_arn" {

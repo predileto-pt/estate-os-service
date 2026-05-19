@@ -28,15 +28,22 @@ resource "aws_s3_bucket_public_access_block" "documents_bucket" {
 # origins.
 
 ###############################################################################
-# Property images bucket — private, fronted by CloudFront.
+# Property images bucket — public-read, fronted by Cloudflare.
 #
-# Reads happen exclusively via the CloudFront distribution in `cloudfront.tf`
-# using Origin Access Control (OAC); the bucket policy in that file locks
-# `s3:GetObject` to the distribution's source ARN. Direct
-# `<bucket>.s3.amazonaws.com` URLs return 403.
+# Reads happen over https://images.predileto.pt, which is a Cloudflare-
+# proxied CNAME pointing at the bucket's S3 hostname. Cloudflare terminates
+# TLS for browsers and rewrites the `Host` header to the bucket's S3
+# hostname so virtual-host routing works (Origin Rule in the Cloudflare
+# dashboard). The bucket policy below grants `s3:GetObject` to `*` because
+# the URLs are unguessable object keys and the content is inherently
+# public (property listings).
 #
 # Writes happen from the api container via the `app_s3` IAM user
 # (`iam.tf`) using presigned PUT URLs handed to the browser.
+#
+# Prior architecture: CloudFront + OAC + ACM (us-east-1). Removed 2026-05-19;
+# the Bandwidth Alliance discontinuation made the CloudFront-egress savings
+# negligible for our scale, and we wanted single-vendor TLS management.
 ###############################################################################
 
 module "images_bucket" {
@@ -73,16 +80,19 @@ module "images_bucket" {
   ]
 }
 
-# Same defense-in-depth as documents_bucket — block all public-access
-# vectors at the bucket level. The bucket policy in cloudfront.tf grants
-# read access only to the specific CloudFront distribution via OAC.
+# `block_public_policy = false` is the only relaxation — needed so the
+# public-read bucket policy below can attach. The other three levers stay
+# ON: ACLs blocked / ignored, plus restrict_public_buckets ON so a future
+# misconfigured policy can't accidentally widen access via cross-account
+# routes. The single legitimate public vector is the explicit bucket
+# policy in `aws_s3_bucket_policy.images_public_read`.
 resource "aws_s3_bucket_public_access_block" "images_bucket" {
   bucket = module.images_bucket.id
 
   block_public_acls       = true
-  block_public_policy     = true
+  block_public_policy     = false
   ignore_public_acls      = true
-  restrict_public_buckets = true
+  restrict_public_buckets = false
 }
 
 # Disable ACLs entirely. AWS-recommended for new buckets — all access
@@ -93,4 +103,29 @@ resource "aws_s3_bucket_ownership_controls" "images_bucket" {
   rule {
     object_ownership = "BucketOwnerEnforced"
   }
+}
+
+# Public read for the object set only. Listing (`s3:ListBucket`) is NOT
+# granted — directory enumeration via the bucket root is still blocked,
+# so the only way to read an object is to know its UUID-keyed path.
+resource "aws_s3_bucket_policy" "images_public_read" {
+  bucket = module.images_bucket.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowPublicReadOfObjects"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${module.images_bucket.arn}/*"
+      },
+    ]
+  })
+
+  # The policy depends on the public-access-block being relaxed first.
+  # Otherwise terraform may apply the policy before the block flips,
+  # and S3 rejects the public statement.
+  depends_on = [aws_s3_bucket_public_access_block.images_bucket]
 }

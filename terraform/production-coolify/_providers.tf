@@ -33,22 +33,3 @@ provider "aws" {
     }
   }
 }
-
-# CloudFront's custom-domain TLS requires the ACM cert to live in
-# us-east-1, regardless of where the origin bucket sits. Aliased
-# provider used only by `acm.tf`; everything else continues to use the
-# default eu-west-3 provider.
-provider "aws" {
-  alias  = "us_east_1"
-  region = "us-east-1"
-
-  default_tags {
-    tags = {
-      Project     = "estate-os-service"
-      ManagedBy   = "terraform"
-      Owner       = "predileto"
-      Environment = "production"
-      Stack       = "coolify"
-    }
-  }
-}
