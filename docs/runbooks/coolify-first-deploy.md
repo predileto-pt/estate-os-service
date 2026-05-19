@@ -87,27 +87,12 @@ Expected resources:
 
 - **ECR (2 resources)** — 1 repo + 1 lifecycle policy.
 - **Documents S3 bucket (3)** — 1 bucket + 1 SSE config + 1 public-access-block. AES256 only, no bucket policy.
-- **Property-images S3 bucket (5)** — 1 bucket + 1 SSE + 1 public-access-block + 1 ownership-controls (`BucketOwnerEnforced`) + 1 bucket policy locking reads to the CloudFront distribution.
-- **CloudFront (3)** — 1 Origin Access Control (sigv4) + 1 distribution (alias `images.predileto.pt`) + 1 response-headers policy (`Cache-Control: max-age=31536000, immutable`).
-- **ACM (2, in `us-east-1`)** — 1 cert for `images.predileto.pt` + 1 DNS validation resource. CloudFront's TLS requirement.
+- **Property-images S3 bucket (6)** — 1 bucket + 1 SSE + 1 CORS config + 1 public-access-block (block_public_policy = false; the other three levers on) + 1 ownership-controls (`BucketOwnerEnforced`) + 1 bucket policy granting public `s3:GetObject` for `bucket/*` (no `s3:ListBucket`, so directory enumeration stays blocked).
 - **GitHub OIDC role (2)** — 1 IAM role assumable from the `estate-os-service` repo's `production` env + 1 inline policy scoped to ECR push.
 - **IAM users (6)** — Coolify ECR reader (user + read-only ECR inline policy + access key) and app S3 client (user + R/W/D inline policy on both buckets + access key).
 - **Data sources (no resources)** — caller identity + GitHub OIDC provider lookup.
 
-**Expected partial-failure on first apply.** The `aws_acm_certificate_validation.images` resource has a 20-minute create timeout and will fail if DNS isn't wired before it expires — that's normal on the very first apply because the validation CNAME comes from this apply's outputs (chicken-and-egg). Sections 2–9 proceed independently; section 10 wires the DNS and re-applies to pick up the validation.
-
-If you want to avoid the partial-failure shape entirely, run a `-target`'d apply that skips the validation resource:
-
-```bash
-terraform apply tfplan -target='module.ecr' -target='module.documents_bucket' \
-  -target='module.images_bucket' -target='aws_cloudfront_origin_access_control.images' \
-  -target='aws_cloudfront_distribution.images' -target='aws_cloudfront_response_headers_policy.images_long_cache' \
-  -target='aws_acm_certificate.images' -target='aws_s3_bucket_policy.images' \
-  -target='aws_iam_role.github_actions' -target='aws_iam_user.coolify_ecr_reader' \
-  -target='aws_iam_user.app_s3'
-```
-
-Either pattern reaches the same end state — section 10's re-apply completes the cert validation either way.
+No more CloudFront, no more ACM cert — Cloudflare terminates TLS in front of the public-read bucket (see section 10). Single-shot apply, no chicken-and-egg validation timeouts.
 
 **Capture outputs.** You'll reference them in every subsequent section:
 
@@ -116,9 +101,7 @@ terraform output ecr_repository_url
 terraform output github_actions_role_arn
 terraform output documents_bucket_name
 terraform output images_bucket_name
-terraform output images_cdn_domain                            # CNAME target for images.predileto.pt
-terraform output -raw acm_validation_record_name              # CNAME name for ACM DNS validation
-terraform output -raw acm_validation_record_value             # CNAME value
+terraform output images_bucket_s3_host                        # Cloudflare CNAME target + Origin Rule Host header value
 terraform output coolify_ecr_reader_access_key_id
 terraform output -raw coolify_ecr_reader_secret_access_key    # write this somewhere safe
 terraform output app_s3_access_key_id
@@ -688,121 +671,119 @@ Common failures:
 
 ---
 
-## 10. Property images CDN bring-up
+## 10. Property images public hostname bring-up
 
-Wires DNS, completes the ACM cert validation that section 1's apply
-left hanging, and configures Coolify for the new private S3 images
-bucket + CloudFront distribution at `https://images.predileto.pt`.
-Spec: `property-images-bucket-cdn` (archive).
+Wires `https://images.predileto.pt` to the **public-read S3 images
+bucket** via Cloudflare. Cloudflare terminates TLS for browsers and
+rewrites the upstream `Host` header so S3's virtual-host routing
+finds the bucket. No CloudFront, no ACM cert.
 
-The Terraform resources themselves were already provisioned in section 1
-(or are pending validation). This section is mostly operator-side DNS
-+ Coolify config + a re-apply to pick up the validation.
+Prior architecture (CloudFront + OAC + ACM us-east-1) was retired
+2026-05-19 — see git log for the migration commit.
 
-### 10.1 CAA pre-check (apex)
+### 10.1 Confirm the bucket policy is public-read
 
-Before adding DNS records, confirm the apex CAA permits Amazon Trust
-Services to issue the cert. Both `letsencrypt.org` (api domain,
-section 9) and `amazon.com` (ACM/CloudFront here) should already be
-present from earlier setup — verify:
+Section 1's apply provisions the bucket policy that grants
+`s3:GetObject` to `Principal: *` and relaxes `block_public_policy`.
+Sanity-check:
 
 ```bash
-dig +short CAA predileto.pt @8.8.8.8
-# expect output including:
-#   0 issue "letsencrypt.org"
-#   0 issue "amazon.com"
+aws s3api get-bucket-policy-status \
+  --bucket $(terraform output -raw images_bucket_name) \
+  --query 'PolicyStatus.IsPublic' --output text
+# expect: true
 ```
 
-If `amazon.com` is missing, add `0 issue "amazon.com"` in Vercel DNS
-at the apex before 10.3 — otherwise ACM will reject validation with
-`urn:ietf:params:acme:error:caa` even with the correct CNAME in place.
+If `false`, re-apply terraform — the public-access-block lever
+probably didn't flip.
 
-### 10.2 Add the images CNAME in Vercel DNS
+### 10.2 Add the Cloudflare DNS record
 
-In Vercel for the `predileto.pt` zone:
+In Cloudflare DNS for the `predileto.pt` zone:
 
 | Field | Value |
 |---|---|
 | Type | `CNAME` |
-| Name | `images` (Vercel auto-appends `.predileto.pt`) |
-| Value | output of `terraform output -raw images_cdn_domain` (looks like `d1xyzabc123.cloudfront.net`) |
+| Name | `images` |
+| Target | output of `terraform output -raw images_bucket_s3_host` (looks like `estate-os-service-prod-property-images.s3.eu-west-3.amazonaws.com`) |
+| Proxy status | **Proxied** (orange cloud) — required, both for TLS termination and for the Origin Rule below to apply |
 
 Verify:
 
 ```bash
 dig +short CNAME images.predileto.pt @8.8.8.8
-# expect the CloudFront hostname
+# expect: a Cloudflare hostname (NOT the S3 hostname — Cloudflare
+# masks the origin when Proxied is on)
 ```
 
-### 10.3 Add the ACM validation CNAME
+### 10.3 SSL/TLS encryption mode
 
-The ACM cert from section 1 is in `PENDING_VALIDATION` (or its
-`aws_acm_certificate_validation.images` resource timed out and is
-errored). Wire the validation CNAME so ACM can issue:
+Cloudflare dashboard → **SSL/TLS → Overview**:
+
+- Encryption mode: **Full (strict)**.
+
+This makes Cloudflare validate S3's cert when fetching from the
+origin. S3 presents a wildcard cert for `*.s3.eu-west-3.amazonaws.com`
+which is valid for the CNAME target, so strict mode works.
+
+### 10.4 Add the Origin Rule — Host header override
+
+This is the rule that makes the whole thing work. Without it, S3
+sees `Host: images.predileto.pt`, can't find a bucket with that
+name, and returns 400.
+
+Cloudflare dashboard → **Rules → Origin Rules → Create rule**:
 
 | Field | Value |
 |---|---|
-| Type | `CNAME` |
-| Name | `terraform output -raw acm_validation_record_name` (strip the trailing `.predileto.pt.`) |
-| Value | `terraform output -raw acm_validation_record_value` |
+| Rule name | `S3 host rewrite for property images` |
+| When incoming requests match | **Hostname** equals `images.predileto.pt` |
+| Set Host Header | `terraform output -raw images_bucket_s3_host` |
 
-Validation typically completes within 1–10 minutes after DNS
-propagates.
+Save & Deploy.
 
-### 10.4 Re-apply Terraform to complete cert validation
+### 10.5 (Optional) Caching rule
 
-With both CNAMEs in place and the CAA records confirmed, re-apply so
-`aws_acm_certificate_validation.images` succeeds:
+S3 doesn't set `Cache-Control` on objects by default, so Cloudflare
+relies on its own default cache TTLs (a few hours for `image/*`).
+For aggressive caching on UUID-keyed immutable images:
+
+Cloudflare dashboard → **Caching → Cache Rules → Create rule**:
+
+| Field | Value |
+|---|---|
+| Match | Hostname equals `images.predileto.pt` |
+| Cache eligibility | Eligible for cache |
+| Edge Cache TTL | Override → 1 month |
+| Browser Cache TTL | Override → 1 year |
+
+Not strictly required — images render fine on the defaults.
+
+### 10.6 Verify routing end-to-end
 
 ```bash
-cd terraform/production-coolify
-terraform plan -out=tfplan
-terraform apply tfplan
+# 10.6a — known-missing key proves S3 is answering through Cloudflare:
+curl -I https://images.predileto.pt/this-key-does-not-exist
+# expect: HTTP/2 403   (S3's NoSuchKey response, surfaced through Cloudflare)
+
+# 10.6b — direct bucket URL also works now (public-read):
+curl -I https://$(terraform output -raw images_bucket_name).s3.eu-west-3.amazonaws.com/this-key-does-not-exist
+# expect: HTTP/1.1 403   (same content, no Cloudflare in front)
 ```
 
-- If section 1 used the `-target`'d first-apply pattern, this run is
-  where the validation resource gets created for the first time.
-- If section 1 did the full apply and timed out on validation, this
-  run retries it.
+`curl: (6) Could not resolve host` → DNS hasn't propagated.
+`SSL_ERROR_BAD_CERT_DOMAIN` → Cloudflare proxy isn't on (orange
+cloud); fix in 10.2.
+HTTP/2 400 `InvalidArgument: ...HostHeader` → the Origin Rule
+isn't applied; re-check 10.4 (most commonly the rule matches by
+*Zone* but you want *Hostname*).
 
-Either way the end state is identical: cert ISSUED, distribution
-ready to attach it.
-
-### 10.5 Wait for distribution + verify routing
-
-The CloudFront distribution was created in section 1's apply and is
-likely already `Deployed` by the time you get here. Verify the
-end-to-end path:
-
-- **10.5a.** Check distribution status:
-  ```bash
-  aws cloudfront get-distribution \
-    --id $(terraform output -raw images_cdn_distribution_id) \
-    --query 'Distribution.Status' --output text
-  # expect: Deployed   (until then it returns: InProgress; takes 5-20min from first apply)
-  ```
-- **10.5b.** Verify DNS resolves at the edge:
-  ```bash
-  dig +short CNAME images.predileto.pt @8.8.8.8
-  # should return the same hostname as `terraform output -raw images_cdn_domain`
-  ```
-- **10.5c.** Verify TLS + routing end-to-end with a known-missing key:
-  ```bash
-  curl -I https://images.predileto.pt/this-key-does-not-exist
-  # expect: HTTP/2 403   (or 404 — both prove CloudFront answered)
-  ```
-  A `curl: (6) Could not resolve host` means DNS hasn't propagated.
-  An `SSL_ERROR_BAD_CERT_DOMAIN` means the cert didn't attach (the
-  validation in 10.4 didn't actually complete — `terraform plan`
-  should be clean before reaching here). A 502 means the distribution
-  is still deploying (re-do 10.5a).
-
-### 10.6 Coolify env vars
+### 10.7 Coolify env vars
 
 `S3_IMAGES_BUCKET_NAME` and `IMAGES_CDN_BASE_URL` should already be
 in the Coolify project-level env panel — they're rows in the
 section 6b table that the operator runs through during initial
-bring-up. If you skipped them (e.g. this is an add-CDN-to-existing-stack
+bring-up. If you skipped them (e.g. this is an add-images-to-existing-stack
 run, not a from-scratch first deploy), add them now. NOT per-service —
 compose interpolates `${VAR}` at parse time.
 
@@ -811,46 +792,45 @@ If it's missing or scoped to the `api` service only, the `migrations`
 service from `deploy/docker-compose.prod.yml` will fail with
 `PORTAL_DATABASE_URL not set` and block every deploy.
 
-### 10.7 Trigger a Coolify redeploy
+### 10.8 Trigger a Coolify redeploy
 
-`workflow_dispatch` the `co-build-and-push.yml` workflow (or push a
-commit to `main` if you already flipped section 12's trigger).
-This pulls the new image, restarts the stack, and runs the new
-`migrations` service first.
+Push a commit to `main` (CD trigger from section 12) or run the
+`co-build-and-push.yml` workflow manually. This rebuilds the image,
+restarts the stack, and runs the `migrations` service first.
 
-### 10.8 Verify migrations ran clean
+### 10.9 Verify migrations ran clean
 
 In the Coolify UI → `migrations` service → Logs. Expect:
 
 - `migrate_admin.sh` output ending with `INFO ... Will assume non-transactional DDL.` and similar alembic completion lines.
-- The `e1f8c5a2b6d7_clear_legacy_property_images` revision applied (look for the revision id in the alembic output).
+- The latest migrations applied (look for the most recent revision id in the alembic output).
 - `migrate_portal.sh` output the same shape.
 - Container status: `exited (0)`.
 
 If the migrations service shows `exited (1)` or `exited (137)`, the
 api + workers will be stuck in `Created` (not `Running`). Most common
-cause: `PORTAL_DATABASE_URL` not set at project level (see 10.6).
+cause: `PORTAL_DATABASE_URL` not set at project level (see 10.7).
 Fix and re-trigger the deploy.
 
-### 10.9 Verify image upload + render end-to-end
+### 10.10 Verify image upload + render end-to-end
 
 From the dashboard frontend:
 
 1. Open a property → upload a new image.
 2. Confirm the image renders in the browser. The `<img src="">` should
    point at `https://images.predileto.pt/properties/<id>/images/<uuid>.<ext>`.
-3. In the browser dev tools Network tab, confirm:
-   - The request resolves over HTTP/2 to a `*.cloudfront.net` server.
-   - Response includes `Cache-Control: public, max-age=31536000, immutable`.
-4. Confirm the bucket-direct URL is blocked:
+3. In the browser dev tools Network tab, confirm the response server
+   header reports a Cloudflare value (`cf-ray`, `server: cloudflare`).
+4. The same key resolved directly against the bucket also returns
+   200 (no Cloudflare gating):
    ```bash
    curl -I https://$(terraform output -raw images_bucket_name).s3.eu-west-3.amazonaws.com/properties/<id>/images/<uuid>.<ext>
-   # expect: HTTP/1.1 403 Forbidden
    ```
 
 If image rendering 403s through `images.predileto.pt`: most likely
-the bucket policy doesn't include the distribution's ARN — check
-`aws_s3_bucket_policy.images` in Terraform.
+the bucket policy isn't public — re-check 10.1, and confirm
+`aws_s3_bucket_public_access_block.images_bucket.block_public_policy`
+is `false` in the terraform plan.
 
 ---
 
