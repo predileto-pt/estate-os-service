@@ -706,7 +706,9 @@ In Cloudflare DNS for the `predileto.pt` zone:
 | Type | `CNAME` |
 | Name | `images` |
 | Target | output of `terraform output -raw images_bucket_s3_host` (looks like `estate-os-service-prod-property-images.s3.eu-west-3.amazonaws.com`) |
-| Proxy status | **Proxied** (orange cloud) — required, both for TLS termination and for the Origin Rule below to apply |
+| Proxy status | **Proxied** (orange cloud) — required so Cloud Connector below can intercept |
+
+Cloud Connector overrides the upstream entirely, so the CNAME target is mostly documentary; what matters is that a proxied record exists at `images.predileto.pt` so Cloudflare's edge accepts traffic for that hostname.
 
 Verify:
 
@@ -716,33 +718,29 @@ dig +short CNAME images.predileto.pt @8.8.8.8
 # masks the origin when Proxied is on)
 ```
 
-### 10.3 SSL/TLS encryption mode
+### 10.3 Configure Cloud Connector
 
-Cloudflare dashboard → **SSL/TLS → Overview**:
+The Origin-Rule "Host header override" approach is **not** what we use here. The earlier production attempt with that rule hit `NoSuchBucket` from S3 because Cloudflare wasn't actually applying the rewrite (the matcher didn't fire and Cloud Connector's option in the sidebar wasn't visible on this plan). The supported pattern on the current Cloudflare nav is **Cloud Connector**, which handles Host rewrite, SNI, and signed-request handling natively.
 
-- Encryption mode: **Full (strict)**.
+Cloudflare dashboard → **Rules → Cloud Connector → Create**:
 
-This makes Cloudflare validate S3's cert when fetching from the
-origin. S3 presents a wildcard cert for `*.s3.eu-west-3.amazonaws.com`
-which is valid for the CNAME target, so strict mode works.
+1. **Provider** → `Amazon S3`.
+2. **Bucket selection**:
+   - Region: `eu-west-3`
+   - Bucket name: `terraform output -raw images_bucket_name` (e.g. `estate-os-service-prod-property-images`)
+   - Public access: **enabled** (bucket policy is public-read per the terraform definition; no AWS credentials needed).
+3. **Cloud Connector name**: `Estate Os Images` (or whatever reads well in the rule list).
+4. **If incoming requests match…**: choose **Custom filter expression**. The "All incoming requests" radio applies the rule to the whole zone and would break every other subdomain on `predileto.pt` — do not pick that.
+5. **When incoming requests match…**:
+   - Field: `Hostname`
+   - Operator: `equals`
+   - Value: `images.predileto.pt`
+   - Expression preview: `(http.host eq "images.predileto.pt")`
+6. **Deploy**.
 
-### 10.4 Add the Origin Rule — Host header override
+That's it — no separate SSL/TLS mode tweak, no Origin Rule, no response-headers policy. Cloud Connector handles the Host header, the SNI, the TLS validation, and the bucket-style URL routing all in one.
 
-This is the rule that makes the whole thing work. Without it, S3
-sees `Host: images.predileto.pt`, can't find a bucket with that
-name, and returns 400.
-
-Cloudflare dashboard → **Rules → Origin Rules → Create rule**:
-
-| Field | Value |
-|---|---|
-| Rule name | `S3 host rewrite for property images` |
-| When incoming requests match | **Hostname** equals `images.predileto.pt` |
-| Set Host Header | `terraform output -raw images_bucket_s3_host` |
-
-Save & Deploy.
-
-### 10.5 (Optional) Caching rule
+### 10.4 (Optional) Cache Rule for aggressive image caching
 
 S3 doesn't set `Cache-Control` on objects by default, so Cloudflare
 relies on its own default cache TTLs (a few hours for `image/*`).
@@ -759,26 +757,31 @@ Cloudflare dashboard → **Caching → Cache Rules → Create rule**:
 
 Not strictly required — images render fine on the defaults.
 
-### 10.6 Verify routing end-to-end
+### 10.5 Verify routing end-to-end
 
 ```bash
-# 10.6a — known-missing key proves S3 is answering through Cloudflare:
-curl -I https://images.predileto.pt/this-key-does-not-exist
-# expect: HTTP/2 403   (S3's NoSuchKey response, surfaced through Cloudflare)
+# 10.5a — known-missing key proves the bucket is reachable through
+# Cloud Connector (the AccessDenied is from S3, not Cloudflare):
+curl -i https://images.predileto.pt/this-key-does-not-exist
+# expect: HTTP/2 403 with body <Error><Code>AccessDenied</Code>...
+# (NOT <Code>NoSuchBucket</Code> — that means Cloud Connector isn't firing)
 
-# 10.6b — direct bucket URL also works now (public-read):
-curl -I https://$(terraform output -raw images_bucket_name).s3.eu-west-3.amazonaws.com/this-key-does-not-exist
-# expect: HTTP/1.1 403   (same content, no Cloudflare in front)
+# 10.5b — fetch a real key (substitute one from the bucket):
+curl -I https://images.predileto.pt/properties/<id>/images/<uuid>.jpeg
+# expect: HTTP/2 200 + content-type: image/jpeg + content-length: <bytes>
+
+# 10.5c — direct bucket URL also works (public-read):
+curl -I https://$(terraform output -raw images_bucket_name).s3.eu-west-3.amazonaws.com/properties/<id>/images/<uuid>.jpeg
+# expect: HTTP/1.1 200   (no Cloudflare in front)
 ```
 
-`curl: (6) Could not resolve host` → DNS hasn't propagated.
-`SSL_ERROR_BAD_CERT_DOMAIN` → Cloudflare proxy isn't on (orange
-cloud); fix in 10.2.
-HTTP/2 400 `InvalidArgument: ...HostHeader` → the Origin Rule
-isn't applied; re-check 10.4 (most commonly the rule matches by
-*Zone* but you want *Hostname*).
+Failure modes:
 
-### 10.7 Coolify env vars
+- `curl: (6) Could not resolve host` → DNS hasn't propagated, or your local resolver has a stale NXDOMAIN cached. Flush: `sudo dscacheutil -flushcache && sudo killall -HUP mDNSResponder` on macOS.
+- `<Code>NoSuchBucket</Code>` in the response body → Cloud Connector isn't firing for this hostname. Common cause: the matcher in step 10.3.5 was saved as "All incoming requests" (which Cloudflare scopes to the zone, not the hostname), or the rule was saved as draft instead of deployed.
+- `<Code>AccessDenied</Code>` on a key you know exists → bucket policy isn't public on objects. Re-check terraform `aws_s3_bucket_policy.images_public_read` in §10.1.
+
+### 10.6 Coolify env vars
 
 `S3_IMAGES_BUCKET_NAME` and `IMAGES_CDN_BASE_URL` should already be
 in the Coolify project-level env panel — they're rows in the
@@ -792,13 +795,13 @@ If it's missing or scoped to the `api` service only, the `migrations`
 service from `deploy/docker-compose.prod.yml` will fail with
 `PORTAL_DATABASE_URL not set` and block every deploy.
 
-### 10.8 Trigger a Coolify redeploy
+### 10.7 Trigger a Coolify redeploy
 
 Push a commit to `main` (CD trigger from section 12) or run the
 `co-build-and-push.yml` workflow manually. This rebuilds the image,
 restarts the stack, and runs the `migrations` service first.
 
-### 10.9 Verify migrations ran clean
+### 10.8 Verify migrations ran clean
 
 In the Coolify UI → `migrations` service → Logs. Expect:
 
@@ -809,10 +812,10 @@ In the Coolify UI → `migrations` service → Logs. Expect:
 
 If the migrations service shows `exited (1)` or `exited (137)`, the
 api + workers will be stuck in `Created` (not `Running`). Most common
-cause: `PORTAL_DATABASE_URL` not set at project level (see 10.7).
+cause: `PORTAL_DATABASE_URL` not set at project level (see 10.6).
 Fix and re-trigger the deploy.
 
-### 10.10 Verify image upload + render end-to-end
+### 10.9 Verify image upload + render end-to-end
 
 From the dashboard frontend:
 
@@ -979,3 +982,26 @@ for manual rebuilds.
   log-masking applies. Don't add `set -x` or curl `-v` to that
   step — masking only catches the masked literal, not text that
   contains it.
+- **Wildcard DNS records in Cloudflare hide failures.** If
+  `predileto.pt` has a `* → Vercel` wildcard, every subdomain that
+  doesn't have an explicit record silently routes to Vercel,
+  including any *new* hostname you're trying to wire up (e.g.
+  `images.predileto.pt` before its CNAME is added). The Vercel
+  response (`DEPLOYMENT_NOT_FOUND`) looks like a Cloudflare /
+  Cloud Connector bug when really the issue is "the wildcard
+  beat my explicit record to the cache." Two failure modes
+  matter: (a) the explicit record hasn't propagated yet and the
+  wildcard is still answering; (b) the explicit record was
+  removed accidentally and traffic falls back to the wildcard.
+  Prefer explicit records for every subdomain (apex / `www` /
+  `images` / `imobiliarias` / `api`) and remove the wildcard.
+  If you have to keep the wildcard, document every explicit
+  override or it's a debugging time-sink.
+- **Cloud Connector "All incoming requests" radio button.**
+  Cloudflare's Cloud Connector configuration screen offers
+  "Custom filter expression" vs "All incoming requests". The
+  latter is **zone-scoped**, meaning it applies to *every*
+  hostname in `predileto.pt` (apex, www, imobiliarias, api,
+  ...). Picking it routes the entire site to S3 and breaks
+  everything except images. Always use Custom filter expression
+  with `http.host eq "<hostname>"`.
