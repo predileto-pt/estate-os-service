@@ -33,24 +33,3 @@ provider "aws" {
     }
   }
 }
-
-# Kept around solely so terraform can destroy the lingering
-# `aws_acm_certificate.images` + `aws_acm_certificate_validation.images`
-# state entries that this PR's apply removes. Once the apply completes
-# and `terraform state list` no longer shows any `us_east_1`-bound
-# resources, this block can be deleted in a follow-up commit. No
-# AWS-side cost — provider blocks are pure config.
-provider "aws" {
-  alias  = "us_east_1"
-  region = "us-east-1"
-
-  default_tags {
-    tags = {
-      Project     = "estate-os-service"
-      ManagedBy   = "terraform"
-      Owner       = "predileto"
-      Environment = "production"
-      Stack       = "coolify"
-    }
-  }
-}
