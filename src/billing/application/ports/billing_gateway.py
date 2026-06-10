@@ -52,4 +52,14 @@ class BillingGateway(Protocol):
 
     async def create_portal_session(self, *, customer_id: str, return_url: str) -> str: ...
 
+    async def get_subscription(self, *, subscription_id: str) -> dict:
+        """Retrieve a Stripe subscription as a plain dict.
+
+        Used by the webhook handler to provision the plan from
+        `checkout.session.completed` (whose payload carries only the
+        subscription id, not its price/status), so the upgrade no longer
+        depends on `customer.subscription.*` events being delivered.
+        """
+        ...
+
     def verify_webhook(self, *, payload: bytes, signature: str) -> StripeEventData: ...

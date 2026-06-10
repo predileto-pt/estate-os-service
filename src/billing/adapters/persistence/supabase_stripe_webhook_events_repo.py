@@ -18,6 +18,16 @@ class SupabaseStripeWebhookEventsRepository(StripeWebhookEventsRepository):
     def __init__(self, client: AsyncClient) -> None:
         self._client = client
 
+    async def has_processed(self, *, event_id: str) -> bool:
+        result = (
+            await self._client.table("stripe_webhook_events")
+            .select("event_id")
+            .eq("event_id", event_id)
+            .limit(1)
+            .execute()
+        )
+        return bool(result.data)
+
     async def try_mark_processed(self, *, event_id: str, event_type: str, payload: dict) -> bool:
         result = (
             await self._client.table("stripe_webhook_events")

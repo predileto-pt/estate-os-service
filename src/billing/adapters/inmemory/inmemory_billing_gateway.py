@@ -44,6 +44,9 @@ class InMemoryBillingGateway(BillingGateway):
     customers: list[CreateCustomerCall] = field(default_factory=list)
     checkouts: list[CreateCheckoutCall] = field(default_factory=list)
     portals: list[CreatePortalCall] = field(default_factory=list)
+    # Canned subscription objects keyed by id, returned by `get_subscription`.
+    # Tests populate this to drive `checkout.session.completed` provisioning.
+    subscriptions: dict[str, dict] = field(default_factory=dict)
     _next_customer: int = 0
     _next_session: int = 0
 
@@ -72,6 +75,13 @@ class InMemoryBillingGateway(BillingGateway):
         self.portals.append(CreatePortalCall(customer_id, return_url))
         self._next_session += 1
         return f"https://portal.stripe.test/ps_test_{self._next_session:04d}"
+
+    async def get_subscription(self, *, subscription_id: str) -> dict:
+        # Return the canned object if the test seeded one; otherwise a
+        # minimal active subscription carrying just the id.
+        return self.subscriptions.get(
+            subscription_id, {"id": subscription_id, "status": "active"}
+        )
 
     def verify_webhook(self, *, payload: bytes, signature: str) -> StripeEventData:
         # Tests set `signature` to the literal fake secret on valid

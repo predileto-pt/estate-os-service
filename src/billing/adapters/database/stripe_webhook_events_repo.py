@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,13 @@ class SqlAlchemyStripeWebhookEventsRepository(StripeWebhookEventsRepository):
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def has_processed(self, *, event_id: str) -> bool:
+        stmt = select(StripeWebhookEventModel.event_id).where(
+            StripeWebhookEventModel.event_id == event_id
+        )
+        result = await self._session.execute(stmt)
+        return result.first() is not None
 
     async def try_mark_processed(self, *, event_id: str, event_type: str, payload: dict) -> bool:
         stmt = (

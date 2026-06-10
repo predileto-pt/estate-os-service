@@ -63,6 +63,16 @@ class StripeBillingGateway(BillingGateway):
 
         return await asyncio.to_thread(_create)
 
+    async def get_subscription(self, *, subscription_id: str) -> dict:
+        def _get() -> dict:
+            sub = stripe.Subscription.retrieve(subscription_id)
+            # `to_dict(for_json=True)` flattens nested StripeObjects into
+            # plain dicts/lists — same normalisation `verify_webhook` applies
+            # — so the handler can index `items.data[0].price.id` uniformly.
+            return sub.to_dict(for_json=True)
+
+        return await asyncio.to_thread(_get)
+
     async def create_portal_session(self, *, customer_id: str, return_url: str) -> str:
         def _create() -> str:
             session = stripe.billing_portal.Session.create(

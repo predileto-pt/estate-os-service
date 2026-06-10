@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import pytest
 
+from billing.adapters.inmemory.inmemory_billing_gateway import InMemoryBillingGateway
 from billing.adapters.inmemory.inmemory_stripe_webhook_events_repo import (
     InMemoryStripeWebhookEventsRepository,
 )
@@ -14,6 +15,7 @@ from billing.application.use_cases.handle_stripe_webhook import (
     HandleStripeWebhookEvent,
 )
 from billing.application.use_cases.price_catalog import PriceCatalog
+from billing.domain.exceptions import UnknownStripePriceError
 from billing.domain.models.subscription import (
     Subscription,
     SubscriptionPlan,
@@ -43,11 +45,17 @@ def webhook_events_repo():
 
 
 @pytest.fixture
-def use_case(subscription_repo, webhook_events_repo, catalog):
+def gateway():
+    return InMemoryBillingGateway()
+
+
+@pytest.fixture
+def use_case(subscription_repo, webhook_events_repo, catalog, gateway):
     return HandleStripeWebhookEvent(
         subscription_repo=subscription_repo,
         webhook_events_repo=webhook_events_repo,
         price_catalog=catalog,
+        billing_gateway=gateway,
     )
 
 
@@ -81,8 +89,21 @@ def _event(event_type: str, obj: dict, event_id: str = "evt_1") -> StripeEventDa
     return StripeEventData(id=event_id, type=event_type, data_object=obj, raw_payload=raw)
 
 
-async def test_checkout_completed_sets_stripe_subscription_id(use_case, subscription_repo):
+async def test_checkout_completed_provisions_plan_from_stripe(
+    use_case, subscription_repo, gateway
+):
+    """`checkout.session.completed` is authoritative: it fetches the
+    subscription from Stripe and upgrades the plan — so the org is upgraded
+    even when `customer.subscription.*` events are not subscribed on the
+    Stripe endpoint."""
     sub = await _seed_sub(subscription_repo)
+    gateway.subscriptions["sub_1"] = {
+        "id": "sub_1",
+        "status": "active",
+        "current_period_start": 1_700_000_000,
+        "current_period_end": 1_700_600_000,
+        "items": {"data": [{"price": {"id": "price_pm"}}]},
+    }
 
     await use_case.execute(
         _event(
@@ -93,6 +114,24 @@ async def test_checkout_completed_sets_stripe_subscription_id(use_case, subscrip
 
     refreshed = await subscription_repo.get_by_organization_id(sub.organization_id)
     assert refreshed.stripe_subscription_id == "sub_1"
+    assert refreshed.plan == SubscriptionPlan.PRO
+    assert refreshed.status == SubscriptionStatus.ACTIVE
+    assert refreshed.stripe_price_id == "price_pm"
+
+
+async def test_checkout_completed_without_subscription_is_noop(use_case, subscription_repo):
+    """A non-subscription checkout (no `subscription` id) provisions nothing."""
+    sub = await _seed_sub(subscription_repo)
+
+    await use_case.execute(
+        _event(
+            "checkout.session.completed",
+            {"id": "cs_1", "customer": sub.stripe_customer_id},
+        )
+    )
+
+    refreshed = await subscription_repo.get_by_organization_id(sub.organization_id)
+    assert refreshed.plan == SubscriptionPlan.FREEMIUM
 
 
 async def test_subscription_created_syncs_all_fields(use_case, subscription_repo):
@@ -240,9 +279,16 @@ async def test_invoice_paid_no_op_if_not_past_due(use_case, subscription_repo):
     assert refreshed.status == SubscriptionStatus.ACTIVE
 
 
-async def test_webhook_event_payload_is_persisted(use_case, subscription_repo, webhook_events_repo):
+async def test_webhook_event_payload_is_persisted(
+    use_case, subscription_repo, webhook_events_repo, gateway
+):
     """Full raw payload should land on the events repo for audit."""
     sub = await _seed_sub(subscription_repo)
+    gateway.subscriptions["sub_1"] = {
+        "id": "sub_1",
+        "status": "active",
+        "items": {"data": [{"price": {"id": "price_pm"}}]},
+    }
 
     event_obj = {"id": "cs_1", "customer": sub.stripe_customer_id, "subscription": "sub_1"}
     event = _event("checkout.session.completed", event_obj, event_id="evt_payload")
@@ -287,23 +333,32 @@ async def test_unknown_event_type_is_ignored(use_case, subscription_repo):
     assert refreshed.status == SubscriptionStatus.ACTIVE
 
 
-async def test_unknown_price_id_keeps_existing_plan(use_case, subscription_repo):
+async def test_unknown_price_id_raises_and_is_not_acked(
+    use_case, subscription_repo, webhook_events_repo
+):
+    """An unrecognised price is a config bug (blank catalog or test/live
+    mismatch). The handler must raise — never silently leave the org on its
+    old plan — and must NOT record the event, so Stripe's retry re-runs it
+    once the price ids are corrected."""
     sub = await _seed_sub(
         subscription_repo, status=SubscriptionStatus.ACTIVE, plan=SubscriptionPlan.PRO
     )
 
-    await use_case.execute(
-        _event(
-            "customer.subscription.updated",
-            {
-                "id": "sub_1",
-                "customer": sub.stripe_customer_id,
-                "status": "active",
-                "items": {"data": [{"price": {"id": "price_unknown"}}]},
-            },
-        )
+    event = _event(
+        "customer.subscription.updated",
+        {
+            "id": "sub_1",
+            "customer": sub.stripe_customer_id,
+            "status": "active",
+            "items": {"data": [{"price": {"id": "price_unknown"}}]},
+        },
+        event_id="evt_unknown_price",
     )
 
+    with pytest.raises(UnknownStripePriceError):
+        await use_case.execute(event)
+
+    # Plan untouched, and the event was NOT acked — Stripe will retry it.
     refreshed = await subscription_repo.get_by_organization_id(sub.organization_id)
-    assert refreshed.plan == SubscriptionPlan.PRO  # unchanged
-    assert refreshed.stripe_price_id == "price_unknown"
+    assert refreshed.plan == SubscriptionPlan.PRO
+    assert not await webhook_events_repo.has_processed(event_id="evt_unknown_price")

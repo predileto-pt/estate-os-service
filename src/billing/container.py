@@ -69,6 +69,7 @@ class Container:
             subscription_repo=subscription_repo,
             webhook_events_repo=stripe_webhook_events_repo,
             price_catalog=price_catalog,
+            billing_gateway=billing_gateway,
         )
 
     @property
